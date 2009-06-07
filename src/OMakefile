@@ -1,0 +1,24 @@
+objs[]=
+	dwarf
+	elf
+	elf32
+	elf64
+	main
+	ptracetarget
+	target
+
+objs[]+=
+	sys/pread
+	sys/ptrace
+	sys/wait
+	sys/reg
+	libdwarf/libdwarf
+
+DFLAGS+= -O
+DFLAGS+= -I$(dir $(ROOT)/gtkD/src)
+
+LIBS[]=
+	$(file $(ROOT)/gtkD/src/libgtkD.a)
+ELIBS[] = dwarf elf
+
+.DEFAULT: $(Program qdebug, $(objs))

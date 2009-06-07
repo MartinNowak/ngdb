@@ -1,0 +1,5 @@
+ROOT= $(dir .)
+
+.SUBDIRS: src gtkD
+
+Program(hello, hello)

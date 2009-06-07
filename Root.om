@@ -1,0 +1,50 @@
+.PHONY:	clean
+
+SPECS = $(file specs)
+DFLAGS= -g
+LDFLAGS= -specs=$(SPECS)
+LIBS[]=
+ELIBS[]=
+
+Objfile(name) =
+	ofile = $(file $(name).o)
+	dfile = $(file $(name).d)
+
+	$(ofile): $(dfile)
+		gdc -c $(DFLAGS) -o $@ $(absname $^)
+
+	return $(ofile)
+
+Objfiles(files) =
+	ofiles =
+
+	foreach (i, $(files))
+		ofiles += $(Objfile $i)
+		export
+
+	clean::
+		rm -f $(ofiles)
+
+	return $(ofiles)
+
+Program(name, files) =
+	$(name): $(Objfiles $(files)) $(LIBS)
+		gdc $(LDFLAGS) -o $@ \
+			$(filter %.o, $^) \
+			$(LIBS) \
+			$(addprefix -l, $(ELIBS))
+
+	clean::
+		rm -f $(name)
+
+	return $(name)
+
+Library(name, files) =
+	libname = lib$(name).a
+	$(libname): $(Objfiles $(files))
+		rm -f $@
+		ar cr $@ $&
+
+	return $(libname)
+
+.SUBDIRS:	.
