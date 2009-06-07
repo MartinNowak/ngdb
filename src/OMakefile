@@ -3,6 +3,7 @@ objs[]=
 	elf
 	elf32
 	elf64
+	elfmodule
 	main
 	ptracetarget
 	target

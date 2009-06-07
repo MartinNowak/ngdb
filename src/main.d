@@ -33,7 +33,7 @@ import gtk.MainWindow;
 import ptracetarget;
 import target;
 import dwarf;
-import elf;
+import elfmodule;
 
 version (DEBUG)
 {

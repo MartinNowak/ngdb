@@ -881,7 +881,6 @@ enum {
 
 }
 
-import target;
 import std.stdio;
 import std.string;
 import std.c.unix.unix;
@@ -1076,67 +1075,4 @@ class ElfFile64: elf.ElfFile
 {
     import elf64;
     mixin ElfFileBase;
-}
-
-class ElfModule: TargetModule
-{
-    this(TargetModule mod)
-    {
-	mod_ = mod;
-
-	int fd = open(toStringz(mod.filename), O_RDONLY);
-	if (fd > 0) {
-	    Ident ei;
-
-	    if (pread(fd, &ei, ei.sizeof, 0) != ei.sizeof
-		|| !IsElf(&ei)) {
-		close(fd);
-		return;
-	    }
-	    writefln("Elf format file %s", mod.filename);
-	    switch (ei.ei_class) {
-	    case ELFCLASS32:
-		elf_ = new ElfFile32(fd);
-		break;
-	    case ELFCLASS64:
-		elf_ = new ElfFile64(fd);
-		break;
-	    default:
-		writefln("Unsupported elf class %d", ei.ei_class);
-	    }
-	}
-    }
-
-    Symbol* lookupSymbol(uintptr_t addr)
-    {
-	if (elf_) {
-	    addr -= elf_.offset;
-	    return elf_.lookupSymbol(addr);
-	} else {
-	    return null;
-	}
-    }
-    Symbol* lookupSymbol(string name)
-    {
-	return elf_.lookupSymbol(name);
-    }
-
-    override {
-	char[] filename()
-	{
-	    return mod_.filename;
-	}
-	uintptr_t start()
-	{
-	    return mod_.start;
-	}
-	uintptr_t end()
-	{
-	    return mod_.end;
-	}
-    }
-
-private:
-    TargetModule mod_;
-    ElfFile elf_;
 }
