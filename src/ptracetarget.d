@@ -79,6 +79,11 @@ class PtraceModule: TargetModule
 	{
 	    return end_;
 	}
+
+	TargetModule findSubModule(uintptr_t)
+	{
+	    return this;
+	}
     }
 
     int opEquals(PtraceModule mod)

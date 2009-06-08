@@ -34,6 +34,7 @@ import std.c.unix.unix;
 import sys.pread;
 
 import elf;
+import dwarf;
 public import elf: Symbol;
 
 class ElfModule: TargetModule
@@ -60,8 +61,11 @@ class ElfModule: TargetModule
 		elf_ = new ElfFile64(fd);
 		break;
 	    default:
-		writefln("Unsupported elf class %d", ei.ei_class);
+		throw new Exception("Unsupported elf class");
 	    }
+
+	    if (DwarfFile.hasDebug(elf_))
+		dwarf_ = new DwarfFile(elf_);
 	}
     }
 
@@ -92,9 +96,17 @@ class ElfModule: TargetModule
 	{
 	    return mod_.end;
 	}
+	TargetModule findSubModule(uintptr_t pc)
+	{
+	    TargetModule cu = dwarf_.findCompileUnit(pc);
+	    if (cu)
+		return cu;
+	    return this;
+	}
     }
 
 private:
     TargetModule mod_;
-    elf.ElfFile elf_;
+    ElfFile elf_;
+    DwarfFile dwarf_;
 }

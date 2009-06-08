@@ -220,6 +220,7 @@ main(char[][] args)
 		    foreach (mod; modules) {
 			if (pc >= mod.start && pc < mod.end) {
 			    writef("%s: ", mod.filename);
+			    mod.findSubModule(pc);
 			    Symbol* s = mod.lookupSymbol(pc);
 			    if (s)
 				writefln("0x%08x (%s+%d)", pc, s.name, pc - s.value);

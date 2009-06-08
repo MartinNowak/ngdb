@@ -896,68 +896,18 @@ struct Symbol
     int		section;
 }
 
-class ElfFile
+interface ElfFile
 {
-    this(Symbol[] symtab, Symbol[] dynsym)
-    {
-	symtab_ = symtab;
-	dynsym_ = dynsym;
-    }
 
-    Symbol* lookupSymbol(uintptr_t addr)
-    {
-	Symbol *sp;
-	sp = _lookupSymbol(addr, symtab_);
-	if (sp)
-	    return sp;
-	sp = _lookupSymbol(addr, dynsym_);
-	if (sp)
-	    return sp;
-	return null;
-    }
+    Symbol* lookupSymbol(uintptr_t addr);
 
-    Symbol* lookupSymbol(string name)
-    {
-	Symbol *sp;
-	sp = _lookupSymbol(name, symtab_);
-	if (sp)
-	    return sp;
-	sp = _lookupSymbol(name, dynsym_);
-	if (sp)
-	    return sp;
-	return null;
-    }
+    Symbol* lookupSymbol(string name);
 
-    uintptr_t offset()
-    {
-	return 0;
-    }
+    uintptr_t offset();
 
-private:
-    Symbol* _lookupSymbol(uintptr_t addr, Symbol[] syms)
-    {
-	for (int i = 0; i < syms.length; i++) {
-	    Symbol* s = &syms[i];
-	    if (s.type != STT_FUNC)
-		continue;
-	    if (addr >= s.value && addr < s.value + s.size)
-		return s;
-	}
-	return null;
-    }
-    Symbol* _lookupSymbol(string name, Symbol[] syms)
-    {
-	for (int i = 0; i < syms.length; i++) {
-	    Symbol* s = &syms[i];
-	    if (s.name == name)
-		return s;
-	}
-	return null;
-    }
+    bool hasSection(string name);
 
-protected:
-    Symbol[] symtab_;
-    Symbol[] dynsym_;
+    char[] readSection(string name);
 }
 
 template ElfFileBase()
@@ -1015,13 +965,72 @@ template ElfFileBase()
 		dynsym = readSymbols(i);
 	}
 
-	super(symtab, dynsym);
+	this(symtab, dynsym);
+    }
+
+    this(Symbol[] symtab, Symbol[] dynsym)
+    {
+	symtab_ = symtab;
+	dynsym_ = dynsym;
+    }
+
+    Symbol* lookupSymbol(uintptr_t addr)
+    {
+	Symbol *sp;
+	sp = _lookupSymbol(addr, symtab_);
+	if (sp)
+	    return sp;
+	sp = _lookupSymbol(addr, dynsym_);
+	if (sp)
+	    return sp;
+	return null;
+    }
+
+    Symbol* lookupSymbol(string name)
+    {
+	Symbol *sp;
+	sp = _lookupSymbol(name, symtab_);
+	if (sp)
+	    return sp;
+
+	sp = _lookupSymbol(name, dynsym_);
+	if (sp)
+	    return sp;
+	return null;
+    }
+
+    uintptr_t offset()
+    {
+	return 0;
+    }
+
+    int lookupSection(string name)
+    {
+	for (int i = 0; i < sections_.length; i++) {
+	    Shdr *sh = &sections_[i];
+	    if (std.string.toString(&shStrings_[sh.sh_name]) == name)
+		return i;
+	}
+	return -1;
+    }
+
+    bool hasSection(string name)
+    {
+	return (lookupSection(name) >= 0);
+    }
+
+    char[] readSection(string name)
+    {
+	int i = lookupSection(name);
+	if (i < 0)
+	    throw new Exception("no such section");
+	return readSection(i);
     }
 
 private:
-    char[] readSection(int i)
+    char[] readSection(int si)
     {
-	Shdr *sh = &sections_[i];
+	Shdr *sh = &sections_[si];
 	char[] s;
 
 	s.length = sh.sh_size;
@@ -1059,10 +1068,34 @@ private:
 	return symbols;
     }
 
+    Symbol* _lookupSymbol(uintptr_t addr, Symbol[] syms)
+    {
+	for (int i = 0; i < syms.length; i++) {
+	    Symbol* s = &syms[i];
+	    if (s.type != STT_FUNC)
+		continue;
+	    if (addr >= s.value && addr < s.value + s.size)
+		return s;
+	}
+	return null;
+    }
+
+    Symbol* _lookupSymbol(string name, Symbol[] syms)
+    {
+	for (int i = 0; i < syms.length; i++) {
+	    Symbol* s = &syms[i];
+	    if (s.name == name)
+		return s;
+	}
+	return null;
+    }
+
     int		fd_;
     Phdr[]	ph_;
     Shdr[]	sections_;
     char[]	shStrings_;
+    Symbol[]	symtab_;
+    Symbol[]	dynsym_;
 }
 
 class ElfFile32: ElfFile
@@ -1071,7 +1104,7 @@ class ElfFile32: ElfFile
     mixin ElfFileBase;
 }
 
-class ElfFile64: elf.ElfFile
+class ElfFile64: ElfFile
 {
     import elf64;
     mixin ElfFileBase;

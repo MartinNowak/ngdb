@@ -45,12 +45,14 @@ interface Thread
 }
 
 /**
- * Describe a mapping of part of the target address space to a file
+ * Describe a mapping of part of the target address space to a
+ * file. Top-level modules represent loaded files. Sub-modules of
+ * top-level modules are individual compilation units within a file.
  */
 interface TargetModule
 {
     /**
-     * Return the filename of the module that occupies this address
+     * Return the object filename of the module that occupies this address
      * range.
      */
     char[] filename();
@@ -65,6 +67,11 @@ interface TargetModule
      * Return the end address for this module
      */
     uintptr_t end();
+
+    /**
+     * Find the sub-module (if any) that contains the given pc.
+     */
+    TargetModule findSubModule(uintptr_t pc);
 }
 
 /**
