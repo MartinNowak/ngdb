@@ -633,6 +633,23 @@ private ulong parseULong(ref char* p)
     return lo | (hi << 32);
 }
 
+private ulong parseOffset(ref char* p, bool is64)
+{
+    if (is64)
+	return parseULong(p);
+    else
+	return parseUInt(p);
+}
+
+private string parseString(ref char* p)
+{
+    string v = std.string.toString(p);
+    while (*p)
+	p++;
+    p++;
+    return v;
+}
+
 private size_t parseInitialLength(ref char* p, ref bool is64)
 {
     uint v = parseUInt(p);
@@ -685,198 +702,6 @@ private long parseLEB128(ref char* p)
     return v;
 }
 
-class AttributeValue
-{
-    this(int f, ref char* p, int addrlen, char[] strtab)
-    {
-	form = f;
-    again:
-	switch (form) {
-	case DW_FORM_ref_addr:
-	case DW_FORM_addr:
-	    if (addrlen == 4)
-		ul = parseUInt(p);
-	    else
-		ul = parseULong(p);
-	    break;
-
-	case DW_FORM_block:
-	    block.length = parseULEB128(p);
-	    goto readBlock;
-
-	case DW_FORM_block1:
-	    block.length = *p++;
-	    goto readBlock;
-
-	case DW_FORM_block2:
-	    block.length = parseUShort(p);
-	readBlock:
-	    block[] = p[0..block.length];
-	    p += block.length;
-	    break;
-
-	case DW_FORM_block4:
-	    block.length = parseUInt(p);
-	    goto readBlock;
-	    
-	case DW_FORM_ref1:
-	case DW_FORM_data1:
-	    ul = *p++;
-	    break;
-
-	case DW_FORM_ref2:
-	case DW_FORM_data2:
-	    ul = parseUShort(p);
-	    break;
-
-	case DW_FORM_ref4:
-	case DW_FORM_data4:
-	    ul = parseUInt(p);
-	    break;
-
-	case DW_FORM_ref8:
-	case DW_FORM_data8:
-	    ul = parseULong(p);
-	    break;
-
-	case DW_FORM_string:
-	    str = p;
-	    while (*p)
-		p++;
-	    p++;
-	    break;
-
-	case DW_FORM_flag:
-	    ul = *p++;
-	    break;
-
-	case DW_FORM_sdata:
-	    l = parseLEB128(p);
-	    break;
-
-	case DW_FORM_strp:
-	    ulong off;
-	    if (addrlen == 4)
-		off = parseUInt(p);
-	    else
-		off = parseULong(p);
-	    str = &strtab[off];
-	    break;
-
-	case DW_FORM_udata:
-	case DW_FORM_ref_udata:
-	    ul = parseULEB128(p);
-	    break;
-
-	case DW_FORM_indirect:
-	    form = parseULEB128(p);
-	    goto again;
-	}
-    }
-
-    void print()
-    {
-
-	switch (form) {
-	case DW_FORM_ref_addr:
-	case DW_FORM_addr:
-	case DW_FORM_ref1:
-	case DW_FORM_data1:
-	case DW_FORM_ref2:
-	case DW_FORM_data2:
-	case DW_FORM_ref4:
-	case DW_FORM_data4:
-	case DW_FORM_ref8:
-	case DW_FORM_data8:
-	case DW_FORM_flag:
-	case DW_FORM_udata:
-	case DW_FORM_ref_udata:
-	    writefln("%d", ul);
-	    break;
-
-	case DW_FORM_block:
-	case DW_FORM_block1:
-	case DW_FORM_block2:
-	case DW_FORM_block4:
-	    writefln("block[%d]", block.length);
-	    break;
-
-	case DW_FORM_string:
-	case DW_FORM_strp:
-	    writefln("%s", std.string.toString(str));
-	    break;
-
-	case DW_FORM_sdata:
-	    writefln("%ld", l);
-	    break;
-
-	default:
-	    writefln("???");
-	}
-    }
-
-    int form;
-    union {
-	ulong ul;
-	long l;
-	const char* str;
-	char[] block;
-    }
-}
-
-class DIE
-{
-    int tag;
-    bool hasChildren;
-    AttributeValue attrs[int];
-    DIE[] children;
-
-    this(ref char* diep, uint abbrevCode, char*[int] abbrevTable,
-	 int addrlen, char[] strtab)
-    {
-	char* abbrevp = abbrevTable[abbrevCode];
-	tag = parseULEB128(abbrevp);
-	hasChildren = *abbrevp++ == DW_CHILDREN_yes;
-
-	for (;;) {
-	    int at = parseULEB128(abbrevp);
-	    int form = parseULEB128(abbrevp);
-	    if (!at)
-		break;
-	    AttributeValue val = new AttributeValue(form, diep,
-						    addrlen, strtab);
-	    attrs[at] = val;
-	}
-	if (hasChildren) {
-	    while ((abbrevCode = parseULEB128(diep)) != 0) {
-		children ~= new DIE(diep, abbrevCode, abbrevTable,
-				    addrlen, strtab);
-	    }
-	}
-    }
-
-    void printIndent(int indent)
-    {
-	for (int i = 0; i < indent; i++)
-	    writef(" ");
-    }
-
-    void print(int indent)
-    {
-	printIndent(indent);
-	writefln("%s", tagNames[tag]);
-	foreach (at, val; attrs) {
-	    printIndent(indent + 1);
-	    writef("%s = ", attrNames[at]);
-	    val.print();
-	}
-	if (hasChildren) {
-	    foreach (kid; children)
-		kid.print(indent + 2);
-	}
-    }
-}
-
 class DwarfFile
 {
     this(ElfFile elf)
@@ -885,69 +710,115 @@ class DwarfFile
 
 	debugInfo_ = elf_.readSection(".debug_info");
 	abbrevTables_ = elf_.readSection(".debug_abbrev");
-
 	if (elf_.hasSection(".debug_str"))
 	    strtab_ = elf_.readSection(".debug_str");
 
-	char* p = &debugInfo_[0], pNext, ep = p + debugInfo_.length;
-	bool is64;
-	size_t len;
+	// Read .debug_pubnames if present
+	if (elf_.hasSection(".debug_pubnames")) {
+	    char[] pubnames = elf_.readSection(".debug_pubnames");
+	    char* p = &pubnames[0], pEnd = p + pubnames.length;
 
-	writefln("reading debug info...");
-	do {
-	    len = parseInitialLength(p, is64);
-	    pNext = p + len;
+	    while (p < pEnd) {
+		bool is64;
+		ulong len = parseInitialLength(p, is64);
+		uint ver = parseUShort(p);
 
-	    if (is64) throw new Exception("64bit dwarf not supported");
-
-	    uint ver = parseUShort(p);
-	    uint abbrevOffset = parseUInt(p);
-	    uint addrlen = *p++;
-
-	    char *abbrevp = &abbrevTables_[abbrevOffset];
-	    char *abbrevTable[int];
-	    for (;;) {
-		ulong code = parseULEB128(abbrevp);
-		if (!code)
-		    break;
-		abbrevTable[code] = abbrevp;
-
-		// Skip entry
-		parseULEB128(abbrevp); // tag
-		abbrevp++;		   // hasChildren
+		NameSet set;
+		set.sectionOffset = parseOffset(p, is64);
+		set.sectionLength = parseOffset(p, is64);
 		for (;;) {
-		    ulong at = parseULEB128(abbrevp);
-		    ulong form = parseULEB128(abbrevp);
-		    if (!at)
+		    ulong off = parseOffset(p, is64);
+		    if (!off)
 			break;
+		    string name = parseString(p);
+		    set.names[name] = off;
+		    //writefln("%s = %d (cu %d)", name, off, set.sectionOffset);
 		}
+
 	    }
+	}
 
-	    while (p < pNext) {
-		ulong abbrevCode = parseULEB128(p);
-		if (abbrevCode == 0)
-		    continue;
+	// Read .debug_pubtypes if present
+	if (elf_.hasSection(".debug_pubtypes")) {
+	    char[] pubtypes = elf_.readSection(".debug_pubtypes");
+	    char* p = &pubtypes[0], pEnd = p + pubtypes.length;
 
-		DIE die = new DIE(p, abbrevCode,
-				  abbrevTable, addrlen, strtab_);
-		//die.print(0);
-		dies_ ~= die;
+	    while (p < pEnd) {
+		bool is64;
+		ulong len = parseInitialLength(p, is64);
+		uint ver = parseUShort(p);
+
+		NameSet set;
+		set.sectionOffset = parseOffset(p, is64);
+		set.sectionLength = parseOffset(p, is64);
+		for (;;) {
+		    ulong off = parseOffset(p, is64);
+		    if (!off)
+			break;
+		    string name = parseString(p);
+		    set.names[name] = off;
+		    writefln("%s = %d (cu %d)", name, off, set.sectionOffset);
+		}
+
 	    }
+	}
 
-	    p = pNext;
-	} while (p < ep);
-	writefln("reading debug info...done");
+	// Read .debug_aranges if present
+	if (elf_.hasSection(".debug_aranges")) {
+	    char[] aranges = elf_.readSection(".debug_aranges");
+	    char* p = &aranges[0], pEnd = p + aranges.length;
+
+	    while (p < pEnd) {
+		bool is64;
+		ulong len = parseInitialLength(p, is64);
+		uint ver = parseUShort(p);
+
+		CompilationUnit cu = new CompilationUnit(this);
+		cu.offset = parseOffset(p, is64);
+		cu.addressSize = *p++;
+		cu.segmentSize = *p++;
+
+		// Undocumented: need to align to next multiple of
+		// 2 * address size
+		ulong a = is64 ? 16 : 8;
+		if ((p - &aranges[0]) % a) {
+		    p += a - ((p - &aranges[0]) % a);
+		}
+
+		ulong start, length;
+		for (;;) {
+		    start = parseOffset(p, is64);
+		    length = parseOffset(p, is64);
+		    if (start == 0 && length == 0)
+			break;
+		    cu.addresses ~= AddressRange(start, start + length);
+		}
+		compilationUnits_[cu.offset] = cu;
+	    }
+	} else {
+	    // If there is no .debug_aranges section, just read all
+	    // the .debug_info section now.
+	    char* p = &debugInfo_[0], pNext, ep = p + debugInfo_.length;
+	    bool is64;
+	    size_t len;
+
+	    do {
+		CompilationUnit cu = new CompilationUnit(this);
+		cu.offset = p - &debugInfo_[0];
+		parseCompilationUnit(cu, p);
+		compilationUnits_[cu.offset] = cu;
+	    } while (p < ep);
+	}
     }
 
     TargetModule findCompileUnit(ulong pc)
     {
-	foreach (die; dies_) {
-	    if (die.tag == DW_TAG_compile_unit) {
-		if (pc >= die.attrs[DW_AT_low_pc].ul
-		    && pc < die.attrs[DW_AT_high_pc].ul) {
-		    writefln("found CU %s", die.attrs[DW_AT_name].str);
-		    return null;
-		}
+	foreach (cu; compilationUnits_) {
+	    if (cu.contains(pc)) {
+		cu.loadDIE;
+		writefln("found CU %s",
+			 std.string.toString(cu.die.attrs[DW_AT_name].str));
+		return null;
 	    }
 	}
 
@@ -963,9 +834,303 @@ class DwarfFile
     }
 
 private:
+    void parseCompilationUnit(CompilationUnit cu, ref char* p)
+    {
+	bool is64;
+	size_t len;
+	char *pNext;
+
+	len = parseInitialLength(p, is64);
+	pNext = p + len;
+
+	uint ver = parseUShort(p);
+	uint abbrevOffset = parseOffset(p, is64);
+	uint addrlen = *p++;
+
+	char *abbrevp = &abbrevTables_[abbrevOffset];
+	char *abbrevTable[int];
+	for (;;) {
+	    ulong code = parseULEB128(abbrevp);
+	    if (!code)
+		break;
+	    abbrevTable[code] = abbrevp;
+
+	    // Skip entry
+	    parseULEB128(abbrevp); // tag
+	    abbrevp++;		   // hasChildren
+	    for (;;) {
+		ulong at = parseULEB128(abbrevp);
+		ulong form = parseULEB128(abbrevp);
+		if (!at)
+		    break;
+	    }
+	}
+
+	ulong abbrevCode = parseULEB128(p);
+	if (abbrevCode == 0)
+	    return;
+
+	cu.die =  new DIE(p, abbrevCode,
+			  abbrevTable, addrlen, strtab_);
+    }
+
+    struct NameSet
+    {
+	ulong sectionOffset;
+	ulong sectionLength;
+	ulong names[string];
+    }
+
+    class AttributeValue
+    {
+	this(int f, ref char* p, int addrlen, char[] strtab)
+	{
+	    form = f;
+	again:
+	    switch (form) {
+	    case DW_FORM_ref_addr:
+	    case DW_FORM_addr:
+		if (addrlen == 4)
+		    ul = parseUInt(p);
+		else
+		    ul = parseULong(p);
+		break;
+
+	    case DW_FORM_block:
+		block.length = parseULEB128(p);
+		goto readBlock;
+
+	    case DW_FORM_block1:
+		block.length = *p++;
+		goto readBlock;
+
+	    case DW_FORM_block2:
+		block.length = parseUShort(p);
+	    readBlock:
+		block[] = p[0..block.length];
+		p += block.length;
+		break;
+
+	    case DW_FORM_block4:
+		block.length = parseUInt(p);
+		goto readBlock;
+	    
+	    case DW_FORM_ref1:
+	    case DW_FORM_data1:
+		ul = *p++;
+		break;
+
+	    case DW_FORM_ref2:
+	    case DW_FORM_data2:
+		ul = parseUShort(p);
+		break;
+
+	    case DW_FORM_ref4:
+	    case DW_FORM_data4:
+		ul = parseUInt(p);
+		break;
+
+	    case DW_FORM_ref8:
+	    case DW_FORM_data8:
+		ul = parseULong(p);
+		break;
+
+	    case DW_FORM_string:
+		str = p;
+		while (*p)
+		    p++;
+		p++;
+		break;
+
+	    case DW_FORM_flag:
+		ul = *p++;
+		break;
+
+	    case DW_FORM_sdata:
+		l = parseLEB128(p);
+		break;
+
+	    case DW_FORM_strp:
+		ulong off;
+		if (addrlen == 4)
+		    off = parseUInt(p);
+		else
+		    off = parseULong(p);
+		str = &strtab[off];
+		break;
+
+	    case DW_FORM_udata:
+	    case DW_FORM_ref_udata:
+		ul = parseULEB128(p);
+		break;
+
+	    case DW_FORM_indirect:
+		form = parseULEB128(p);
+		goto again;
+	    }
+	}
+
+	void print()
+	{
+
+	    switch (form) {
+	    case DW_FORM_ref_addr:
+	    case DW_FORM_addr:
+	    case DW_FORM_ref1:
+	    case DW_FORM_data1:
+	    case DW_FORM_ref2:
+	    case DW_FORM_data2:
+	    case DW_FORM_ref4:
+	    case DW_FORM_data4:
+	    case DW_FORM_ref8:
+	    case DW_FORM_data8:
+	    case DW_FORM_flag:
+	    case DW_FORM_udata:
+	    case DW_FORM_ref_udata:
+		writefln("%d", ul);
+		break;
+
+	    case DW_FORM_block:
+	    case DW_FORM_block1:
+	    case DW_FORM_block2:
+	    case DW_FORM_block4:
+		writefln("block[%d]", block.length);
+		break;
+
+	    case DW_FORM_string:
+	    case DW_FORM_strp:
+		writefln("%s", std.string.toString(str));
+		break;
+
+	    case DW_FORM_sdata:
+		writefln("%ld", l);
+		break;
+
+	    default:
+		writefln("???");
+	    }
+	}
+
+	int form;
+	union {
+	    ulong ul;
+	    long l;
+	    const char* str;
+	    char[] block;
+	}
+    }
+
+    class DIE
+    {
+	int tag;
+	bool hasChildren;
+	AttributeValue attrs[int];
+	DIE[] children;
+
+	this(ref char* diep, uint abbrevCode, char*[int] abbrevTable,
+	     int addrlen, char[] strtab)
+	{
+	    char* abbrevp = abbrevTable[abbrevCode];
+	    tag = parseULEB128(abbrevp);
+	    hasChildren = *abbrevp++ == DW_CHILDREN_yes;
+
+	    for (;;) {
+		int at = parseULEB128(abbrevp);
+		int form = parseULEB128(abbrevp);
+		if (!at)
+		    break;
+		AttributeValue val = new AttributeValue(form, diep,
+							addrlen, strtab);
+		attrs[at] = val;
+	    }
+	    if (hasChildren) {
+		while ((abbrevCode = parseULEB128(diep)) != 0) {
+		    children ~= new DIE(diep, abbrevCode, abbrevTable,
+					addrlen, strtab);
+		}
+	    }
+	}
+
+	void printIndent(int indent)
+	{
+	    for (int i = 0; i < indent; i++)
+		writef(" ");
+	}
+
+	void print(int indent)
+	{
+	    printIndent(indent);
+	    writefln("%s", tagNames[tag]);
+	    foreach (at, val; attrs) {
+		printIndent(indent + 1);
+		writef("%s = ", attrNames[at]);
+		val.print();
+	    }
+	    if (hasChildren) {
+		foreach (kid; children)
+		    kid.print(indent + 2);
+	    }
+	}
+    }
+
+    struct AddressRange
+    {
+	bool contains(ulong pc)
+	{
+	    return pc >= start && pc < end;
+	}
+
+	ulong start;
+	ulong end;
+    }
+
+    class CompilationUnit
+    {
+	this(DwarfFile df)
+	{
+	    parent = df;
+	}
+
+	bool contains(ulong pc)
+	{
+	    if (addresses.length) {
+		for (int i = 0; i < addresses.length; i++)
+		    if (addresses[i].contains(pc))
+			return true;
+	    } else {
+		// Load the DIE if necessary and check its attributes
+		loadDIE();
+		if (die.attrs[DW_AT_low_pc]
+		    && die.attrs[DW_AT_high_pc]) {
+		    return pc >= die.attrs[DW_AT_low_pc].ul
+			&& pc < die.attrs[DW_AT_high_pc].ul;
+		}
+	    }
+	    return false;
+	}
+
+	void loadDIE()
+	{
+	    if (!die) {
+		char* p = &debugInfo_[offset];
+		parent.parseCompilationUnit(this, p);
+		if (!die)
+		    throw new Exception(
+			"Can't load DIE for compilation unit");
+	    }
+	}
+
+	DwarfFile parent;
+	ulong offset;		// Offset in .debug_info
+	uint addressSize;	// size in bytes of an address
+	uint segmentSize;	// size in bytes of a segment
+	AddressRange[] addresses; // set of address ranges for this CU
+	DIE die;		// top-level DIE for this CU
+    }
+
     ElfFile elf_;
-    DIE[] dies_;
     char[] debugInfo_;
     char[] abbrevTables_;
     char[] strtab_;
+    CompilationUnit[ulong] compilationUnits_;
 }
