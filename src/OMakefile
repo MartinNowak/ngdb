@@ -13,7 +13,6 @@ objs[]+=
 	sys/ptrace
 	sys/wait
 	sys/reg
-	libdwarf/libdwarf
 
 DFLAGS+= -O
 DFLAGS+= -I$(dir $(ROOT)/gtkD/src)
