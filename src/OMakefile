@@ -12,6 +12,8 @@ objs[]=
 	main
 	ptracetarget
 	target
+	types
+	values
 
 objs[]+=
 	sys/pread
