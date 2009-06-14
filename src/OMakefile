@@ -7,6 +7,8 @@ objs[]=
 	elf32
 	elf64
 	elfmodule
+	machine/machine
+	machine/x86
 	main
 	ptracetarget
 	target

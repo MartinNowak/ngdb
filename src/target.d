@@ -26,6 +26,7 @@
 
 module target;
 import debuginfo;
+import machine.machine;
 
 /**
  * This interface is used to allow a target to notify a user of
@@ -74,6 +75,11 @@ interface TargetThread
      * Return the thread's current program counter.
      */
     ulong pc();
+
+    /**
+     * Return the machine state for this thread
+     */
+    MachineState state();
 }
 
 struct TargetSymbol

@@ -31,6 +31,7 @@ import target;
 import ptracetarget;
 import elfmodule;
 import debuginfo;
+import machine.machine;
 
 import std.conv;
 import std.string;
@@ -610,6 +611,32 @@ class StepCommand: Command
     }
 }
 
+class ContinueCommand: Command
+{
+    static this()
+    {
+	Debugger.registerCommand(new ContinueCommand);
+    }
+
+    override {
+	string name()
+	{
+	    return "continue";
+	}
+
+	string description()
+	{
+	    return "continue the program being debugged";
+	}
+
+	void run(Debugger db, string[] args)
+	{
+	    db.target_.cont();
+	    db.target_.wait();
+	}
+    }
+}
+
 class BreakCommand: Command
 {
     static this()
@@ -696,6 +723,68 @@ class InfoThreadCommand: Command
 	{
 	    foreach (i, t; db.threads_) {
 		writefln("%d: stopped at 0x%08x", i + 1, t.pc);
+	    }
+	}
+    }
+}
+
+class InfoRegistersCommand: Command
+{
+    static this()
+    {
+	Debugger.registerInfoCommand(new InfoRegistersCommand);
+    }
+
+    override {
+	string name()
+	{
+	    return "registers";
+	}
+
+	string description()
+	{
+	    return "List registerss";
+	}
+
+	void run(Debugger db, string[] args)
+	{
+	    foreach (i, t; db.threads_) {
+		writefln("%d: stopped at 0x%08x", i + 1, t.pc);
+		t.state.dumpState;
+	    }
+	}
+    }
+}
+
+class WhereCommand: Command
+{
+    static this()
+    {
+	Debugger.registerCommand(new WhereCommand);
+    }
+
+    override {
+	string name()
+	{
+	    return "where";
+	}
+
+	string description()
+	{
+	    return "Stack backtrace";
+	}
+
+	void run(Debugger db, string[] args)
+	{
+	    TargetThread t = db.threads_[0];
+	    MachineState s = t.state;
+	    int i = 0;
+
+	    while (s) {
+		writefln("%d: %s", i + 1,
+			 db.describeAddress(s.getGR(s.pcregno)));
+		s = s.unwind(db.target_);
+		i++;
 	    }
 	}
     }

@@ -30,6 +30,10 @@ module ptracetarget;
 
 import target;
 import debuginfo;
+import machine.machine;
+import machine.x86;
+
+import std.stdint;
 import std.stdio;
 import std.string;
 import std.c.stdlib;
@@ -172,6 +176,7 @@ class PtraceThread: TargetThread
     {
 	target_ = target;
 	lwpid_ = lwpid;
+	state_ = new StateIA32;
     }
     override
     {
@@ -181,12 +186,17 @@ class PtraceThread: TargetThread
 	}
 	ulong pc()
 	{
-	    return regs_.r_eip;
+	    return state_.getGR(pcRegno_);
+	}
+	MachineState state()
+	{
+	    return state_;
 	}
     }
 
     void pc(ulong addr)
     {
+	state_.setGR(pcRegno_, addr);
 	regs_.r_eip = addr;
 	target_.ptrace(PT_SETREGS, lwpid_, cast(char*) &regs_, 0);
     }
@@ -194,7 +204,11 @@ class PtraceThread: TargetThread
 private:
     void readState()
     {
-	target_.ptrace(PT_GETREGS, lwpid_, cast(char*) &regs_, 0);
+	char* p = cast(char*) &regs_;
+	target_.ptrace(PT_GETREGS, lwpid_, p, 0);
+	foreach (map; regmap_) {
+	    state_.setGR(map.gregno, *cast(uint32_t*) (p + map.regoff));
+	}
     }
     void dumpState()
     {
@@ -210,8 +224,33 @@ private:
 		 regs_.r_esp, regs_.r_ss, regs_.r_gs);
     }
 
+    static int pcRegno_ = RegIA32.EIP;
+    struct regmap {
+	int gregno;		// machine gregno
+	size_t regoff;		// offset struct reg
+    }
+    static regmap[] regmap_ = [
+	{ RegIA32.EAX, reg.r_eax.offsetof },
+	{ RegIA32.ECX, reg.r_ecx.offsetof },
+	{ RegIA32.EDX, reg.r_edx.offsetof },
+	{ RegIA32.EBX, reg.r_ebx.offsetof },
+	{ RegIA32.ESP, reg.r_esp.offsetof },
+	{ RegIA32.EBP, reg.r_ebp.offsetof },
+	{ RegIA32.ESI, reg.r_esi.offsetof },
+	{ RegIA32.EDI, reg.r_edi.offsetof },
+	{ RegIA32.EIP, reg.r_eip.offsetof },
+	{ RegIA32.EFLAGS, reg.r_eflags.offsetof },
+	{ RegIA32.CS, reg.r_cs.offsetof },
+	{ RegIA32.SS, reg.r_ss.offsetof },
+	{ RegIA32.DS, reg.r_ds.offsetof },
+	{ RegIA32.ES, reg.r_es.offsetof },
+	{ RegIA32.FS, reg.r_fs.offsetof },
+	{ RegIA32.GS, reg.r_gs.offsetof },
+	];
+
     PtraceTarget target_;
     lwpid_t lwpid_;
+    MachineState state_;
     reg regs_;
 }
 
