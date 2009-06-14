@@ -24,72 +24,86 @@
  * SUCH DAMAGE.
  */
 
-module types;
+module values;
+import types;
+import target;
+import machine.machine;
 
-import std.string;
-
-interface Type
+interface Location
 {
-	abstract char[] name();
+    ubyte[] read();
+    void write(ubyte[]);
 }
 
-class IntegerType: Type
+class MemoryLocation: Location
 {
-	this(bool isSigned, uint bitWidth)
+    this(Target target, ulong address, size_t size)
+    {
+    }
+
+    override {
+	ubyte[] read()
 	{
-		isSigned_ = isSigned;
-		bitWidth_ = bitWidth;
+	    return target_.readMemory(address_, size_);
 	}
 
-	bool isSigned()
+	void write(ubyte[] val)
 	{
-		return isSigned_;
+	    if (val.length != size_)
+		throw new Exception("bad size for MemoryLocation.write");
+	    target_.writeMemory(address_, val);
 	}
-
-	uint bitWidth()
-	{
-		return bitWidth_;
-	}
-
-	override
-	{
-		char[] name()
-		{
-			char[] result;
-			if (isSigned())
-				result = "uint";
-			else
-				result = "int";
-			result ~= std.string.toString(bitWidth());
-			return result;
-		}
-	}
+    }
 
 private:
-	bool isSigned_;
-	int bitWidth_;
+    Target target_;
+    ulong address_;
+    size_t size_;
 }
 
-class PointerType: Type
+class RegisterLocation: Location
 {
-	this(Type baseType)
+    this(MachineState state, int regno)
+    {
+	state_ = state;
+	regno_ = regno;
+    }
+
+    override {
+	ubyte[] read()
 	{
-		baseType_ = baseType;
+	    ub val;
+	    ubyte[] res;
+
+	    val.reg = state_.getGR(regno_);
+	    res[] = val.bytes[0..state_.grWidth(regno_) / 8];
+	    return res;
 	}
 
-	Type baseType()
+	void write(ubyte[] v)
 	{
-		return baseType_;
-	}
+	    ub val;
 
-	override
-	{
-		char[] name()
-		{
-			return baseType().name() ~ "*";
-		}
+	    val.reg = 0;
+	    val.bytes[0..v.length] = v[];
+	    state_.setGR(regno_, val.reg);
 	}
+    }
 
 private:
-	Type baseType_;
+    union ub {
+	ulong reg;
+	ubyte[ulong.sizeof] bytes;
+    }
+
+    MachineState state_;
+    int regno_;
+}
+
+class Value
+{
+
+private:
+    Location loc_;
+    Type type_;
 }
