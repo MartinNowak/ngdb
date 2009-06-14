@@ -1,8 +1,17 @@
 .PHONY:	clean
 
 SPECS = $(file specs)
-DFLAGS= -g
-LDFLAGS= -specs=$(SPECS)
+#DMDBASE=/home/dfr/dmd
+#DMD=$(DMDBASE)/freebsd/bin/dmd
+#DFLAGS= -g -I$(DMDBASE)/src/phobos
+#LDFLAGS= #-specs=$(SPECS)
+#LDFLAGS= -g -L-L$(DMDBASE)/freebsd/lib
+
+DMD=gdmd
+DFLAGS= -g -version=GDC
+LDFLAGS= -L-specs=$(SPECS)
+LDFLAGS= -g 
+
 LIBS[]=
 ELIBS[]=
 
@@ -11,7 +20,7 @@ Objfile(name) =
 	dfile = $(file $(name).d)
 
 	$(ofile): $(dfile)
-		gdc -c $(DFLAGS) -o $@ $(absname $^)
+		$(DMD) -c $(DFLAGS) -of$@ $(absname $^)
 
 	return $(ofile)
 
@@ -29,10 +38,10 @@ Objfiles(files) =
 
 Program(name, files) =
 	$(name): $(Objfiles $(files)) $(LIBS)
-		gdc $(LDFLAGS) -o $@ \
+		$(DMD) $(LDFLAGS) -of$@ \
 			$(filter %.o, $^) \
 			$(LIBS) \
-			$(addprefix -l, $(ELIBS))
+			$(addprefix -L-l, $(ELIBS))
 
 	clean::
 		rm -f $(name)

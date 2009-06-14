@@ -24,8 +24,7 @@ objs[]+=
 DFLAGS+= -O
 DFLAGS+= -I$(dir $(ROOT)/gtkD/src)
 
-LIBS[]=
-	$(file $(ROOT)/gtkD/src/libgtkD.a)
-ELIBS[] = dwarf elf edit
+LIBS[]= # $(file $(ROOT)/gtkD/src/libgtkD.a)
+ELIBS[] = edit
 
 .DEFAULT: $(Program qdebug, $(objs))

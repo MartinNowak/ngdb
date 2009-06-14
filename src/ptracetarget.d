@@ -37,7 +37,10 @@ import std.stdint;
 import std.stdio;
 import std.string;
 import std.c.stdlib;
+version (GDC)
 import std.c.unix.unix;
+else
+import std.c.freebsd.freebsd;
 
 static import std.file;
 

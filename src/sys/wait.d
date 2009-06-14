@@ -30,7 +30,10 @@
  * $FreeBSD: src/sys/sys/wait.h,v 1.22 2005/11/10 05:00:20 davidxu Exp $
  */
 
+version (GDC)
 import std.c.unix.unix;
+else
+import std.c.freebsd.freebsd;
 
 /*
  * This file holds definitions relevant to the wait4 system call and the

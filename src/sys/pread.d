@@ -24,6 +24,9 @@
  * SUCH DAMAGE.
  */
 
+version (GDC)
 import std.c.unix.unix;
+else
+import std.c.freebsd.freebsd;
 
 extern(C) ssize_t pread(int, void *, size_t, off_t);

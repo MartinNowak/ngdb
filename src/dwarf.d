@@ -29,7 +29,7 @@
 import elf;
 import std.string;
 import std.stdio;
-import std.c.unix.unix;
+//import std.c.unix.unix;
 
 import target;
 import debuginfo;
@@ -1480,7 +1480,7 @@ private:
 			return true;
 	    } else {
 		// Load the DIE if necessary and check its attributes
-		assert(die == null);
+		assert(die is null);
 		loadDIE();
 		if (die.attrs[DW_AT_low_pc]
 		    && die.attrs[DW_AT_high_pc]) {

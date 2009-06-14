@@ -26,9 +26,6 @@
 
 import std.stdio;
 
-import gtk.GtkD;
-import gtk.MainWindow;
-
 import ptracetarget;
 import target;
 import dwarf;
@@ -38,110 +35,6 @@ import cli;
 version (DEBUG)
 {
 	int debugLevel = 0;
-}
-
-version (GUI)
-{
-    class Debugger: MainWindow, TargetListener
-    {
-	import gtk.AccelGroup;
-	import gtk.HBox;
-	import gtk.HPaned;
-	import gtk.Menu;
-	import gtk.MenuBar;
-	import gtk.MenuItem;
-	import gtk.TextView;
-	import gtk.Toolbar;
-	import gtk.TreeView;
-	import gtk.VBox;
-	import gtk.VPaned;
-	import gtk.Widget;
-	import gtkc.gtktypes;
-
-	this()
-	{
-	    super("Debugger");
-	    version (GUI)
-	    {
-		createInterface();
-		showAll();
-	    }
-	}
-
-	void createInterface()
-	{
-	    setDefaultSize(1024, 768);
-
-	    VBox vbox = new VBox(false, 0);
-	    add(vbox);
-	    vbox.packStart(createMenus(), false, false, 0);
-	    vbox.packStart(createToolbar(), false, false, 0);
-
-	    HPaned hpaned = new HPaned();
-	    hpaned.setPosition(300);
-	    vbox.packStart(hpaned, true, true, 0);
-
-	    VPaned vpaned = new VPaned();
-	    vpaned.setPosition(350);
-	    hpaned.pack1(vpaned, false, false);
-	    hpaned.pack2(createSourceView(), true, true);
-	    vpaned.add(new TreeView, new TreeView);
-	}
-
-	Widget createMenus()
-	{
-	    AccelGroup accel = new AccelGroup;
-	    MenuBar menubar = new MenuBar;
-
-	    Menu fileMenu = menubar.append("_FILE");
-	    fileMenu.append(new MenuItem(&onMenuActivate, "_New", "file.new",
-					 true, accel, 'n'));
-	    fileMenu.append(new MenuItem(&onMenuActivate, "_Open", "file.open",
-					 true, accel, 'n'));
-	    fileMenu.append(new MenuItem(&onMenuActivate, "_Close", "file.close",
-					 true, accel, 'n'));
-
-	    return menubar;
-	}
-
-	Widget createToolbar()
-	{
-	    Toolbar toolbar = new Toolbar;
-
-	    toolbar.insertStock(StockID.GO_FORWARD, "fruit", "fruit", 0);
-
-	    return toolbar;
-	}
-
-	Widget createSourceView()
-	{
-	    TextView text = new TextView;
-
-	    text.appendText("Source view");
-
-	    return text;
-	}
-
-	// GTK callbacks
-	void onMenuActivate(MenuItem item)
-	{
-	}
-
-	override
-	{
-	    // TargetListener
-	    void onThreadCreate(Target target, Thread thread)
-	    {
-	    }
-	    void onThreadDestroy(Target target, Thread thread)
-	    {
-	    }
-	    void onModuleAdd(Target, TargetModule)
-	    {
-	    }
-	}
-    }
-} else {
 }
 
 int

@@ -29,7 +29,10 @@ module elfmodule;
 import target;
 import std.stdio;
 import std.string;
+version (GDC)
 import std.c.unix.unix;
+else
+import std.c.freebsd.freebsd;
 import sys.pread;
 
 import elf;
