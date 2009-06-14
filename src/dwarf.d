@@ -928,7 +928,7 @@ class DwarfFile: public DebugInfo
 		    if (die.tag == DW_TAG_subprogram) {
 			LineEntry[] le;
 			if (findLineByAddress(die.attrs[DW_AT_low_pc].ul, le))
-			    res ~= le[0];
+			    res ~= le[1];
 		    }
 		} catch {
 		    continue;
