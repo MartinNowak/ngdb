@@ -181,11 +181,15 @@ class StateIA32: MachineState
 	     * frames and only unwind EBP and EIP.
 	     */
 	    uint32_t ebp = gregs_[RegIA32.EBP];
+	    uint32_t eip = gregs_[RegIA32.EIP];
 	    uint32_t newebp, neweip;
 	    ubyte[] t = target.readMemory(ebp, 2*uint32_t.sizeof);
 	    newebp = readle32(&t[0]);
 	    neweip = readle32(&t[newebp.sizeof]);
 	    
+	    version (DEBUG_UNWIND)
+		writefln("{%x,%x} -> {%x,%x}", ebp, eip, newebp, neweip);
+
 	    if (newebp <= ebp)
 		return null;
 
