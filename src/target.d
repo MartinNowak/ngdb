@@ -25,13 +25,45 @@
  */
 
 module target;
-import std.stdint;
+import debuginfo;
+
+/**
+ * This interface is used to allow a target to notify a user of
+ * changes in the target state.
+ */
+interface TargetListener
+{
+    /**
+     * Called when a new target is started or attached.
+     */
+    void onTargetStarted(Target);
+
+    /**
+     * Called when a new thread is created in the target.
+     */
+    void onThreadCreate(Target, TargetThread);
+
+    /**
+     * Called when a thread is destroyed.
+     */
+    void onThreadDestroy(Target, TargetThread);
+
+    /**
+     * Called when a new module is mapped in the target.
+     */
+    void onModuleAdd(Target, TargetModule);
+
+    /**
+     * Called when a thread hits a breakpoint.
+     */
+    void onBreakpoint(Target, TargetThread, Breakpoint);
+}
 
 /**
  * This interface is used to manipulate a single thread (program counter and
  * register set) within a target.
  */
-interface Thread
+interface TargetThread
 {
     /**
      * Return the target that contains this thread.
@@ -41,7 +73,14 @@ interface Thread
     /**
      * Return the thread's current program counter.
      */
-    uintptr_t pc();
+    ulong pc();
+}
+
+struct TargetSymbol
+{
+    string name;
+    ulong value;
+    ulong size;
 }
 
 /**
@@ -61,17 +100,22 @@ interface TargetModule
      * Return the start address in the target address space for this
      * module.
      */
-    uintptr_t start();
+    ulong start();
 
     /**
      * Return the end address for this module
      */
-    uintptr_t end();
+    ulong end();
 
     /**
-     * Find the sub-module (if any) that contains the given pc.
+     * Find debug information for thie module, if any.
      */
-    TargetModule findSubModule(uintptr_t pc);
+    DebugInfo debugInfo();
+
+    /**
+     * Lookup a low-level symbol in thie module.
+     */
+    bool lookupSymbol(ulong addr, out TargetSymbol);
 }
 
 /**
@@ -83,28 +127,6 @@ enum TargetState {
 }
 
 /**
- * This interface is used to allow a target to notify a user of
- * changes in the target state.
- */
-interface TargetListener
-{
-    /**
-     * Called when a new thread is created in the target.
-     */
-    void onThreadCreate(Target, Thread);
-
-    /**
-     * Called when a thread is destroyed.
-     */
-    void onThreadDestroy(Target, Thread);
-
-    /**
-     * Called when a new module is mapped in the target.
-     */
-    void onModuleAdd(Target, TargetModule);
-}
-
-/**
  * A breakpoint in a target
  */
 interface Breakpoint
@@ -112,7 +134,22 @@ interface Breakpoint
     /**
      * Set enabled/disabled state
      */
-    void setEnabled(bool);
+    void enabled(bool);
+
+    /**
+     * Get enabled/disabled state
+     */
+    bool enabled();
+
+    /**
+     * Remove a breakpoint
+     */
+    void clear();
+
+    /**
+     * Return the machine address of the breakpoint
+     */
+    ulong address();
 }
 
 
@@ -129,12 +166,12 @@ interface Target
     /**
      * Return the thread which caused the target to stop.
      */
-    Thread focusThread();
+    TargetThread focusThread();
 
     /**
      * Return a set of all the threads in the target.
      */
-    Thread[] threads();
+    TargetThread[] threads();
 
     /**
      * Return a set of all the modules in the target.
@@ -144,18 +181,18 @@ interface Target
     /**
      * Read from the target's memory.
      */
-    ubyte[] readMemory(uintptr_t targetAddress, size_t bytes);
+    ubyte[] readMemory(ulong targetAddress, size_t bytes);
 
     /**
      * Write to the target's memory.
      */
-    void writeMemory(uintptr_t targetAddress, ubyte[] toWrite);
+    void writeMemory(ulong targetAddress, ubyte[] toWrite);
 
     /**
      * Step the target by one instruction. After this method returns,
      * the target will be stopped again.
      */
-    void step();
+    void step(TargetThread t);
 
     /**
      * Allow a target in state STOPPED to continue. The target's state
@@ -173,12 +210,14 @@ interface Target
      * Set a breakpoint at the given address. Return an object that
      * represents the breakpoint and which can be used to cancel it.
      */
-    Breakpoint setBreakpoint(uintptr_t addr);
+    Breakpoint setBreakpoint(ulong addr);
 
     /**
-     * Remove a breakpoint
+     * Set a breakpoint at address associated with the given
+     * expression (if any). Return an object that represents the
+     * breakpoint and which can be used to cancel it.
      */
-    void clearBreakpoint(Breakpoint bp);
+    Breakpoint setBreakpoint(string expr);
 }
 
 /**

@@ -50,7 +50,6 @@
  */
 
 module elf;
-
 import std.stdint;
 
 struct Note {

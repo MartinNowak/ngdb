@@ -27,7 +27,6 @@
 module elfmodule;
 
 import target;
-import std.stdint;
 import std.stdio;
 import std.string;
 import std.c.unix.unix;
@@ -35,6 +34,7 @@ import sys.pread;
 
 import elf;
 import dwarf;
+import debuginfo;
 public import elf: Symbol;
 
 class ElfModule: TargetModule
@@ -69,18 +69,26 @@ class ElfModule: TargetModule
 	}
     }
 
-    Symbol* lookupSymbol(uintptr_t addr)
-    {
-	if (elf_) {
-	    addr -= elf_.offset;
-	    return elf_.lookupSymbol(addr);
-	} else {
-	    return null;
-	}
-    }
     Symbol* lookupSymbol(string name)
     {
 	return elf_.lookupSymbol(name);
+    }
+
+    static bool isElf(string filename)
+    {
+	int fd = open(toStringz(filename), O_RDONLY);
+	if (fd > 0) {
+	    Ident ei;
+
+	    if (pread(fd, &ei, ei.sizeof, 0) != ei.sizeof
+		|| !IsElf(&ei)) {
+		close(fd);
+		return false;
+	    }
+	    close(fd);
+	    return true;
+	}
+	return false;
     }
 
     override {
@@ -88,20 +96,30 @@ class ElfModule: TargetModule
 	{
 	    return mod_.filename;
 	}
-	uintptr_t start()
+	ulong start()
 	{
 	    return mod_.start;
 	}
-	uintptr_t end()
+	ulong end()
 	{
 	    return mod_.end;
 	}
-	TargetModule findSubModule(uintptr_t pc)
+	DebugInfo debugInfo()
 	{
-	    TargetModule cu = dwarf_.findCompileUnit(pc);
-	    if (cu)
-		return cu;
-	    return this;
+	    return dwarf_;
+	}
+	bool lookupSymbol(ulong addr, out TargetSymbol ts)
+	{
+	    if (elf_) {
+		addr -= elf_.offset;
+		Symbol* s = elf_.lookupSymbol(addr);
+		if (s) {
+		    ts = TargetSymbol(s.name, s.value, s.size);
+		    return true;
+		}
+	    } else {
+		return false;
+	    }
 	}
     }
 

@@ -24,10 +24,12 @@
  * SUCH DAMAGE.
  */
 
+//version = DEBUG_PTRACE;
+
 module ptracetarget;
 
 import target;
-import std.stdint;
+import debuginfo;
 import std.stdio;
 import std.string;
 import std.c.stdlib;
@@ -57,7 +59,7 @@ class PtraceException: Exception
 
 class PtraceModule: TargetModule
 {
-    this(char[] filename, uintptr_t start, uintptr_t end)
+    this(char[] filename, ulong start, ulong end)
     {
 	filename_ = filename;
 	start_ = start;
@@ -70,19 +72,23 @@ class PtraceModule: TargetModule
 	    return filename_;
 	}
 
-	uintptr_t start()
+	ulong start()
 	{
 	    return start_;
 	}
 
-	uintptr_t end()
+	ulong end()
 	{
 	    return end_;
 	}
 
-	TargetModule findSubModule(uintptr_t)
+	DebugInfo debugInfo()
 	{
-	    return this;
+	    return null;
+	}
+	bool lookupSymbol(ulong addr, out TargetSymbol)
+	{
+	    return false;
 	}
     }
 
@@ -94,28 +100,40 @@ class PtraceModule: TargetModule
     }
 
 private:
-    char[] filename_;
-    uintptr_t start_;
-    uintptr_t end_;
+    string filename_;
+    ulong start_;
+    ulong end_;
 }
 
 class PtraceBreakpoint: Breakpoint
 {
-    this(PtraceTarget target, uintptr_t addr)
+    this(PtraceTarget target, ulong addr)
     {
 	target_ = target;
 	addr_ = addr;
 	enabled_ = true;
     }
 
-    uintptr_t address()
-    {
-	return addr_;
-    }
+    override {
+	ulong address()
+	{
+	    return addr_;
+	}
 
-    void setEnabled(bool enabled)
-    {
-	enabled_ = enabled;
+	void enabled(bool enabled)
+	{
+	    enabled_ = enabled;
+	}
+
+	bool enabled()
+	{
+	    return enabled_;
+	}
+	
+	void clear()
+	{
+	    target_.clearBreakpoint(this);
+	}
     }
 
     void activate()
@@ -142,13 +160,13 @@ class PtraceBreakpoint: Breakpoint
 
 private:
     PtraceTarget target_;
-    uintptr_t addr_;
+    ulong addr_;
     bool enabled_;
     ubyte[] save_;
     static ubyte[] break_ = [ 0xcc ]; // XXX i386 int3
 }
 
-class PtraceThread: Thread
+class PtraceThread: TargetThread
 {
     this(PtraceTarget target, lwpid_t lwpid)
     {
@@ -161,13 +179,13 @@ class PtraceThread: Thread
 	{
 	    return target_;
 	}
-	uintptr_t pc()
+	ulong pc()
 	{
 	    return regs_.r_eip;
 	}
     }
 
-    void pc(uintptr_t addr)
+    void pc(ulong addr)
     {
 	regs_.r_eip = addr;
 	target_.ptrace(PT_SETREGS, lwpid_, cast(char*) &regs_, 0);
@@ -205,6 +223,7 @@ class PtraceTarget: Target
 	listener_ = listener;
 	execname_ = execname;
 	breakpointsActive_ = false;
+	listener.onTargetStarted(this);
 	stopped();
 	getModules();
     }
@@ -216,7 +235,7 @@ class PtraceTarget: Target
 	    return state_;
 	}
 
-	Thread focusThread()
+	TargetThread focusThread()
 	{
 	    ptrace_lwpinfo info;
 
@@ -224,9 +243,9 @@ class PtraceTarget: Target
 	    return threads_[info.pl_lwpid];
 	}
 
-	Thread[] threads()
+	TargetThread[] threads()
 	{
-	    Thread[] result;
+	    TargetThread[] result;
 	    size_t i;
 
 	    result.length = threads_.length;
@@ -249,21 +268,22 @@ class PtraceTarget: Target
 	    return result;
 	}
 
-	ubyte[] readMemory(uintptr_t targetAddress, size_t bytes)
+	ubyte[] readMemory(ulong targetAddress, size_t bytes)
 	{
 	    return readMemory(targetAddress, bytes, true);
 	}
 
-	void writeMemory(uintptr_t targetAddress, ubyte[] toWrite)
+	void writeMemory(ulong targetAddress, ubyte[] toWrite)
 	{
 	    return writeMemory(targetAddress, toWrite, true);
 	}
 
-	void step()
+	void step(TargetThread t)
 	{
 	    assert(state_ == TargetState.STOPPED);
 
-	    ptrace(PT_STEP, pid_, cast(char*) 1, 0);
+	    PtraceThread pt = cast(PtraceThread) t;
+	    ptrace(PT_STEP, pt.lwpid_, cast(char*) 1, 0);
 	    state_ = TargetState.RUNNING;
 	    wait();
 	}
@@ -276,14 +296,23 @@ class PtraceTarget: Target
 	     * If a thread is currently sitting on a breakpoint, step
 	     * over it.
 	     */
-	    bool atBreakpoint = false;
+	    bool atBreakpoint;
 	    do {
-		foreach (t; threads_) 
-		    foreach (pbp; breakpoints_)
-			if (t.pc == pbp.address)
+		atBreakpoint = false;
+		foreach (t; threads_.values.dup) {
+		    foreach (pbp; breakpoints_) {
+			if (t.pc == pbp.address) {
 			    atBreakpoint = true;
-		if (atBreakpoint)
-		    step();
+			    version (DEBUG_PTRACE)
+				writefln("stepping over breakpoint at 0x%x",
+					 t.pc);
+			    step(t);
+			    version (DEBUG_PTRACE)
+				writefln("after step, thread.pc 0x%x",
+					 t.pc);
+			}
+		    }
+		}
 	    } while (atBreakpoint);
 
 	    foreach (pbp; breakpoints_)
@@ -304,32 +333,37 @@ class PtraceTarget: Target
 	    stopped();
 	}
 
-	Breakpoint setBreakpoint(uintptr_t addr)
+	Breakpoint setBreakpoint(ulong addr)
 	{
 	    PtraceBreakpoint pbp = new PtraceBreakpoint(this, addr);
 	    breakpoints_ ~= pbp;
 	    return pbp;
 	}
 
-	void clearBreakpoint(Breakpoint bp)
+	Breakpoint setBreakpoint(string expr)
 	{
-	    PtraceBreakpoint pbp = cast(PtraceBreakpoint) bp;
+	    return null;
+	}
 
-	    foreach (t; breakpoints_) {
-		if (t is pbp) {
-		    PtraceBreakpoint[] newBreakpoints;
-		    newBreakpoints.length = breakpoints_.length - 1;
-		    int i = 0;
-		    foreach (tt; breakpoints_)
-			if (tt !is pbp)
-			    newBreakpoints[i++] = tt;
-		    breakpoints_ = newBreakpoints;
-		}
+    }
+
+    void clearBreakpoint(PtraceBreakpoint pbp)
+    {
+	foreach (t; breakpoints_) {
+	    if (t == pbp) {
+		PtraceBreakpoint[] newBreakpoints;
+		newBreakpoints.length = breakpoints_.length - 1;
+		int i = 0;
+		foreach (tt; breakpoints_)
+		    if (tt !is pbp)
+			newBreakpoints[i++] = tt;
+		breakpoints_ = newBreakpoints;
+		break;
 	    }
 	}
     }
 
-    ubyte[] readMemory(uintptr_t targetAddress, size_t bytes, bool data)
+    ubyte[] readMemory(ulong targetAddress, size_t bytes, bool data)
     {
 	ubyte[] result;
 	ptrace_io_desc io;
@@ -344,7 +378,7 @@ class PtraceTarget: Target
 	return result;
     }
 
-    void writeMemory(uintptr_t targetAddress, ubyte[] toWrite, bool data)
+    void writeMemory(ulong targetAddress, ubyte[] toWrite, bool data)
     {
 	ptrace_io_desc io;
 
@@ -396,16 +430,16 @@ private:
 
     void getModules()
     {
-	char[] maps = readMaps();
+	string maps = readMaps();
 
-	char[][] lines = splitlines(maps);
+	string[] lines = splitlines(maps);
 
 	PtraceModule[] modules;
 	PtraceModule lastMod;
 	foreach (line; lines) {
-	    char[][] words = split(line);
+	    string[] words = split(line);
 	    if (words[11] == "vnode") {
-		ulong atoi(char[] s) {
+		ulong atoi(string s) {
 		    return std.c.stdlib.strtoul(toStringz(s), null, 0);
 		}
 		string name = words[12];
@@ -436,10 +470,10 @@ private:
 	}
     }
 
-    char[] readMaps()
+    string readMaps()
     {
-	char[] mapfile = "/proc/" ~ std.string.toString(pid_) ~ "/map";
-	char[] result;
+	string mapfile = "/proc/" ~ std.string.toString(pid_) ~ "/map";
+	string result;
 
 	auto fd = open(toStringz(mapfile), O_RDONLY);
 
@@ -486,9 +520,10 @@ private:
 	 * them up.
 	 */
 	foreach (t; threads_) {
-	    foreach (pbp; breakpoints_) {
+	    foreach (pbp; breakpoints_.dup) {
 		if (t.pc == pbp.address + 1) {
 		    t.pc = pbp.address;
+		    listener_.onBreakpoint(this, t, pbp);
 		}
 	    }
 	}
@@ -513,12 +548,12 @@ class PtraceAttach: TargetFactory
 {
     override
     {
-	char[] name()
+	string name()
 	{
 	    return "attach";
 	}
 
-	Target connect(TargetListener listener, char[][] args)
+	Target connect(TargetListener listener, string[] args)
 	{
 	    int pid, status;
 
@@ -538,19 +573,21 @@ class PtraceRun: TargetFactory
 {
     override
     {
-	char[] name()
+	string name()
 	{
 	    return "run";
 	}
 
-	Target connect(TargetListener listener, char[][] args)
+	Target connect(TargetListener listener, string[] args)
 	{
-	    char[][] path = split(std.string.toString(getenv("PATH")), ":");
-	    char[] execpath = "";
+	    string[] path = split(std.string.toString(getenv("PATH")), ":");
+	    string execpath = "";
 
-	    writefln("%s", std.string.toString(getenv("PATH")));
+	    version (DEBUG)
+		if (debugLevel > 2)
+		    writefln("PATH=%s", std.string.toString(getenv("PATH")));
 	    foreach (p; path) {
-		char[] s = p ~ "/" ~ args[0];
+		string s = p ~ "/" ~ args[0];
 		version (DEBUG) {
 			if (debugLevel > 2)
 				writefln("trying '%s'", s);
@@ -572,10 +609,8 @@ class PtraceRun: TargetFactory
 		argv[i] = std.string.toStringz(arg);
 	    argv[args.length] = null;
 
-		sigaction_t a;
-		sigaction(SIGTRAP, null, &a);
-		writefln("flags=0x%x", a.sa_flags);
-
+	    sigaction_t a;
+	    sigaction(SIGTRAP, null, &a);
 
 	    pid_t pid = fork();
 	    if (pid) {
@@ -585,9 +620,13 @@ class PtraceRun: TargetFactory
 		 * execve).
 		 */
 		int status;
-		writefln("waiting for execve");
+		version (DEBUG)
+		    if (debugLevel > 1)
+			writefln("waiting for execve");
 		PtraceTarget.wait4(pid, &status, 0, null);
-		writefln("done");
+		version (DEBUG)
+		    if (debugLevel > 1)
+			writefln("done");
 		return new PtraceTarget(listener, pid, execpath);
 	    } else {
 		/*
@@ -595,10 +634,14 @@ class PtraceRun: TargetFactory
 		 * want to be debugged and then use execve to start
 		 * the required application.
 		 */
-		writefln("child calling PT_TRACE_ME");
+		version (DEBUG)
+		    if (debugLevel > 1)
+			writefln("child calling PT_TRACE_ME");
 		if (ptrace(PT_TRACE_ME, 0, null, 0) < 0)
 		    exit(1);
-		writefln("child execve(%s, ...)", execpath);
+		version (DEBUG)
+		    if (debugLevel > 1)
+			writefln("child execve(%s, ...)", execpath);
 		execve(pathz, argv.ptr, environ);
 		writefln("execve returned: %s",
 			 std.string.toString(strerror(errno)));

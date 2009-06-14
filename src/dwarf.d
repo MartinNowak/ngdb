@@ -24,12 +24,15 @@
  * SUCH DAMAGE.
  */
 
+//version = DEBUG_LINE;
+
 import elf;
 import std.string;
 import std.stdio;
 import std.c.unix.unix;
 
 import target;
+import debuginfo;
 
 enum {
     DW_TAG_array_type			= 0x01,
@@ -609,6 +612,18 @@ enum
     DW_MACINFO_vendor_ext		= 0xff,
 }
 
+private ubyte parseUByte(ref char* p)
+{
+    return *p++;
+}
+
+private byte parseSByte(ref char* p)
+{
+    byte v = *cast(byte*) p;
+    p++;
+    return v;
+}
+
 private ushort parseUShort(ref char* p)
 {
     ushort v;
@@ -641,12 +656,25 @@ private ulong parseOffset(ref char* p, bool is64)
 	return parseUInt(p);
 }
 
-private string parseString(ref char* p)
+private ulong parseLength(ref char* p, bool is64)
 {
-    string v = std.string.toString(p);
+    if (is64)
+	return parseULong(p);
+    else
+	return parseUInt(p);
+}
+
+private void skipString(ref char* p)
+{
     while (*p)
 	p++;
     p++;
+}
+
+private string parseString(ref char* p)
+{
+    string v = std.string.toString(p);
+    skipString(p);
     return v;
 }
 
@@ -692,7 +720,7 @@ private long parseLEB128(ref char* p)
 
     while (!done) {
 	b = *p++;
-	v |= (*p & 0x7f) << shift;
+	v |= (b & 0x7f) << shift;
 	shift += 7;
 	if ((b & 0x80) == 0)
 	    done = true;
@@ -702,14 +730,17 @@ private long parseLEB128(ref char* p)
     return v;
 }
 
-class DwarfFile
+class DwarfFile: public DebugInfo
 {
     this(ElfFile elf)
     {
 	elf_ = elf;
 
 	debugInfo_ = elf_.readSection(".debug_info");
+	lineInfo_ = elf_.readSection(".debug_line");
 	abbrevTables_ = elf_.readSection(".debug_abbrev");
+	if (elf_.hasSection(".debug_ranges"))
+	    ranges_ = elf.readSection(".debug_ranges");
 	if (elf_.hasSection(".debug_str"))
 	    strtab_ = elf_.readSection(".debug_str");
 
@@ -724,8 +755,8 @@ class DwarfFile
 		uint ver = parseUShort(p);
 
 		NameSet set;
-		set.sectionOffset = parseOffset(p, is64);
-		set.sectionLength = parseOffset(p, is64);
+		set.cuOffset = parseOffset(p, is64);
+		parseLength(p, is64);
 		for (;;) {
 		    ulong off = parseOffset(p, is64);
 		    if (!off)
@@ -734,7 +765,7 @@ class DwarfFile
 		    set.names[name] = off;
 		    //writefln("%s = %d (cu %d)", name, off, set.sectionOffset);
 		}
-
+		pubnames_ ~= set;
 	    }
 	}
 
@@ -749,15 +780,15 @@ class DwarfFile
 		uint ver = parseUShort(p);
 
 		NameSet set;
-		set.sectionOffset = parseOffset(p, is64);
-		set.sectionLength = parseOffset(p, is64);
+		set.cuOffset = parseOffset(p, is64);
+		parseLength(p, is64);
 		for (;;) {
 		    ulong off = parseOffset(p, is64);
 		    if (!off)
 			break;
 		    string name = parseString(p);
 		    set.names[name] = off;
-		    writefln("%s = %d (cu %d)", name, off, set.sectionOffset);
+		    writefln("%s = %d (cu %d)", name, off, set.cuOffset);
 		}
 
 	    }
@@ -775,8 +806,8 @@ class DwarfFile
 
 		CompilationUnit cu = new CompilationUnit(this);
 		cu.offset = parseOffset(p, is64);
-		cu.addressSize = *p++;
-		cu.segmentSize = *p++;
+		cu.addressSize = parseUByte(p);
+		cu.segmentSize = parseUByte(p);
 
 		// Undocumented: need to align to next multiple of
 		// 2 * address size
@@ -788,7 +819,7 @@ class DwarfFile
 		ulong start, length;
 		for (;;) {
 		    start = parseOffset(p, is64);
-		    length = parseOffset(p, is64);
+		    length = parseLength(p, is64);
 		    if (start == 0 && length == 0)
 			break;
 		    cu.addresses ~= AddressRange(start, start + length);
@@ -813,15 +844,6 @@ class DwarfFile
 
     TargetModule findCompileUnit(ulong pc)
     {
-	foreach (cu; compilationUnits_) {
-	    if (cu.contains(pc)) {
-		cu.loadDIE;
-		writefln("found CU %s",
-			 std.string.toString(cu.die.attrs[DW_AT_name].str));
-		return null;
-	    }
-	}
-
 	return null;
     }
 
@@ -833,22 +855,107 @@ class DwarfFile
 	    return true;
     }
 
+    // DebugInfo compliance
+    override {
+	bool findLineByAddress(ulong address, out LineEntry[] res)
+	{
+	    class Helper {
+		bool found = false;
+		LineEntry lastEntry;
+		bool processEntry(LineEntry* le)
+		{
+		    version (DEBUG_LINE)
+			writefln("%s:%d 0x%x", le.file, le.line, le.address);
+		    if (le.address <= address) {
+			lastEntry = *le;
+			found = true;
+		    } else if (address <= le.address) {
+			 if (found) {
+			     res.length = 2;
+			     res[0] = lastEntry;
+			     res[1] = *le;
+			     return true; // stop now
+			 }
+		     }
+		     return false;
+		 }
+	     }
+	    Helper h = new Helper;
+	    version (DEBUG_LINE)
+		writefln("finding 0x%x", address);
+	    foreach (cu; compilationUnits_) {
+		if (cu.contains(address)) {
+		    cu.loadDIE;
+		    uint lineOffset = cu.die.attrs[DW_AT_stmt_list].ul;
+		    char* p = &lineInfo_[lineOffset];
+		    parseLineTable(p, &h.processEntry);
+		    return h.found;
+		}
+	    }
+	    return false;
+	}
+	bool findLineByName(string file, int line, out LineEntry[] res)
+	{
+	    class Helper {
+		bool found = false;
+		bool processEntry(LineEntry* le)
+		{
+		    if ((le.name == file || le.fullname == file)
+			&& le.line == line) {
+			found = true;
+			res ~= *le;
+		    }
+		    return false;
+		}
+	    }
+	    Helper h = new Helper;
+	    foreach (cu; compilationUnits_) {
+		cu.loadDIE;
+		uint lineOffset = cu.die.attrs[DW_AT_stmt_list].ul;
+		char* p = &lineInfo_[lineOffset];
+		parseLineTable(p, &h.processEntry);
+	    }
+	    return h.found;
+	}
+	bool findLineByFunction(string func, out LineEntry[] res)
+	{
+	    foreach (ns; pubnames_) {
+		try {
+		    CompilationUnit cu = compilationUnits_[ns.cuOffset];
+		    ulong dieOff = ns.names[func];
+		    cu.loadDIE;
+		    DIE die = cu.dieMap[dieOff];
+		    if (die.tag == DW_TAG_subprogram) {
+			LineEntry[] le;
+			if (findLineByAddress(die.attrs[DW_AT_low_pc].ul, le))
+			    res ~= le[0];
+		    }
+		} catch {
+		    continue;
+		}
+	    }
+				       
+	    return res.length > 0;
+	}
+    }
+
 private:
     void parseCompilationUnit(CompilationUnit cu, ref char* p)
     {
 	bool is64;
 	size_t len;
-	char *pNext;
+	char* base = p;
+	char* pNext;
 
 	len = parseInitialLength(p, is64);
 	pNext = p + len;
 
 	uint ver = parseUShort(p);
 	uint abbrevOffset = parseOffset(p, is64);
-	uint addrlen = *p++;
+	uint addrlen = parseUByte(p);
 
-	char *abbrevp = &abbrevTables_[abbrevOffset];
-	char *abbrevTable[int];
+	char* abbrevp = &abbrevTables_[abbrevOffset];
+	char* abbrevTable[int];
 	for (;;) {
 	    ulong code = parseULEB128(abbrevp);
 	    if (!code)
@@ -866,18 +973,285 @@ private:
 	    }
 	}
 
+	ulong off = p - base;
 	ulong abbrevCode = parseULEB128(p);
 	if (abbrevCode == 0)
 	    return;
 
-	cu.die =  new DIE(p, abbrevCode,
-			  abbrevTable, addrlen, strtab_);
+	cu.is64 = is64;
+	cu.die = new DIE(cu, base, p, abbrevCode,
+			 abbrevTable, addrlen, strtab_);
+	cu.dieMap[off] = cu.die;
+    }
+
+    void parseLineTable(ref char* p, bool delegate(LineEntry*) dg)
+    {
+	struct DwarfLineEntry {
+	    ulong address;
+	    uint file;
+	    uint line;
+	    uint column;
+	    bool isStatement;
+	    bool basicBlock;
+	    bool endSequence;
+	    bool prologueEnd;
+	    bool epilogueBegin;
+	    int isa;
+	}
+
+	struct FileEntry {
+	    string fullname;
+	    char* name;
+	    uint directoryIndex;
+	    ulong modificationTime;
+	    ulong length;
+	}
+
+	bool is64;
+	size_t len;
+	char* pEnd, pEndHeader;
+
+	len = parseInitialLength(p, is64);
+	pEnd = p + len;
+	uint ver = parseUShort(p);
+	ulong headerLength = parseLength(p, is64);
+	pEndHeader = p + headerLength;
+	uint instructionLength = parseUByte(p);
+	bool defaultIsStatement = parseUByte(p) != 0;
+	int lineBase = parseSByte(p);
+	uint lineRange = parseUByte(p);
+	uint opcodeBase = parseUByte(p);
+	ubyte standardOpcodeLengths[];
+	standardOpcodeLengths.length = opcodeBase;
+	for (int i = 1; i < opcodeBase; i++)
+	    standardOpcodeLengths[i] = parseUByte(p);
+
+	char* includeDirectories[];
+	while (*p) {
+	    includeDirectories ~= p;
+	    skipString(p);
+	}
+	p++;
+
+	FileEntry fileNames[];
+	while (*p) {
+	    char* name = p;
+	    skipString(p);
+	    uint di = parseULEB128(p);
+	    ulong mt = parseULEB128(p);
+	    ulong fl = parseULEB128(p);
+	    fileNames ~= FileEntry(null, name, di, mt, fl);
+	}
+	p++;
+
+	if (p != pEndHeader)
+	    throw new Exception("unexpected bytes in line table header");
+
+	DwarfLineEntry le;
+
+	le.address = 0;
+	le.file = 1;
+	le.line = 1;
+	le.column = 0;
+	le.isStatement = defaultIsStatement;
+	le.basicBlock = false;
+	le.endSequence = false;
+	le.prologueEnd = false;
+	le.epilogueBegin = false;
+	le.isa = 0;
+
+	int specialOpcodeAddressIncrement(ubyte op)
+	{
+	    op -= opcodeBase;
+	    return (op / lineRange) * instructionLength;
+	}
+
+	int specialOpcodeLineIncrement(ubyte op)
+	{
+	    op -= opcodeBase;
+	    return lineBase + (op % lineRange);
+	}
+
+	bool processRow(DwarfLineEntry* le)
+	{
+	    FileEntry* fe = &fileNames[le.file - 1];
+	    if (fe.fullname == null) {
+		string filename;
+		if (fe.directoryIndex) {
+		    filename =
+			.toString(includeDirectories[fe.directoryIndex - 1]);
+		    filename ~= "/";
+		    filename ~= .toString(fe.name);
+		} else {
+		    filename = .toString(fe.name);
+		}
+		fe.fullname = filename;
+	    }
+
+	    LineEntry dle;
+	    dle.address = le.address;
+	    dle.name = .toString(fe.name);
+	    dle.fullname = fe.fullname;
+	    dle.line = le.line;
+	    dle.column = le.column;
+	    dle.isStatement = le.isStatement;
+	    dle.basicBlock = le.basicBlock;
+	    dle.endSequence = le.endSequence;
+	    dle.prologueEnd = le.prologueEnd;
+	    dle.epilogueBegin = le.epilogueBegin;
+	    return dg(&dle);
+	}
+
+	version (DEBUG_LINE)
+	    writefln("opcodeBase=%d, lineBase=%d, lineRange=%d",
+		     opcodeBase, lineBase, lineRange);
+	while (p < pEnd) {
+	    ubyte op = parseUByte(p);
+	    if (op >= opcodeBase) {
+		version (DEBUG_LINE)
+		    writefln("%d:special opcode %d:%d",
+			     op,
+			     specialOpcodeAddressIncrement(op),
+			     specialOpcodeLineIncrement(op));
+		le.address += specialOpcodeAddressIncrement(op);
+		le.line += specialOpcodeLineIncrement(op);
+		if (processRow(&le))
+		    return;
+		le.basicBlock = false;
+		le.prologueEnd = false;
+		le.epilogueBegin = false;
+		continue;
+	    }
+	    switch (op) {
+	    case 0:
+		version (DEBUG_LINE)
+		    writefln("%d:extended opcode", op);
+		// Extended opcode
+		uint oplen = parseULEB128(p);
+		char* pNext = p + oplen;
+		switch (parseUByte(p)) {
+		case DW_LNE_end_sequence:
+		    version (DEBUG_LINE)
+			writefln(" %d:DW_LNE_end_sequence", op);
+		    le.endSequence = true;
+		    if (processRow(&le))
+			return;
+		    break;
+
+		case DW_LNE_set_address:
+		    le.address = parseOffset(p, is64);
+		    version (DEBUG_LINE)
+			writefln(" %d:DW_LNE_set_address(0x%x)",
+				 op, le.address);
+		    break;
+
+		case DW_LNE_define_file:
+		    char* name = p;
+		    skipString(p);
+		    uint di = parseULEB128(p);
+		    ulong mt = parseULEB128(p);
+		    ulong fl = parseULEB128(p);
+		    fileNames ~= FileEntry(null, name, di, mt, fl);
+		    version (DEBUG_LINE)
+			writefln(" %d:DW_LNE_define_file(%s)",
+				 op, .toString(name));
+		    break;
+		}
+		p = pNext;
+		break;
+
+	    case DW_LNS_copy:
+		version (DEBUG_LINE)
+		    writefln("%d:DW_LNS_copy", op);
+		if (processRow(&le))
+		    return;
+		le.basicBlock = false;
+		le.prologueEnd = false;
+		le.epilogueBegin = false;
+		break;
+
+	    case DW_LNS_advance_pc:
+		le.address += instructionLength * parseLEB128(p);
+		version (DEBUG_LINE)
+		    writefln("%d:DW_LNS_advance_pc(0x%x)", op, le.address);
+		break;
+
+	    case DW_LNS_advance_line:
+		version (DEBUG_LINE) {
+		    char* pp = p;
+		    writefln("%d:DW_LNS_advance_line(%d)",
+			     op, *pp);
+		}
+		le.line += instructionLength * parseLEB128(p);
+		break;
+
+	    case DW_LNS_set_file:
+		le.file = parseULEB128(p);
+		version (DEBUG_LINE)
+		    writefln("%d:DW_LNS_set_file(%s)",
+			     op, .toString(fileNames[le.file].name));
+		break;
+
+	    case DW_LNS_set_column:
+		le.column = parseULEB128(p);
+		version (DEBUG_LINE)
+		    writefln("%d:DW_LNS_set_column(%s)", op, le.column);
+		break;
+
+	    case DW_LNS_negate_stmt:
+		version (DEBUG_LINE)
+		    writefln("%d:DW_LNS_negate_stmt", op);
+		le.isStatement = !le.isStatement;
+		break;
+
+	    case DW_LNS_set_basic_block:
+		version (DEBUG_LINE)
+		    writefln("%d:DW_LNS_set_basic_block", op);
+		le.basicBlock = true;
+		break;
+
+	    case DW_LNS_const_add_pc:
+		version (DEBUG_LINE)
+		    writefln("%d:DW_LNS_add_pc(%d)", op,
+			     specialOpcodeLineIncrement(255));
+		le.address += specialOpcodeAddressIncrement(255);
+		break;
+
+	    case DW_LNS_fixed_advance_pc:
+		version (DEBUG_LINE) {
+		    char* pp = p;
+		    writefln("%d:DW_LNS_advance_pc", op, parseUShort(pp));
+		}
+		le.address += parseUShort(p);
+		break;
+
+	    case DW_LNS_set_prologue_end:
+		version (DEBUG_LINE)
+		    writefln("%d:DW_LNS_set_prologue_end", op);
+		le.prologueEnd = true;
+		break;
+
+	    case DW_LNS_set_epilogue_begin:
+		version (DEBUG_LINE)
+		    writefln("%d:DW_LNS_set_epilogue_begin", op);
+		le.epilogueBegin = true;
+		break;
+
+	    case DW_LNS_set_isa:
+		version (DEBUG_LINE)
+		    writefln("%d:DW_LNS_set_isa", op);
+		le.isa = parseULEB128(p);
+		break;
+
+	    default:
+		throw new Exception("Unexpected line table opcode");
+	    }
+	}
     }
 
     struct NameSet
     {
-	ulong sectionOffset;
-	ulong sectionLength;
+	ulong cuOffset;
 	ulong names[string];
     }
 
@@ -901,7 +1275,7 @@ private:
 		goto readBlock;
 
 	    case DW_FORM_block1:
-		block.length = *p++;
+		block.length = parseUByte(p);
 		goto readBlock;
 
 	    case DW_FORM_block2:
@@ -917,7 +1291,7 @@ private:
 	    
 	    case DW_FORM_ref1:
 	    case DW_FORM_data1:
-		ul = *p++;
+		ul = parseUByte(p);
 		break;
 
 	    case DW_FORM_ref2:
@@ -943,7 +1317,7 @@ private:
 		break;
 
 	    case DW_FORM_flag:
-		ul = *p++;
+		ul = parseUByte(p);
 		break;
 
 	    case DW_FORM_sdata:
@@ -1015,7 +1389,7 @@ private:
 	union {
 	    ulong ul;
 	    long l;
-	    const char* str;
+	    char* str;
 	    char[] block;
 	}
     }
@@ -1027,7 +1401,8 @@ private:
 	AttributeValue attrs[int];
 	DIE[] children;
 
-	this(ref char* diep, uint abbrevCode, char*[int] abbrevTable,
+	this(CompilationUnit cu, char* base, ref char* diep,
+	     uint abbrevCode, char*[int] abbrevTable,
 	     int addrlen, char[] strtab)
 	{
 	    char* abbrevp = abbrevTable[abbrevCode];
@@ -1044,9 +1419,15 @@ private:
 		attrs[at] = val;
 	    }
 	    if (hasChildren) {
+		char* p = diep;
 		while ((abbrevCode = parseULEB128(diep)) != 0) {
-		    children ~= new DIE(diep, abbrevCode, abbrevTable,
-					addrlen, strtab);
+		    DIE die = new DIE(cu, base, diep,
+				      abbrevCode, abbrevTable,
+				      addrlen, strtab);
+
+		    cu.dieMap[p - base] = die;
+		    children ~= die;
+		    p = diep;
 		}
 	    }
 	}
@@ -1099,12 +1480,29 @@ private:
 			return true;
 	    } else {
 		// Load the DIE if necessary and check its attributes
+		assert(die == null);
 		loadDIE();
 		if (die.attrs[DW_AT_low_pc]
 		    && die.attrs[DW_AT_high_pc]) {
-		    return pc >= die.attrs[DW_AT_low_pc].ul
-			&& pc < die.attrs[DW_AT_high_pc].ul;
+		    addresses ~= AddressRange(die.attrs[DW_AT_low_pc].ul,
+					      die.attrs[DW_AT_high_pc].ul);
+		} else if (die.attrs[DW_AT_ranges]) {
+		    char* p = &ranges_[die.attrs[DW_AT_ranges].ul];
+		    for (;;) {
+			ulong start, end;
+			start = parseOffset(p, is64);
+			end = parseOffset(p, is64);
+			if (start == 0 && end == 0)
+			    break;
+			addresses ~= AddressRange(start, end);
+		    }
+		} else {
+		    throw new Exception(
+			"Compilation unit has no address range info");
 		}
+
+		// Now that we have loaded the DIE, try again
+		return contains(pc);
 	    }
 	    return false;
 	}
@@ -1122,15 +1520,20 @@ private:
 
 	DwarfFile parent;
 	ulong offset;		// Offset in .debug_info
+	bool is64;		// CU uses 64bit dwarf
 	uint addressSize;	// size in bytes of an address
 	uint segmentSize;	// size in bytes of a segment
 	AddressRange[] addresses; // set of address ranges for this CU
 	DIE die;		// top-level DIE for this CU
+	DIE[ulong] dieMap;	// map DIE offset to loaded DIE
     }
 
     ElfFile elf_;
     char[] debugInfo_;
+    char[] lineInfo_;
+    char[] ranges_;
     char[] abbrevTables_;
     char[] strtab_;
+    NameSet[] pubnames_;
     CompilationUnit[ulong] compilationUnits_;
 }

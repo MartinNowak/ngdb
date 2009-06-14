@@ -25,7 +25,6 @@
  */
 
 import std.stdio;
-import std.stdint;
 
 import gtk.GtkD;
 import gtk.MainWindow;
@@ -34,6 +33,7 @@ import ptracetarget;
 import target;
 import dwarf;
 import elfmodule;
+import cli;
 
 version (DEBUG)
 {
@@ -142,26 +142,6 @@ version (GUI)
 	}
     }
 } else {
-    class Debugger: TargetListener
-    {
-	this()
-	{
-	}
-
-	override
-	{
-	    // TargetListener
-	    void onThreadCreate(Target target, Thread thread)
-	    {
-	    }
-	    void onThreadDestroy(Target target, Thread thread)
-	    {
-	    }
-	    void onModuleAdd(Target, TargetModule)
-	    {
-	    }
-	}
-    }
 }
 
 int
@@ -178,60 +158,68 @@ main(char[][] args)
 	    Gtk.init(args);
 
     try {
-	Debugger dbg = new Debugger;
-
 	version (GUI)
 	{
 	    Gtk.main();
 	} else {
-	    version (ATTACH)
-	    {
-		PtraceAttach pt = new PtraceAttach;
-		char[][] attachArgs = args[1..2];
-	    } else {
-		PtraceRun pt = new PtraceRun;
-		char[][] attachArgs = [ "hello" ];
+	    if (args.length != 2) {
+		writefln("usage: %s <program>", args[0]);
+		return 1;
 	    }
-	    Target target = pt.connect(dbg, attachArgs);
-	    TargetModule[] tmodules = target.modules();
-	    //DwarfModule[] modules;
-	    ElfModule[] modules;
 
-	    modules.length = tmodules.length;
-	    foreach (i, tmod; tmodules)
-		modules[i] = new ElfModule(tmod);
+	    cli.Debugger cli = new cli.Debugger(args[1]);
+	    cli.run();
 
-	    // Put a breakpoint on main and continue up to that point
-	    Breakpoint bpMain;
-	    foreach (mod; modules) {
-		Symbol* s = mod.lookupSymbol("main");
-		if (s) {
-		    bpMain = target.setBreakpoint(s.value);
-		}
-	    }
-	    target.cont();
-	    target.wait();
-
-	    for (;;) {
-		Thread t = target.focusThread;
-		uintptr_t pc = t.pc;
-
-		if (modules.length > 0) {
-		    foreach (mod; modules) {
-			if (pc >= mod.start && pc < mod.end) {
-			    writef("%s: ", mod.filename);
-			    mod.findSubModule(pc);
-			    Symbol* s = mod.lookupSymbol(pc);
-			    if (s)
-				writefln("0x%08x (%s+%d)", pc, s.name, pc - s.value);
-			    else
-				writefln("0x%08x", pc);
-			}
-		    }
+	    static if (false) {
+		version (ATTACH)
+		{
+		    PtraceAttach pt = new PtraceAttach;
+		    string[] attachArgs = args[1..2];
 		} else {
-		    writefln("0x%08x", pc);
+		    PtraceRun pt = new PtraceRun;
+		    string[] attachArgs = [ "hello" ];
 		}
-		target.step();
+		Target target = pt.connect(dbg, attachArgs);
+		TargetModule[] tmodules = target.modules();
+		//DwarfModule[] modules;
+		ElfModule[] modules;
+
+		modules.length = tmodules.length;
+		foreach (i, tmod; tmodules)
+		    modules[i] = new ElfModule(tmod);
+
+		// Put a breakpoint on main and continue up to that point
+		Breakpoint bpMain;
+		foreach (mod; modules) {
+		    Symbol* s = mod.lookupSymbol("main");
+		    if (s) {
+			bpMain = target.setBreakpoint(s.value);
+		    }
+		}
+		target.cont();
+		target.wait();
+
+		for (;;) {
+		    Thread t = target.focusThread;
+		    ulong pc = t.pc;
+
+		    if (modules.length > 0) {
+			foreach (mod; modules) {
+			    if (pc >= mod.start && pc < mod.end) {
+				writef("%s: ", mod.filename);
+				mod.findSubModule(pc);
+				Symbol* s = mod.lookupSymbol(pc);
+				if (s)
+				    writefln("0x%08x (%s+%d)", pc, s.name, pc - s.value);
+				else
+				    writefln("0x%08x", pc);
+			    }
+			}
+		    } else {
+			writefln("0x%08x", pc);
+		    }
+		    target.step();
+		}
 	    }
 	}
     } catch (Exception e) {

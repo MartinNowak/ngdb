@@ -52,9 +52,6 @@
 module elf64;
 
 import std.stdint;
-import std.stdio;
-import sys.pread;
-
 static import elf;
 
 alias uint32_t	Addr;

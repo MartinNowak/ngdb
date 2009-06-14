@@ -1,5 +1,8 @@
 objs[]=
+	cli
+	debuginfo
 	dwarf
+	editline
 	elf
 	elf32
 	elf64
@@ -19,6 +22,6 @@ DFLAGS+= -I$(dir $(ROOT)/gtkD/src)
 
 LIBS[]=
 	$(file $(ROOT)/gtkD/src/libgtkD.a)
-ELIBS[] = dwarf elf
+ELIBS[] = dwarf elf edit
 
 .DEFAULT: $(Program qdebug, $(objs))
