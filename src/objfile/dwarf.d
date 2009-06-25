@@ -867,7 +867,7 @@ class DwarfFile: public DebugInfo
 
 	    bool processEntry(LineEntry* le)
 	    {
-		version (DEBUG_LINE)
+		debug (line)
 		    writefln("%s:%d 0x%x", le.file, le.line, le.address);
 		if (le.address <= address) {
 		    lastEntry = *le;
@@ -883,7 +883,7 @@ class DwarfFile: public DebugInfo
 		return false;
 	    }
 
-	    version (DEBUG_LINE)
+	    debug (line)
 		writefln("finding 0x%x", address);
 	    foreach (cu; compilationUnits_) {
 		if (cu.contains(address)) {
@@ -1103,13 +1103,13 @@ private:
 	    return dg(&dle);
 	}
 
-	version (DEBUG_LINE)
+	debug (line)
 	    writefln("opcodeBase=%d, lineBase=%d, lineRange=%d",
 		     opcodeBase, lineBase, lineRange);
 	while (p < pEnd) {
 	    ubyte op = parseUByte(p);
 	    if (op >= opcodeBase) {
-		version (DEBUG_LINE)
+		debug (line)
 		    writefln("%d:special opcode %d:%d",
 			     op,
 			     specialOpcodeAddressIncrement(op),
@@ -1125,14 +1125,14 @@ private:
 	    }
 	    switch (op) {
 	    case 0:
-		version (DEBUG_LINE)
+		debug (line)
 		    writefln("%d:extended opcode", op);
 		// Extended opcode
 		uint oplen = parseULEB128(p);
 		char* pNext = p + oplen;
 		switch (parseUByte(p)) {
 		case DW_LNE_end_sequence:
-		    version (DEBUG_LINE)
+		    debug (line)
 			writefln(" %d:DW_LNE_end_sequence", op);
 		    le.endSequence = true;
 		    if (processRow(&le))
@@ -1141,7 +1141,7 @@ private:
 
 		case DW_LNE_set_address:
 		    le.address = parseOffset(p, is64);
-		    version (DEBUG_LINE)
+		    debug (line)
 			writefln(" %d:DW_LNE_set_address(0x%x)",
 				 op, le.address);
 		    break;
@@ -1153,7 +1153,7 @@ private:
 		    ulong mt = parseULEB128(p);
 		    ulong fl = parseULEB128(p);
 		    fileNames ~= FileEntry(null, name, di, mt, fl);
-		    version (DEBUG_LINE)
+		    debug (line)
 			writefln(" %d:DW_LNE_define_file(%s)",
 				 op, .toString(name));
 		    break;
@@ -1162,7 +1162,7 @@ private:
 		break;
 
 	    case DW_LNS_copy:
-		version (DEBUG_LINE)
+		debug (line)
 		    writefln("%d:DW_LNS_copy", op);
 		if (processRow(&le))
 		    return;
@@ -1173,12 +1173,12 @@ private:
 
 	    case DW_LNS_advance_pc:
 		le.address += instructionLength * parseLEB128(p);
-		version (DEBUG_LINE)
+		debug (line)
 		    writefln("%d:DW_LNS_advance_pc(0x%x)", op, le.address);
 		break;
 
 	    case DW_LNS_advance_line:
-		version (DEBUG_LINE) {
+		debug (line) {
 		    char* pp = p;
 		    writefln("%d:DW_LNS_advance_line(%d)",
 			     op, *pp);
@@ -1188,38 +1188,38 @@ private:
 
 	    case DW_LNS_set_file:
 		le.file = parseULEB128(p);
-		version (DEBUG_LINE)
+		debug (line)
 		    writefln("%d:DW_LNS_set_file(%s)",
 			     op, .toString(fileNames[le.file].name));
 		break;
 
 	    case DW_LNS_set_column:
 		le.column = parseULEB128(p);
-		version (DEBUG_LINE)
+		debug (line)
 		    writefln("%d:DW_LNS_set_column(%s)", op, le.column);
 		break;
 
 	    case DW_LNS_negate_stmt:
-		version (DEBUG_LINE)
+		debug (line)
 		    writefln("%d:DW_LNS_negate_stmt", op);
 		le.isStatement = !le.isStatement;
 		break;
 
 	    case DW_LNS_set_basic_block:
-		version (DEBUG_LINE)
+		debug (line)
 		    writefln("%d:DW_LNS_set_basic_block", op);
 		le.basicBlock = true;
 		break;
 
 	    case DW_LNS_const_add_pc:
-		version (DEBUG_LINE)
+		debug (line)
 		    writefln("%d:DW_LNS_add_pc(%d)", op,
 			     specialOpcodeLineIncrement(255));
 		le.address += specialOpcodeAddressIncrement(255);
 		break;
 
 	    case DW_LNS_fixed_advance_pc:
-		version (DEBUG_LINE) {
+		debug (line) {
 		    char* pp = p;
 		    writefln("%d:DW_LNS_advance_pc", op, parseUShort(pp));
 		}
@@ -1227,19 +1227,19 @@ private:
 		break;
 
 	    case DW_LNS_set_prologue_end:
-		version (DEBUG_LINE)
+		debug (line)
 		    writefln("%d:DW_LNS_set_prologue_end", op);
 		le.prologueEnd = true;
 		break;
 
 	    case DW_LNS_set_epilogue_begin:
-		version (DEBUG_LINE)
+		debug (line)
 		    writefln("%d:DW_LNS_set_epilogue_begin", op);
 		le.epilogueBegin = true;
 		break;
 
 	    case DW_LNS_set_isa:
-		version (DEBUG_LINE)
+		debug (line)
 		    writefln("%d:DW_LNS_set_isa", op);
 		le.isa = parseULEB128(p);
 		break;
