@@ -862,28 +862,27 @@ class DwarfFile: public DebugInfo
     override {
 	bool findLineByAddress(ulong address, out LineEntry[] res)
 	{
-	    class Helper {
-		bool found = false;
-		LineEntry lastEntry;
-		bool processEntry(LineEntry* le)
-		{
-		    version (DEBUG_LINE)
-			writefln("%s:%d 0x%x", le.file, le.line, le.address);
-		    if (le.address <= address) {
-			lastEntry = *le;
-			found = true;
-		    } else if (address <= le.address) {
-			 if (found) {
-			     res.length = 2;
-			     res[0] = lastEntry;
-			     res[1] = *le;
-			     return true; // stop now
-			 }
-		     }
-		     return false;
-		 }
-	     }
-	    Helper h = new Helper;
+	    bool found = false;
+	    LineEntry lastEntry;
+
+	    bool processEntry(LineEntry* le)
+	    {
+		version (DEBUG_LINE)
+		    writefln("%s:%d 0x%x", le.file, le.line, le.address);
+		if (le.address <= address) {
+		    lastEntry = *le;
+		    found = true;
+		} else if (address <= le.address) {
+		    if (found) {
+			res.length = 2;
+			res[0] = lastEntry;
+			res[1] = *le;
+			return true; // stop now
+		    }
+		}
+		return false;
+	    }
+
 	    version (DEBUG_LINE)
 		writefln("finding 0x%x", address);
 	    foreach (cu; compilationUnits_) {
@@ -891,34 +890,33 @@ class DwarfFile: public DebugInfo
 		    cu.loadDIE;
 		    uint lineOffset = cu.die.attrs[DW_AT_stmt_list].ul;
 		    char* p = &lineInfo_[lineOffset];
-		    parseLineTable(p, &h.processEntry);
-		    return h.found;
+		    parseLineTable(p, &processEntry);
+		    return found;
 		}
 	    }
 	    return false;
 	}
 	bool findLineByName(string file, int line, out LineEntry[] res)
 	{
-	    class Helper {
-		bool found = false;
-		bool processEntry(LineEntry* le)
-		{
-		    if ((le.name == file || le.fullname == file)
-			&& le.line == line) {
-			found = true;
-			res ~= *le;
-		    }
-		    return false;
+	    bool found = false;
+
+	    bool processEntry(LineEntry* le)
+	    {
+		if ((le.name == file || le.fullname == file)
+		    && le.line == line) {
+		    found = true;
+		    res ~= *le;
 		}
+		return false;
 	    }
-	    Helper h = new Helper;
+
 	    foreach (cu; compilationUnits_) {
 		cu.loadDIE;
 		uint lineOffset = cu.die.attrs[DW_AT_stmt_list].ul;
 		char* p = &lineInfo_[lineOffset];
-		parseLineTable(p, &h.processEntry);
+		parseLineTable(p, &processEntry);
 	    }
-	    return h.found;
+	    return found;
 	}
 	bool findLineByFunction(string func, out LineEntry[] res)
 	{
@@ -1023,8 +1021,8 @@ private:
 	bool defaultIsStatement = parseUByte(p) != 0;
 	int lineBase = parseSByte(p);
 	uint lineRange = parseUByte(p);
-	uint opcodeBase = parseUByte(p);
 	ubyte standardOpcodeLengths[];
+	uint opcodeBase = parseUByte(p);
 	standardOpcodeLengths.length = opcodeBase;
 	for (int i = 1; i < opcodeBase; i++)
 	    standardOpcodeLengths[i] = parseUByte(p);
