@@ -27,6 +27,7 @@
 module target;
 import debuginfo;
 import machine.machine;
+version(tangobos) import std.compat;
 
 /**
  * This interface is used to allow a target to notify a user of

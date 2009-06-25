@@ -29,6 +29,7 @@
 import elf;
 import std.string;
 import std.stdio;
+version(tangobos) import std.compat;
 //import std.c.unix.unix;
 
 import target;

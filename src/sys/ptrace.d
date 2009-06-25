@@ -31,10 +31,10 @@
  */
 
 module sys.ptrace;
-version (GDC)
-import std.c.unix.unix;
-else
+version (DigitalMars)
 import std.c.freebsd.freebsd;
+else
+import std.c.unix.unix;
 import std.stdint;
 
 alias int32_t lwpid_t;

@@ -26,6 +26,7 @@
 
 module machine.machine;
 import target;
+version(tangobos) import std.compat;
 
 interface MachineState
 {

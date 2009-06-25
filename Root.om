@@ -1,16 +1,30 @@
 .PHONY:	clean
 
-SPECS = $(file specs)
-#DMDBASE=/home/dfr/dmd
-#DMD=$(DMDBASE)/freebsd/bin/dmd
-#DFLAGS= -g -I$(DMDBASE)/src/phobos
-#LDFLAGS= #-specs=$(SPECS)
-#LDFLAGS= -g -L-L$(DMDBASE)/freebsd/lib
+#USE_DMD=yes
+#USE_GDC=yes
+USE_LDC=yes
 
-DMD=gdmd
-DFLAGS= -g -version=GDC
-LDFLAGS= -L-specs=$(SPECS)
-LDFLAGS= -g 
+if $(defined USE_DMD)
+   DMDBASE=/home/dfr/dmd
+   DMD=$(DMDBASE)/freebsd/bin/dmd
+   DFLAGS= -g -I$(DMDBASE)/src/phobos
+   LDFLAGS= -g -L-L$(DMDBASE)/freebsd/lib
+   export
+
+if $(defined USE_GDC)
+   DMD=gdmd
+   DFLAGS= -g -version=GDC
+   SPECS = $(file specs)
+   LDFLAGS= -L-specs=$(SPECS)
+   LDFLAGS= -g 
+   export
+
+if $(defined USE_LDC)
+   LDCBASE=/home/dfr/src/ldc
+   DMD=$(LDCBASE)/ldc/bin/ldc
+   DFLAGS= -g -I$(LDCBASE)/tangobos -d-version=tangobos
+   LDFLAGS= -g 
+   export
 
 LIBS[]=
 ELIBS[]=

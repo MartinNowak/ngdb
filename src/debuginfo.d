@@ -25,6 +25,7 @@
  */
 
 module debuginfo;
+version(tangobos) import std.compat;
 
 /**
  * This structure is used to represent line number information
