@@ -35,41 +35,19 @@ else
 import std.c.freebsd.freebsd;
 import sys.pread;
 
-import elf;
-import dwarf;
-import debuginfo;
-public import elf: Symbol;
+import objfile.elf;
+import objfile.dwarf;
+import objfile.debuginfo;
+public import objfile.elf: Symbol;
 
 class ElfModule: TargetModule
 {
     this(TargetModule mod)
     {
 	mod_ = mod;
-
-	int fd = open(toStringz(mod.filename), O_RDONLY);
-	if (fd > 0) {
-	    Ident ei;
-
-	    if (pread(fd, &ei, ei.sizeof, 0) != ei.sizeof
-		|| !IsElf(&ei)) {
-		close(fd);
-		return;
-	    }
-	    writefln("Elf format file %s", mod.filename);
-	    switch (ei.ei_class) {
-	    case ELFCLASS32:
-		elf_ = new ElfFile32(fd);
-		break;
-	    case ELFCLASS64:
-		elf_ = new ElfFile64(fd);
-		break;
-	    default:
-		throw new Exception("Unsupported elf class");
-	    }
-
-	    if (DwarfFile.hasDebug(elf_))
-		dwarf_ = new DwarfFile(elf_);
-	}
+	elf_ = ElfFile.open(mod.filename);
+	if (elf_ && DwarfFile.hasDebug(elf_))
+	    dwarf_ = new DwarfFile(elf_);
     }
 
     Symbol* lookupSymbol(string name)

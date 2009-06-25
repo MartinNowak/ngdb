@@ -24,16 +24,18 @@
  * SUCH DAMAGE.
  */
 
-//version = DEBUG_LINE;
+module objfile.dwarf;
 
-import elf;
+//debug = line;
+
+import objfile.elf;
+import objfile.debuginfo;
 import std.string;
 import std.stdio;
 version(tangobos) import std.compat;
 //import std.c.unix.unix;
 
 import target;
-import debuginfo;
 
 enum {
     DW_TAG_array_type			= 0x01,

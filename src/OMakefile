@@ -1,14 +1,14 @@
 objs[]=
 	cli
-	debuginfo
-	dwarf
 	editline
-	elf
-	elf32
-	elf64
 	elfmodule
 	machine/machine
 	machine/x86
+	objfile/elf
+	objfile/elf32
+	objfile/elf64
+	objfile/debuginfo
+	objfile/dwarf
 	main
 	ptracetarget
 	target

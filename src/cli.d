@@ -30,7 +30,7 @@ import editline;
 import target;
 import ptracetarget;
 import elfmodule;
-import debuginfo;
+import objfile.debuginfo;
 import machine.machine;
 
 import std.conv;
@@ -442,9 +442,9 @@ private:
     static char *prompt(EditLine *el)
     {
 	if (continuation_)
-	    return "qdebug> ";
+	    return "> ";
 	else
-	    return "qdebug$ ";
+	    return "(qdebug) ";
     }
 
     static CommandTable commands_;

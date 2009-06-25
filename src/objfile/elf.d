@@ -49,8 +49,13 @@
  * SUCH DAMAGE.
  */
 
-module elf;
+module objfile.elf;
 import std.stdint;
+
+version (GDC)
+import std.c.unix.unix;
+else
+import std.c.freebsd.freebsd;
 
 struct Note {
     uint32_t	n_namesz;
@@ -895,18 +900,43 @@ struct Symbol
     int		section;
 }
 
-interface ElfFile
+class ElfFile
 {
+    static ElfFile open(string file)
+    {
+	int fd = .open(toStringz(file), O_RDONLY);
+	if (fd > 0) {
+	    Ident ei;
 
-    Symbol* lookupSymbol(uintptr_t addr);
+	    if (pread(fd, &ei, ei.sizeof, 0) != ei.sizeof
+		|| !IsElf(&ei)) {
+		close(fd);
+		return null;
+	    }
+	    debug (elf)
+		writefln("Elf format file %s", file);
+	    switch (ei.ei_class) {
+	    case ELFCLASS32:
+		return new ElfFile32(fd);
+		break;
+	    case ELFCLASS64:
+		return new ElfFile64(fd);
+		break;
+	    default:
+		return null;
+	    }
+	}
+    }
 
-    Symbol* lookupSymbol(string name);
+    abstract Symbol* lookupSymbol(uintptr_t addr);
 
-    uintptr_t offset();
+    abstract Symbol* lookupSymbol(string name);
 
-    bool hasSection(string name);
+    abstract uintptr_t offset();
 
-    char[] readSection(string name);
+    abstract bool hasSection(string name);
+
+    abstract char[] readSection(string name);
 }
 
 template ElfFileBase()
@@ -919,7 +949,7 @@ template ElfFileBase()
 	if (pread(fd, &eh, eh.sizeof, 0) != eh.sizeof)
 	    throw new Exception("Can't read Elf32 header");
 
-	version (ELFDEBUG)
+	debug (elf)
 	    writefln("%d program headers", eh.e_phnum);
 	ph_.length = eh.e_phnum;
 	for (int i = 0; i < eh.e_phnum; i++) {
@@ -928,7 +958,7 @@ template ElfFileBase()
 		throw new Exception("Can't read program headers");
 	}
 
-	version (ELFDEBUG)
+	debug (elf)
 	    writefln("%d sections", eh.e_shnum);
 	sections_.length = eh.e_shnum;
 	for (int i = 0; i < eh.e_shnum; i++) {
@@ -943,7 +973,7 @@ template ElfFileBase()
 	    throw new Exception("No section strings?");
 	}
 
-	version (ELFDEBUG)
+	debug (elf)
 	    for (int i = 0; i < sections_.length; i++) {
 		Shdr *sh = &sections_[i];
 		if (sh.sh_type == SHT_NULL)
@@ -1099,12 +1129,12 @@ private:
 
 class ElfFile32: ElfFile
 {
-    import elf32;
+    import objfile.elf32;
     mixin ElfFileBase;
 }
 
 class ElfFile64: ElfFile
 {
-    import elf64;
+    import objfile.elf64;
     mixin ElfFileBase;
 }

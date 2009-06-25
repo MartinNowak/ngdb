@@ -49,10 +49,10 @@
  * SUCH DAMAGE.
  */
 
-module elf32;
+module objfile.elf32;
 
 import std.stdint;
-static import elf;
+import objfile.elf: Ident;
 
 alias uint32_t	Addr;
 alias uint16_t	Half;
@@ -71,7 +71,7 @@ alias Sword Ssize;
  * ELF header.
  */
 struct Ehdr {
-    elf.Ident	e_ident;	// File identification.
+    Ident	e_ident;	// File identification.
     Half	e_type;		// File type.
     Half	e_machine;	// Machine architecture.
     Word	e_version;	// ELF format version.

@@ -24,12 +24,12 @@
  * SUCH DAMAGE.
  */
 
-//version = DEBUG_PTRACE;
-
 module ptracetarget;
 
+//debug = ptrace;
+
 import target;
-import debuginfo;
+import objfile.debuginfo;
 import machine.machine;
 import machine.x86;
 
@@ -345,11 +345,11 @@ class PtraceTarget: Target
 		    foreach (pbp; breakpoints_) {
 			if (t.pc == pbp.address) {
 			    atBreakpoint = true;
-			    version (DEBUG_PTRACE)
+			    debug (ptrace)
 				writefln("stepping over breakpoint at 0x%x",
 					 t.pc);
 			    step(t);
-			    version (DEBUG_PTRACE)
+			    debug (ptrace)
 				writefln("after step, thread.pc 0x%x",
 					 t.pc);
 			}
@@ -625,15 +625,12 @@ class PtraceRun: TargetFactory
 	    string[] path = split(std.string.toString(getenv("PATH")), ":");
 	    string execpath = "";
 
-	    version (DEBUG)
-		if (debugLevel > 2)
-		    writefln("PATH=%s", std.string.toString(getenv("PATH")));
+	    debug (ptrace)
+		writefln("PATH=%s", std.string.toString(getenv("PATH")));
 	    foreach (p; path) {
 		string s = p ~ "/" ~ args[0];
-		version (DEBUG) {
-			if (debugLevel > 2)
-				writefln("trying '%s'", s);
-		}
+		debug (ptrace)
+			writefln("trying '%s'", s);
 		if (std.file.exists(s) && std.file.isfile(s)) {
 		    execpath = s;
 		    break;
@@ -662,13 +659,11 @@ class PtraceRun: TargetFactory
 		 * execve).
 		 */
 		int status;
-		version (DEBUG)
-		    if (debugLevel > 1)
-			writefln("waiting for execve");
+		debug (ptrace)
+		    writefln("waiting for execve");
 		PtraceTarget.wait4(pid, &status, 0, null);
-		version (DEBUG)
-		    if (debugLevel > 1)
-			writefln("done");
+		debug (ptrace)
+		    writefln("done");
 		return new PtraceTarget(listener, pid, execpath);
 	    } else {
 		/*
@@ -676,14 +671,12 @@ class PtraceRun: TargetFactory
 		 * want to be debugged and then use execve to start
 		 * the required application.
 		 */
-		version (DEBUG)
-		    if (debugLevel > 1)
-			writefln("child calling PT_TRACE_ME");
+		debug (ptrace)
+		    writefln("child calling PT_TRACE_ME");
 		if (ptrace(PT_TRACE_ME, 0, null, 0) < 0)
 		    exit(1);
-		version (DEBUG)
-		    if (debugLevel > 1)
-			writefln("child execve(%s, ...)", execpath);
+		debug (ptrace)
+		    writefln("child execve(%s, ...)", execpath);
 		execve(pathz, argv.ptr, environ);
 		writefln("execve returned: %s",
 			 std.string.toString(strerror(errno)));

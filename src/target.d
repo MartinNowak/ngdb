@@ -25,7 +25,7 @@
  */
 
 module target;
-import debuginfo;
+import objfile.debuginfo;
 import machine.machine;
 version(tangobos) import std.compat;
 

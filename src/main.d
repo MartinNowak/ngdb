@@ -28,14 +28,9 @@ import std.stdio;
 
 import ptracetarget;
 import target;
-import dwarf;
+import objfile.dwarf;
 import elfmodule;
 import cli;
-
-version (DEBUG)
-{
-	int debugLevel = 0;
-}
 
 int
 main(char[][] args)
