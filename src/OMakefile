@@ -1,7 +1,6 @@
 objs[]=
 	cli
 	editline
-	elfmodule
 	machine/machine
 	machine/x86
 	objfile/elf

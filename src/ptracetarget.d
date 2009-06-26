@@ -29,7 +29,9 @@ module ptracetarget;
 //debug = ptrace;
 
 import target;
+import objfile.elf;
 import objfile.debuginfo;
+import objfile.dwarf;
 import machine.machine;
 import machine.x86;
 
@@ -71,6 +73,9 @@ class PtraceModule: TargetModule
 	filename_ = filename;
 	start_ = start;
 	end_ = end;
+	elf_ = ElfFile.open(filename_);
+	if (elf_ && DwarfFile.hasDebug(elf_))
+	    dwarf_ = new DwarfFile(elf_);
     }
 
     override {
@@ -91,11 +96,33 @@ class PtraceModule: TargetModule
 
 	DebugInfo debugInfo()
 	{
-	    return null;
+	    return dwarf_;
 	}
-	bool lookupSymbol(ulong addr, out TargetSymbol)
+	bool lookupSymbol(string name, out TargetSymbol ts)
 	{
+	    if (elf_) {
+		Symbol* s = elf_.lookupSymbol(name);
+		if (s) {
+		    ts.name = s.name;
+		    ts.value = s.value;
+		    ts.size = s.size;
+		    return true;
+		}
+	    }
 	    return false;
+	}	
+	bool lookupSymbol(ulong addr, out TargetSymbol ts)
+	{
+	    if (elf_) {
+		addr -= elf_.offset;
+		Symbol* s = elf_.lookupSymbol(addr);
+		if (s) {
+		    ts = TargetSymbol(s.name, s.value, s.size);
+		    return true;
+		}
+	    } else {
+		return false;
+	    }
 	}
     }
 
@@ -110,6 +137,8 @@ private:
     string filename_;
     ulong start_;
     ulong end_;
+    ElfFile elf_;
+    DwarfFile dwarf_;
 }
 
 class PtraceBreakpoint: Breakpoint

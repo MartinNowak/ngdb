@@ -29,7 +29,6 @@ module cli;
 import editline;
 import target;
 import ptracetarget;
-import elfmodule;
 import objfile.debuginfo;
 import machine.machine;
 
@@ -414,8 +413,6 @@ class Debugger: TargetListener
 	void onModuleAdd(Target, TargetModule mod)
 	{
 	    writefln("New module %s", mod.filename);
-	    if (ElfModule.isElf(mod.filename))
-		mod = new ElfModule(mod);
 	    modules_ ~= mod;
 
 	    foreach (bp; breakpoints_)

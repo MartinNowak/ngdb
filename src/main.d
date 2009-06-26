@@ -29,7 +29,6 @@ import std.stdio;
 import ptracetarget;
 import target;
 import objfile.dwarf;
-import elfmodule;
 import cli;
 
 int
@@ -68,21 +67,14 @@ main(char[][] args)
 		    string[] attachArgs = [ "hello" ];
 		}
 		Target target = pt.connect(dbg, attachArgs);
-		TargetModule[] tmodules = target.modules();
-		//DwarfModule[] modules;
-		ElfModule[] modules;
-
-		modules.length = tmodules.length;
-		foreach (i, tmod; tmodules)
-		    modules[i] = new ElfModule(tmod);
+		TargetModule[] modules = target.modules();
 
 		// Put a breakpoint on main and continue up to that point
 		Breakpoint bpMain;
 		foreach (mod; modules) {
-		    Symbol* s = mod.lookupSymbol("main");
-		    if (s) {
-			bpMain = target.setBreakpoint(s.value);
-		    }
+		    TargetSymbol ts;
+		    if (mod.lookupSymbol("main", ts))
+			bpMain = target.setBreakpoint(ts.value);
 		}
 		target.cont();
 		target.wait();

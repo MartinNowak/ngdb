@@ -122,6 +122,11 @@ interface TargetModule
     /**
      * Lookup a low-level symbol in thie module.
      */
+    bool lookupSymbol(string name, out TargetSymbol);
+
+    /**
+     * Ditto
+     */
     bool lookupSymbol(ulong addr, out TargetSymbol);
 }
 
