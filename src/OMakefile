@@ -8,6 +8,7 @@ objs[]=
 	objfile/elf64
 	objfile/debuginfo
 	objfile/dwarf
+	objfile/objfile
 	main
 	ptracetarget
 	target

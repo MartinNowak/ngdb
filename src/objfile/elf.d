@@ -57,6 +57,8 @@ import std.c.unix.unix;
 else
 import std.c.freebsd.freebsd;
 
+import objfile.objfile;
+
 struct Note {
     uint32_t	n_namesz;
     uint32_t	n_descsz;
@@ -890,19 +892,9 @@ import std.string;
 //import std.c.unix.unix;
 import sys.pread;
 
-struct Symbol
+class Elffile: Objfile
 {
-    string	name;
-    uintptr_t	value;
-    size_t	size;
-    int		type;
-    int		binding;
-    int		section;
-}
-
-class ElfFile
-{
-    static ElfFile open(string file)
+    static Objfile open(string file)
     {
 	int fd = .open(toStringz(file), O_RDONLY);
 	if (fd > 0) {
@@ -917,10 +909,10 @@ class ElfFile
 		writefln("Elf format file %s", file);
 	    switch (ei.ei_class) {
 	    case ELFCLASS32:
-		return new ElfFile32(fd);
+		return new Elffile32(fd);
 		break;
 	    case ELFCLASS64:
-		return new ElfFile64(fd);
+		return new Elffile64(fd);
 		break;
 	    default:
 		return null;
@@ -928,11 +920,16 @@ class ElfFile
 	}
     }
 
-    abstract Symbol* lookupSymbol(uintptr_t addr);
+    static this()
+    {
+	Objfile.addFileType(&open);
+    }
+
+    abstract Symbol* lookupSymbol(ulong addr);
 
     abstract Symbol* lookupSymbol(string name);
 
-    abstract uintptr_t offset();
+    abstract ulong offset();
 
     abstract bool hasSection(string name);
 
@@ -1003,7 +1000,7 @@ template ElfFileBase()
 	dynsym_ = dynsym;
     }
 
-    Symbol* lookupSymbol(uintptr_t addr)
+    Symbol* lookupSymbol(ulong addr)
     {
 	Symbol *sp;
 	sp = _lookupSymbol(addr, symtab_);
@@ -1028,7 +1025,7 @@ template ElfFileBase()
 	return null;
     }
 
-    uintptr_t offset()
+    ulong offset()
     {
 	return 0;
     }
@@ -1127,13 +1124,13 @@ private:
     Symbol[]	dynsym_;
 }
 
-class ElfFile32: ElfFile
+class Elffile32: Elffile
 {
     import objfile.elf32;
     mixin ElfFileBase;
 }
 
-class ElfFile64: ElfFile
+class Elffile64: Elffile
 {
     import objfile.elf64;
     mixin ElfFileBase;

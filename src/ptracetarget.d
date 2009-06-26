@@ -29,6 +29,7 @@ module ptracetarget;
 //debug = ptrace;
 
 import target;
+import objfile.objfile;
 import objfile.elf;
 import objfile.debuginfo;
 import objfile.dwarf;
@@ -73,9 +74,9 @@ class PtraceModule: TargetModule
 	filename_ = filename;
 	start_ = start;
 	end_ = end;
-	elf_ = ElfFile.open(filename_);
-	if (elf_ && DwarfFile.hasDebug(elf_))
-	    dwarf_ = new DwarfFile(elf_);
+	obj_ = Objfile.open(filename_);
+	if (obj_ && DwarfFile.hasDebug(obj_))
+	    dwarf_ = new DwarfFile(obj_);
     }
 
     override {
@@ -100,8 +101,8 @@ class PtraceModule: TargetModule
 	}
 	bool lookupSymbol(string name, out TargetSymbol ts)
 	{
-	    if (elf_) {
-		Symbol* s = elf_.lookupSymbol(name);
+	    if (obj_) {
+		Symbol* s = obj_.lookupSymbol(name);
 		if (s) {
 		    ts.name = s.name;
 		    ts.value = s.value;
@@ -113,9 +114,9 @@ class PtraceModule: TargetModule
 	}	
 	bool lookupSymbol(ulong addr, out TargetSymbol ts)
 	{
-	    if (elf_) {
-		addr -= elf_.offset;
-		Symbol* s = elf_.lookupSymbol(addr);
+	    if (obj_) {
+		addr -= obj_.offset;
+		Symbol* s = obj_.lookupSymbol(addr);
 		if (s) {
 		    ts = TargetSymbol(s.name, s.value, s.size);
 		    return true;
@@ -137,7 +138,7 @@ private:
     string filename_;
     ulong start_;
     ulong end_;
-    ElfFile elf_;
+    Objfile obj_;
     DwarfFile dwarf_;
 }
 

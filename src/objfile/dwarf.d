@@ -28,7 +28,7 @@ module objfile.dwarf;
 
 //debug = line;
 
-import objfile.elf;
+import objfile.objfile;
 import objfile.debuginfo;
 import std.string;
 import std.stdio;
@@ -735,21 +735,21 @@ private long parseLEB128(ref char* p)
 
 class DwarfFile: public DebugInfo
 {
-    this(ElfFile elf)
+    this(Objfile obj)
     {
-	elf_ = elf;
+	obj_ = obj;
 
-	debugInfo_ = elf_.readSection(".debug_info");
-	lineInfo_ = elf_.readSection(".debug_line");
-	abbrevTables_ = elf_.readSection(".debug_abbrev");
-	if (elf_.hasSection(".debug_ranges"))
-	    ranges_ = elf.readSection(".debug_ranges");
-	if (elf_.hasSection(".debug_str"))
-	    strtab_ = elf_.readSection(".debug_str");
+	debugInfo_ = obj_.readSection(".debug_info");
+	lineInfo_ = obj_.readSection(".debug_line");
+	abbrevTables_ = obj_.readSection(".debug_abbrev");
+	if (obj_.hasSection(".debug_ranges"))
+	    ranges_ = obj_.readSection(".debug_ranges");
+	if (obj_.hasSection(".debug_str"))
+	    strtab_ = obj_.readSection(".debug_str");
 
 	// Read .debug_pubnames if present
-	if (elf_.hasSection(".debug_pubnames")) {
-	    char[] pubnames = elf_.readSection(".debug_pubnames");
+	if (obj_.hasSection(".debug_pubnames")) {
+	    char[] pubnames = obj_.readSection(".debug_pubnames");
 	    char* p = &pubnames[0], pEnd = p + pubnames.length;
 
 	    while (p < pEnd) {
@@ -773,8 +773,8 @@ class DwarfFile: public DebugInfo
 	}
 
 	// Read .debug_pubtypes if present
-	if (elf_.hasSection(".debug_pubtypes")) {
-	    char[] pubtypes = elf_.readSection(".debug_pubtypes");
+	if (obj_.hasSection(".debug_pubtypes")) {
+	    char[] pubtypes = obj_.readSection(".debug_pubtypes");
 	    char* p = &pubtypes[0], pEnd = p + pubtypes.length;
 
 	    while (p < pEnd) {
@@ -798,8 +798,8 @@ class DwarfFile: public DebugInfo
 	}
 
 	// Read .debug_aranges if present
-	if (elf_.hasSection(".debug_aranges")) {
-	    char[] aranges = elf_.readSection(".debug_aranges");
+	if (obj_.hasSection(".debug_aranges")) {
+	    char[] aranges = obj_.readSection(".debug_aranges");
 	    char* p = &aranges[0], pEnd = p + aranges.length;
 
 	    while (p < pEnd) {
@@ -850,11 +850,11 @@ class DwarfFile: public DebugInfo
 	return null;
     }
 
-    static bool hasDebug(ElfFile elf)
+    static bool hasDebug(Objfile obj)
     {
-	if (elf.hasSection(".debug_line")
-	    && elf.hasSection(".debug_info")
-	    && elf.hasSection(".debug_abbrev"))
+	if (obj.hasSection(".debug_line")
+	    && obj.hasSection(".debug_info")
+	    && obj.hasSection(".debug_abbrev"))
 	    return true;
     }
 
@@ -1529,7 +1529,7 @@ private:
 	DIE[ulong] dieMap;	// map DIE offset to loaded DIE
     }
 
-    ElfFile elf_;
+    Objfile obj_;
     char[] debugInfo_;
     char[] lineInfo_;
     char[] ranges_;
