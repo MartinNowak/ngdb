@@ -35,7 +35,7 @@ import std.stdint;
  * Register numbers are chosen to match GDB for no particularly good
  * reason.
  */
-enum RegIA32
+enum X86Reg
 {
     EAX		= 0,
     ECX		= 1,
@@ -56,7 +56,7 @@ enum RegIA32
     GR_COUNT,
 }
 
-private string[] RegIA32Names =
+private string[] X86RegNames =
 [
     "eax",
     "ecx",
@@ -76,7 +76,7 @@ private string[] RegIA32Names =
     "gs",
 ];
 
-enum RegX86_64
+enum X86_64Reg
 {
     RAX		= 0,
     RBX		= 1,
@@ -101,7 +101,7 @@ enum RegX86_64
     GR_COUNT,
 }
 
-private string[] RegX86_64Names =
+private string[] X86_64RegNames =
 [
     "rax",
     "rbx",
@@ -132,13 +132,13 @@ private static uint32_t readle32(ubyte* p)
     return v;
 }
 
-class StateIA32: MachineState
+class X86State: MachineState
 {
     override {
 	void dumpState()
 	{
 	    foreach (i, val; gregs_) {
-		writef("%6s:%08x ", RegIA32Names[i], val);
+		writef("%6s:%08x ", X86RegNames[i], val);
 		if ((i & 3) == 3)
 		    writefln("");
 	    }
@@ -171,7 +171,7 @@ class StateIA32: MachineState
 
 	size_t grCount()
 	{
-	    return RegIA32.GR_COUNT;
+	    return X86Reg.GR_COUNT;
 	}
 
 	MachineState unwind(Target target)
@@ -180,8 +180,8 @@ class StateIA32: MachineState
 	     * Bogus version to start with - assume standard stack
 	     * frames and only unwind EBP and EIP.
 	     */
-	    uint32_t ebp = gregs_[RegIA32.EBP];
-	    uint32_t eip = gregs_[RegIA32.EIP];
+	    uint32_t ebp = gregs_[X86Reg.EBP];
+	    uint32_t eip = gregs_[X86Reg.EIP];
 	    uint32_t newebp, neweip;
 	    ubyte[] t = target.readMemory(ebp, 2*uint32_t.sizeof);
 	    newebp = readle32(&t[0]);
@@ -193,28 +193,28 @@ class StateIA32: MachineState
 	    if (newebp <= ebp)
 		return null;
 
-	    StateIA32 newState = new StateIA32;
+	    X86State newState = new X86State;
 	    newState.gregs_[] = gregs_[];
-	    newState.gregs_[RegIA32.EBP] = newebp;
-	    newState.gregs_[RegIA32.EIP] = neweip;
+	    newState.gregs_[X86Reg.EBP] = newebp;
+	    newState.gregs_[X86Reg.EIP] = neweip;
 
 	    return newState;
 	}
 
 	int pcregno()
 	{
-	    return RegIA32.EIP;
+	    return X86Reg.EIP;
 	}
     }
 
     int nameToGRegno(string regname)
     {
-	foreach (i, name; RegIA32Names)
+	foreach (i, name; X86RegNames)
 	    if (regname == name)
 		return i;
 	throw new Exception("no such register");
     }
 
 private:
-    uint32_t	gregs_[RegIA32.GR_COUNT];
+    uint32_t	gregs_[X86Reg.GR_COUNT];
 }
