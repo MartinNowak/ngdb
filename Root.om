@@ -1,3 +1,5 @@
+# -*- Makefile -*-
+
 .PHONY:	clean
 
 #USE_DMD=yes
@@ -28,12 +30,27 @@ if $(defined USE_LDC)
 
 LIBS[]=
 ELIBS[]=
+INCLUDES[]=
+
+ScanD(name) =
+	deps[] =
+	oname = $(replacesuffixes .d, .o, $(name))
+	awk($(name))
+	case $'import[[:space:]]*\([[:alpha:]][[:alnum:]]*(\.[[:alpha:]][[:alnum:]]*)*\)'
+		dep = $(concat /, $(split '.', $1)).d
+		if $(file-exists $(dep))
+			deps[] += $(dep)
+			export
+	default
+	println($"$(oname): $(deps)")
 
 Objfile(name) =
-	ofile = $(file $(name).o)
-	dfile = $(file $(name).d)
+	ofile = $(name).o
+	dfile = $(name).d
 
-	$(ofile): $(dfile)
+	.SCANNER: scan-d-$(basename $(dfile)): $(dfile) :value: $(digest-in-path-optional $(INCLUDES), $&)
+		ScanD($<)
+	$(ofile): $(dfile) :scanner: scan-d-$(basename $(dfile))
 		$(DMD) -c $(DFLAGS) -of$@ $(absname $^)
 
 	return $(ofile)
@@ -45,20 +62,18 @@ Objfiles(files) =
 		ofiles += $(Objfile $i)
 		export
 
-	clean::
-		rm -f $(ofiles)
-
 	return $(ofiles)
 
 Program(name, files) =
-	$(name): $(Objfiles $(files)) $(LIBS)
+	ofiles = $(Objfiles $(files))
+	$(name): $(ofiles) $(LIBS)
 		$(DMD) $(LDFLAGS) -of$@ \
 			$(filter %.o, $^) \
 			$(LIBS) \
 			$(addprefix -L-l, $(ELIBS))
 
 	clean::
-		rm -f $(name)
+		rm -f $(name) $(ofiles)
 
 	return $(name)
 

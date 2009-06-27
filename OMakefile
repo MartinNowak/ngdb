@@ -2,4 +2,4 @@ ROOT= $(dir .)
 
 .SUBDIRS: src # gtkD
 
-Program(hello, hello)
+Program(hello, hello foo)
