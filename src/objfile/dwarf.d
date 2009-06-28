@@ -1889,326 +1889,6 @@ private:
 	return null;
     }
 
-    struct NameSet
-    {
-	ulong cuOffset;
-	ulong names[string];
-    }
-
-    class AttributeValue
-    {
-	this(int f, ref char* p, int addrlen, char[] strtab)
-	{
-	    form = f;
-	again:
-	    switch (form) {
-	    case DW_FORM_ref_addr:
-	    case DW_FORM_addr:
-		if (addrlen == 4)
-		    ul = parseUInt(p);
-		else
-		    ul = parseULong(p);
-		break;
-
-	    case DW_FORM_block:
-		b.length = parseULEB128(p);
-		goto readBlock;
-
-	    case DW_FORM_block1:
-		b.length = parseUByte(p);
-		goto readBlock;
-
-	    case DW_FORM_block2:
-		b.length = parseUShort(p);
-	    readBlock:
-		b.start = p;
-		p += b.length;
-		break;
-
-	    case DW_FORM_block4:
-		b.length = parseUInt(p);
-		goto readBlock;
-	    
-	    case DW_FORM_ref1:
-	    case DW_FORM_data1:
-		ul = parseUByte(p);
-		break;
-
-	    case DW_FORM_ref2:
-	    case DW_FORM_data2:
-		ul = parseUShort(p);
-		break;
-
-	    case DW_FORM_ref4:
-	    case DW_FORM_data4:
-		ul = parseUInt(p);
-		break;
-
-	    case DW_FORM_ref8:
-	    case DW_FORM_data8:
-		ul = parseULong(p);
-		break;
-
-	    case DW_FORM_string:
-		str = p;
-		while (*p)
-		    p++;
-		p++;
-		break;
-
-	    case DW_FORM_flag:
-		ul = parseUByte(p);
-		break;
-
-	    case DW_FORM_sdata:
-		l = parseSLEB128(p);
-		break;
-
-	    case DW_FORM_strp:
-		ulong off;
-		if (addrlen == 4)
-		    off = parseUInt(p);
-		else
-		    off = parseULong(p);
-		str = &strtab[off];
-		break;
-
-	    case DW_FORM_udata:
-	    case DW_FORM_ref_udata:
-		ul = parseULEB128(p);
-		break;
-
-	    case DW_FORM_indirect:
-		form = parseULEB128(p);
-		goto again;
-	    }
-	}
-
-	void print()
-	{
-
-	    switch (form) {
-	    case DW_FORM_ref_addr:
-	    case DW_FORM_addr:
-	    case DW_FORM_ref1:
-	    case DW_FORM_data1:
-	    case DW_FORM_ref2:
-	    case DW_FORM_data2:
-	    case DW_FORM_ref4:
-	    case DW_FORM_data4:
-	    case DW_FORM_ref8:
-	    case DW_FORM_data8:
-	    case DW_FORM_flag:
-	    case DW_FORM_udata:
-	    case DW_FORM_ref_udata:
-		writefln("%d", ul);
-		break;
-
-	    case DW_FORM_block:
-	    case DW_FORM_block1:
-	    case DW_FORM_block2:
-	    case DW_FORM_block4:
-		writefln("block[%d]", b.length);
-		break;
-
-	    case DW_FORM_string:
-	    case DW_FORM_strp:
-		writefln("%s", std.string.toString(str));
-		break;
-
-	    case DW_FORM_sdata:
-		writefln("%ld", l);
-		break;
-
-	    default:
-		writefln("???");
-	    }
-	}
-
-	int form;
-	struct block {
-	    size_t length;
-	    char* start;
-	}
-
-	union {
-	    ulong ul;
-	    long l;
-	    char* str;
-	    block b;
-	}
-    }
-
-    struct AddressRange
-    {
-	bool contains(ulong pc)
-	{
-	    return pc >= start && pc < end;
-	}
-
-	ulong start;
-	ulong end;
-    }
-
-    class DIE
-    {
-	int tag;
-	bool hasChildren;
-	bool is64;
-	AttributeValue attrs[int];
-	DIE[] children;
-	AddressRange[] addresses; // set of address ranges for this DIE
-
-	this(CompilationUnit cu, char* base, ref char* diep,
-	     uint abbrevCode, char*[int] abbrevTable,
-	     int addrlen, char[] strtab)
-	{
-	    char* abbrevp = abbrevTable[abbrevCode];
-	    tag = parseULEB128(abbrevp);
-	    hasChildren = *abbrevp++ == DW_CHILDREN_yes;
-	    is64 = cu.is64;
-
-	    for (;;) {
-		int at = parseULEB128(abbrevp);
-		int form = parseULEB128(abbrevp);
-		if (!at)
-		    break;
-		AttributeValue val = new AttributeValue(form, diep,
-							addrlen, strtab);
-		attrs[at] = val;
-	    }
-	    if (hasChildren) {
-		char* p = diep;
-		while ((abbrevCode = parseULEB128(diep)) != 0) {
-		    DIE die = new DIE(cu, base, diep,
-				      abbrevCode, abbrevTable,
-				      addrlen, strtab);
-
-		    cu.dieMap[p - base] = die;
-		    children ~= die;
-		    p = diep;
-		}
-	    }
-	}
-
-	AttributeValue opIndex(int at)
-	{
-	    try {
-		return attrs[at];
-	    } catch (Exception e) {
-		return null;
-	    }
-	}
-
-	bool contains(ulong pc)
-	{
-	    if (addresses.length) {
-		for (int i = 0; i < addresses.length; i++)
-		    if (addresses[i].contains(pc))
-			return true;
-	    } else {
-		if (this[DW_AT_low_pc]
-		    && this[DW_AT_high_pc]) {
-		    addresses ~= AddressRange(this[DW_AT_low_pc].ul,
-					      this[DW_AT_high_pc].ul);
-		} else if (this[DW_AT_ranges]) {
-		    char[] ranges = debugSection(".debug_ranges");
-		    char* p = &ranges[this[DW_AT_ranges].ul];
-		    for (;;) {
-			ulong start, end;
-			start = parseOffset(p, is64);
-			end = parseOffset(p, is64);
-			if (start == 0 && end == 0)
-			    break;
-			addresses ~= AddressRange(start, end);
-		    }
-		} else {
-		    throw new Exception(
-			"DIE has no address range info");
-		}
-
-		// Now that we have parsed the DIE's location, try again
-		return contains(pc);
-	    }
-	}
-
-	void printIndent(int indent)
-	{
-	    for (int i = 0; i < indent; i++)
-		writef(" ");
-	}
-
-	void print(int indent)
-	{
-	    printIndent(indent);
-	    writefln("%s", tagNames[tag]);
-	    foreach (at, val; attrs) {
-		printIndent(indent + 1);
-		writef("%s = ", attrNames[at]);
-		val.print();
-	    }
-	    if (hasChildren) {
-		foreach (kid; children)
-		    kid.print(indent + 2);
-	    }
-	}
-    }
-
-
-    class CompilationUnit
-    {
-	this(DwarfFile df)
-	{
-	    parent = df;
-	}
-
-	bool contains(ulong pc)
-	{
-	    if (addresses.length) {
-		for (int i = 0; i < addresses.length; i++)
-		    if (addresses[i].contains(pc))
-			return true;
-		return false;
-	    } else {
-		// Load the DIE if necessary and check its attributes
-		assert(die is null);
-		loadDIE();
-		addresses = die.addresses;
-
-		// Now that we have loaded the DIE, try again
-		return contains(pc);
-	    }
-	}
-
-	void loadDIE()
-	{
-	    if (!die) {
-		char[] info = parent.debugSection(".debug_info");
-		char* p = &info[offset];
-		parent.parseCompilationUnit(this, p);
-		if (!die)
-		    throw new Exception(
-			"Can't load DIE for compilation unit");
-	    }
-	}
-
-	DIE findSubprogram(ulong pc)
-	{
-	    foreach (kid; die.children)
-		if (kid.tag == DW_TAG_subprogram && kid.contains(pc))
-		    return kid;
-	    return null;
-	}
-
-	DwarfFile parent;
-	ulong offset;		// Offset in .debug_info
-	bool is64;		// CU uses 64bit dwarf
-	uint addressSize;	// size in bytes of an address
-	uint segmentSize;	// size in bytes of a segment
-	AddressRange[] addresses; // set of address ranges for this CU
-	DIE die;		// top-level DIE for this CU
-	DIE[ulong] dieMap;	// map DIE offset to loaded DIE
-    }
 
     Objfile obj_;
     char[] debugSections_[string];
@@ -2219,6 +1899,330 @@ private:
 }
 
 private:
+
+struct NameSet
+{
+    ulong cuOffset;
+    ulong names[string];
+}
+
+class AttributeValue
+{
+    this(int f, ref char* p, int addrlen, char[] strtab)
+    {
+	form = f;
+    again:
+	switch (form) {
+	case DW_FORM_ref_addr:
+	case DW_FORM_addr:
+	    if (addrlen == 4)
+		ul = parseUInt(p);
+	    else
+		ul = parseULong(p);
+	    break;
+
+	case DW_FORM_block:
+	    b.length = parseULEB128(p);
+	    goto readBlock;
+
+	case DW_FORM_block1:
+	    b.length = parseUByte(p);
+	    goto readBlock;
+
+	case DW_FORM_block2:
+	    b.length = parseUShort(p);
+	readBlock:
+	    b.start = p;
+	    p += b.length;
+	    break;
+
+	case DW_FORM_block4:
+	    b.length = parseUInt(p);
+	    goto readBlock;
+	    
+	case DW_FORM_ref1:
+	case DW_FORM_data1:
+	    ul = parseUByte(p);
+	    break;
+
+	case DW_FORM_ref2:
+	case DW_FORM_data2:
+	    ul = parseUShort(p);
+	    break;
+
+	case DW_FORM_ref4:
+	case DW_FORM_data4:
+	    ul = parseUInt(p);
+	    break;
+
+	case DW_FORM_ref8:
+	case DW_FORM_data8:
+	    ul = parseULong(p);
+	    break;
+
+	case DW_FORM_string:
+	    str = p;
+	    while (*p)
+		p++;
+	    p++;
+	    break;
+
+	case DW_FORM_flag:
+	    ul = parseUByte(p);
+	    break;
+
+	case DW_FORM_sdata:
+	    l = parseSLEB128(p);
+	    break;
+
+	case DW_FORM_strp:
+	    ulong off;
+	    if (addrlen == 4)
+		off = parseUInt(p);
+	    else
+		off = parseULong(p);
+	    str = &strtab[off];
+	    break;
+
+	case DW_FORM_udata:
+	case DW_FORM_ref_udata:
+	    ul = parseULEB128(p);
+	    break;
+
+	case DW_FORM_indirect:
+	    form = parseULEB128(p);
+	    goto again;
+	}
+    }
+
+    void print()
+    {
+
+	switch (form) {
+	case DW_FORM_ref_addr:
+	case DW_FORM_addr:
+	case DW_FORM_ref1:
+	case DW_FORM_data1:
+	case DW_FORM_ref2:
+	case DW_FORM_data2:
+	case DW_FORM_ref4:
+	case DW_FORM_data4:
+	case DW_FORM_ref8:
+	case DW_FORM_data8:
+	case DW_FORM_flag:
+	case DW_FORM_udata:
+	case DW_FORM_ref_udata:
+	    writefln("%d", ul);
+	    break;
+
+	case DW_FORM_block:
+	case DW_FORM_block1:
+	case DW_FORM_block2:
+	case DW_FORM_block4:
+	    writefln("block[%d]", b.length);
+	    break;
+
+	case DW_FORM_string:
+	case DW_FORM_strp:
+	    writefln("%s", std.string.toString(str));
+	    break;
+
+	case DW_FORM_sdata:
+	    writefln("%ld", l);
+	    break;
+
+	default:
+	    writefln("???");
+	}
+    }
+
+    int form;
+    struct block {
+	size_t length;
+	char* start;
+    }
+
+    union {
+	ulong ul;
+	long l;
+	char* str;
+	block b;
+    }
+}
+
+struct AddressRange
+{
+    bool contains(ulong pc)
+    {
+	return pc >= start && pc < end;
+    }
+
+    ulong start;
+    ulong end;
+}
+
+class DIE
+{
+    DwarfFile top;
+    int tag;
+    bool hasChildren;
+    bool is64;
+    AttributeValue attrs[int];
+    DIE[] children;
+    AddressRange[] addresses; // set of address ranges for this DIE
+
+    this(CompilationUnit cu, char* base, ref char* diep,
+	 uint abbrevCode, char*[int] abbrevTable,
+	 int addrlen, char[] strtab)
+    {
+	top = cu.parent;
+
+	char* abbrevp = abbrevTable[abbrevCode];
+	tag = parseULEB128(abbrevp);
+	hasChildren = *abbrevp++ == DW_CHILDREN_yes;
+	is64 = cu.is64;
+
+	for (;;) {
+	    int at = parseULEB128(abbrevp);
+	    int form = parseULEB128(abbrevp);
+	    if (!at)
+		break;
+	    AttributeValue val = new AttributeValue(form, diep,
+						    addrlen, strtab);
+	    attrs[at] = val;
+	}
+	if (hasChildren) {
+	    char* p = diep;
+	    while ((abbrevCode = parseULEB128(diep)) != 0) {
+		DIE die = new DIE(cu, base, diep,
+				  abbrevCode, abbrevTable,
+				  addrlen, strtab);
+
+		cu.dieMap[p - base] = die;
+		children ~= die;
+		p = diep;
+	    }
+	}
+    }
+
+    AttributeValue opIndex(int at)
+    {
+	try {
+	    return attrs[at];
+	} catch (Exception e) {
+	    return null;
+	}
+    }
+
+    bool contains(ulong pc)
+    {
+	if (addresses.length) {
+	    for (int i = 0; i < addresses.length; i++)
+		if (addresses[i].contains(pc))
+		    return true;
+	} else {
+	    if (this[DW_AT_low_pc]
+		&& this[DW_AT_high_pc]) {
+		addresses ~= AddressRange(this[DW_AT_low_pc].ul,
+					  this[DW_AT_high_pc].ul);
+	    } else if (this[DW_AT_ranges]) {
+		char[] ranges = top.debugSection(".debug_ranges");
+		char* p = &ranges[this[DW_AT_ranges].ul];
+		for (;;) {
+		    ulong start, end;
+		    start = parseOffset(p, is64);
+		    end = parseOffset(p, is64);
+		    if (start == 0 && end == 0)
+			break;
+		    addresses ~= AddressRange(start, end);
+		}
+	    } else {
+		throw new Exception(
+		    "DIE has no address range info");
+	    }
+
+	    // Now that we have parsed the DIE's location, try again
+	    return contains(pc);
+	}
+    }
+
+    void printIndent(int indent)
+    {
+	for (int i = 0; i < indent; i++)
+	    writef(" ");
+    }
+
+    void print(int indent)
+    {
+	printIndent(indent);
+	writefln("%s", tagNames[tag]);
+	foreach (at, val; attrs) {
+	    printIndent(indent + 1);
+	    writef("%s = ", attrNames[at]);
+	    val.print();
+	}
+	if (hasChildren) {
+	    foreach (kid; children)
+		kid.print(indent + 2);
+	}
+    }
+}
+
+
+class CompilationUnit
+{
+    this(DwarfFile df)
+    {
+	parent = df;
+    }
+
+    bool contains(ulong pc)
+    {
+	if (addresses.length) {
+	    for (int i = 0; i < addresses.length; i++)
+		if (addresses[i].contains(pc))
+		    return true;
+	    return false;
+	} else {
+	    // Load the DIE if necessary and check its attributes
+	    assert(die is null);
+	    loadDIE();
+	    addresses = die.addresses;
+
+	    // Now that we have loaded the DIE, try again
+	    return contains(pc);
+	}
+    }
+
+    void loadDIE()
+    {
+	if (!die) {
+	    char[] info = parent.debugSection(".debug_info");
+	    char* p = &info[offset];
+	    parent.parseCompilationUnit(this, p);
+	    if (!die)
+		throw new Exception(
+		    "Can't load DIE for compilation unit");
+	}
+    }
+
+    DIE findSubprogram(ulong pc)
+    {
+	foreach (kid; die.children)
+	    if (kid.tag == DW_TAG_subprogram && kid.contains(pc))
+		return kid;
+	return null;
+    }
+
+    DwarfFile parent;
+    ulong offset;		// Offset in .debug_info
+    bool is64;		// CU uses 64bit dwarf
+    uint addressSize;	// size in bytes of an address
+    uint segmentSize;	// size in bytes of a segment
+    AddressRange[] addresses; // set of address ranges for this CU
+    DIE die;		// top-level DIE for this CU
+    DIE[ulong] dieMap;	// map DIE offset to loaded DIE
+}
 
 class CIE
 {
