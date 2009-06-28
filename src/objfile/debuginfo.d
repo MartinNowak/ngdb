@@ -27,6 +27,8 @@
 module objfile.debuginfo;
 version(tangobos) import std.compat;
 
+import machine.machine;
+
 /**
  * This structure is used to represent line number information
  * extracted from the debug info.
@@ -75,4 +77,9 @@ interface DebugInfo
      * functions). Return true if any line entry matched.
      */
     bool findLineByFunction(string func, out LineEntry[] res);
+
+    /**
+     * Find the stack frame base associated with the given machine state.
+     */
+    bool findFrameBase(MachineState state, out ulong loc);
 }
