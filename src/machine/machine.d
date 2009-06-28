@@ -28,6 +28,10 @@ module machine.machine;
 import target;
 version(tangobos) import std.compat;
 
+/**
+ * A representation of the target machine. Registers are indexed by
+ * dwarf register number.
+ */
 interface MachineState
 {
     void dumpState();
@@ -68,9 +72,19 @@ interface MachineState
     int pcregno();
 
     /**
+     * Read from the machine's memory.
+     */
+    ubyte[] readMemory(ulong address, size_t bytes);
+
+    /**
+     * Write to the machine's memory.
+     */
+    void writeMemory(ulong address, ubyte[] toWrite);
+
+    /**
      * Return a new machine state which is the result of unwinding one
      * state frame from the current state. If there is no calling
      * frame, return null.
      */
-    MachineState unwind(Target);
+    MachineState unwind();
 }

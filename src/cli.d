@@ -780,7 +780,7 @@ class WhereCommand: Command
 	    while (s) {
 		writefln("%d: %s", i + 1,
 			 db.describeAddress(s.getGR(s.pcregno)));
-		s = s.unwind(db.target_);
+		s = s.unwind();
 		i++;
 	    }
 	}

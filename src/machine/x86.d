@@ -32,8 +32,7 @@ import std.stdio;
 import std.stdint;
 
 /**
- * Register numbers are chosen to match GDB for no particularly good
- * reason.
+ * Register numbers are chosen to match Dwarf debug info.
  */
 enum X86Reg
 {
@@ -134,6 +133,11 @@ private static uint32_t readle32(ubyte* p)
 
 class X86State: MachineState
 {
+    this(Target target)
+    {
+	target_ = target;
+    }
+
     override {
 	void dumpState()
 	{
@@ -174,7 +178,7 @@ class X86State: MachineState
 	    return X86Reg.GR_COUNT;
 	}
 
-	MachineState unwind(Target target)
+	MachineState unwind()
 	{
 	    /*
 	     * Bogus version to start with - assume standard stack
@@ -183,7 +187,7 @@ class X86State: MachineState
 	    uint32_t ebp = gregs_[X86Reg.EBP];
 	    uint32_t eip = gregs_[X86Reg.EIP];
 	    uint32_t newebp, neweip;
-	    ubyte[] t = target.readMemory(ebp, 2*uint32_t.sizeof);
+	    ubyte[] t = target_.readMemory(ebp, 2*uint32_t.sizeof);
 	    newebp = readle32(&t[0]);
 	    neweip = readle32(&t[newebp.sizeof]);
 	    
@@ -193,7 +197,7 @@ class X86State: MachineState
 	    if (newebp <= ebp)
 		return null;
 
-	    X86State newState = new X86State;
+	    X86State newState = new X86State(target_);
 	    newState.gregs_[] = gregs_[];
 	    newState.gregs_[X86Reg.EBP] = newebp;
 	    newState.gregs_[X86Reg.EIP] = neweip;
@@ -205,6 +209,17 @@ class X86State: MachineState
 	{
 	    return X86Reg.EIP;
 	}
+
+	ubyte[] readMemory(ulong address, size_t bytes)
+	{
+	    return target_.readMemory(address, bytes);
+	}
+
+	void writeMemory(ulong address, ubyte[] toWrite)
+	{
+	    target_.writeMemory(address, toWrite);
+	}
+
     }
 
     int nameToGRegno(string regname)
@@ -216,5 +231,6 @@ class X86State: MachineState
     }
 
 private:
+    Target	target_;
     uint32_t	gregs_[X86Reg.GR_COUNT];
 }
