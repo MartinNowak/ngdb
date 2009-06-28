@@ -762,12 +762,6 @@ class DwarfFile: public DebugInfo
     {
 	obj_ = obj;
 
-	debugInfo_ = obj_.readSection(".debug_info");
-	lineInfo_ = obj_.readSection(".debug_line");
-	locInfo_ = obj_.readSection(".debug_loc");
-	abbrevTables_ = obj_.readSection(".debug_abbrev");
-	if (obj_.hasSection(".debug_ranges"))
-	    ranges_ = obj_.readSection(".debug_ranges");
 	if (obj_.hasSection(".debug_str"))
 	    strtab_ = obj_.readSection(".debug_str");
 
@@ -856,16 +850,27 @@ class DwarfFile: public DebugInfo
 	} else {
 	    // If there is no .debug_aranges section, just read all
 	    // the .debug_info section now.
-	    char* p = &debugInfo_[0], pNext, ep = p + debugInfo_.length;
+	    char[] debugInfo = debugSection(".debug_info");
+	    char* p = &debugInfo[0], pNext, ep = p + debugInfo.length;
 	    bool is64;
 	    size_t len;
 
 	    do {
 		CompilationUnit cu = new CompilationUnit(this);
-		cu.offset = p - &debugInfo_[0];
+		cu.offset = p - &debugInfo[0];
 		parseCompilationUnit(cu, p);
 		compilationUnits_[cu.offset] = cu;
 	    } while (p < ep);
+	}
+    }
+
+    char[] debugSection(string name)
+    {
+	try {
+	    return debugSections_[name];
+	} catch (Exception e) {
+	    debugSections_[name] = obj_.readSection(name);
+	    return debugSections_[name];
 	}
     }
 
@@ -912,7 +917,8 @@ class DwarfFile: public DebugInfo
 	    auto cu = findCU(address);
 	    if (cu) {
 		uint lineOffset = cu.die[DW_AT_stmt_list].ul;
-		char* p = &lineInfo_[lineOffset];
+		char[] lines = debugSection(".debug_line");
+		char* p = &lines[lineOffset];
 		parseLineTable(p, &processEntry);
 		return found;
 	    }
@@ -936,7 +942,8 @@ class DwarfFile: public DebugInfo
 	    foreach (cu; compilationUnits_) {
 		cu.loadDIE;
 		uint lineOffset = cu.die.attrs[DW_AT_stmt_list].ul;
-		char* p = &lineInfo_[lineOffset];
+		char[] lines = debugSection(".debug_line");
+		char* p = &lines[lineOffset];
 		parseLineTable(p, &processEntry);
 	    }
 	    return found;
@@ -965,8 +972,9 @@ class DwarfFile: public DebugInfo
 	bool findFrameBase(MachineState state, out ulong loc)
 	{
 	    auto cu = findCU(state.getGR(state.pcregno));
-	    auto loclist = cu.die[DW_AT_frame_base];
-	    return false;
+	    auto off = cu.die[DW_AT_frame_base].ul;
+	    char[] locs = debugSection(".debug_loc");
+	    return evalLoclist(cu, &locs[off], state, loc);
 	}
     }
 
@@ -985,7 +993,8 @@ private:
 	uint abbrevOffset = parseOffset(p, is64);
 	uint addrlen = parseUByte(p);
 
-	char* abbrevp = &abbrevTables_[abbrevOffset];
+	char[] abbrev = debugSection(".debug_abbrev");
+	char* abbrevp = &abbrev[abbrevOffset];
 	char* abbrevTable[int];
 	for (;;) {
 	    ulong code = parseULEB128(abbrevp);
@@ -1280,10 +1289,15 @@ private:
 	}
     }
 
-    void evalExpr(CompilationUnit cu, char* p, char* pEnd, MachineState state)
+    bool evalExpr(CompilationUnit cu, char* p, char* pEnd, MachineState state,
+	out ulong result)
     {
 	class ValueStack
 	{
+	    size_t length()
+	    {
+		return stack.length;
+	    }
 	    void push(long v)
 	    {
 		stack ~= v;
@@ -1387,7 +1401,12 @@ private:
 		    break;
 
 		case DW_OP_fbreg:
-		    parseSLEB128(p); // XXX offset from DW_AT_frame_base expr
+		    ulong frame;
+		    v = parseSLEB128(p);
+		    if (findFrameBase(state, frame))
+			stack.push(frame + v);
+		    else
+			stack.push(0);
 		    break;
 
 		case DW_OP_bregx:
@@ -1631,6 +1650,38 @@ private:
 		}
 	    }
 	}
+	if (stack.length > 0) {
+	    result = stack.top;
+	    return true;
+	}
+	return false;
+    }
+
+    bool evalLoclist(CompilationUnit cu, char* p, MachineState state,
+	out ulong result)
+    {
+	ulong pc = state.getGR(state.pcregno);
+	ulong s, e, base;
+
+	base = cu.die[DW_AT_low_pc].ul;
+	for (;;) {
+	    s = parseOffset(p, cu.is64);
+	    e = parseOffset(p, cu.is64);
+	    if (s == 0 && e == 0)
+		break;
+	    if ((cu.is64 && s == 0xffffffffffffffff) || s == 0xffffffff) {
+		base = e;
+		continue;
+	    }
+	    size_t expLen = parseUShort(p);
+	    char* expStart = p;
+	    char* expEnd = p + expLen;
+	    p = expEnd;
+	    if (pc >= base + s && pc < base + e) {
+		return evalExpr(cu, expStart, expEnd, state, result);
+	    }
+	}
+	return false;
     }
 
     /**
@@ -1895,7 +1946,8 @@ private:
 		    addresses ~= AddressRange(die.attrs[DW_AT_low_pc].ul,
 					      die.attrs[DW_AT_high_pc].ul);
 		} else if (die.attrs[DW_AT_ranges]) {
-		    char* p = &ranges_[die.attrs[DW_AT_ranges].ul];
+		    char[] ranges = debugSection(".debug_ranges");
+		    char* p = &ranges[die.attrs[DW_AT_ranges].ul];
 		    for (;;) {
 			ulong start, end;
 			start = parseOffset(p, is64);
@@ -1918,7 +1970,8 @@ private:
 	void loadDIE()
 	{
 	    if (!die) {
-		char* p = &debugInfo_[offset];
+		char[] info = parent.debugSection(".debug_info");
+		char* p = &info[offset];
 		parent.parseCompilationUnit(this, p);
 		if (!die)
 		    throw new Exception(
@@ -1937,11 +1990,7 @@ private:
     }
 
     Objfile obj_;
-    char[] debugInfo_;
-    char[] lineInfo_;
-    char[] ranges_;
-    char[] abbrevTables_;
-    char[] locInfo_;
+    char[] debugSections_[string];
     char[] strtab_;
     NameSet[] pubnames_;
     CompilationUnit[ulong] compilationUnits_;
