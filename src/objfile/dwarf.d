@@ -2282,10 +2282,10 @@ class FDE
 
     MachineState unwind(MachineState state)
     {
-	FrameState cieFs, fs;
+	FrameState cieFs, fdeFs;
 
 	cieFs.clear(this, state.grCount);
-	fs.clear(this, state.grCount);
+	fdeFs.clear(this, state.grCount);
 
 	void execute(char* p, char* pEnd, ulong pc, ref FrameState fs)
 	{
@@ -2354,10 +2354,15 @@ class FDE
 		    break;
 			
 		case DW_CFA_offset_extended:
-		case DW_CFA_offset_extended_sf: // XXX not sure about this
 		    reg = parseULEB128(p);
 		    fs.regs[reg].rule = RLoc.Rule.offsetN;
 		    fs.regs[reg].N = parseULEB128(p) * cie.dataAlign;
+		    break;
+
+		case DW_CFA_offset_extended_sf:
+		    reg = parseULEB128(p);
+		    fs.regs[reg].rule = RLoc.Rule.offsetN;
+		    fs.regs[reg].N = parseSLEB128(p) * cie.dataAlign;
 		    break;
 
 		case DW_CFA_val_offset:
@@ -2402,13 +2407,14 @@ class FDE
 	auto pc = state.getGR(state.pcregno);
 	execute(cie.instructionStart, cie.instructionEnd, pc, cieFs);
 
-	fs = cieFs;
-	execute(instructionStart, instructionEnd, pc, fs);
+	fdeFs = cieFs;
+	execute(instructionStart, instructionEnd, pc, fdeFs);
 
-	if (fs.regs[cie.returnAddress].rule == RLoc.Rule.undefined)
+	if (fdeFs.regs[cie.returnAddress].rule == RLoc.Rule.undefined)
 	    return null;
 	MachineState newState = state.dup;
-	foreach (i, rl; fs.regs) {
+	ulong cfa = state.getGR(fdeFs.cfaReg) + fdeFs.cfaOffset;
+	foreach (i, rl; fdeFs.regs) {
 	    long off;
 	    ubyte[] b;
 	    switch (rl.rule) {
@@ -2417,9 +2423,8 @@ class FDE
 		break;
 
 	    case RLoc.Rule.offsetN:
-		off = rl.N + fs.cfaOffset;
-		b = state.readMemory(state.getGR(fs.cfaReg) + off,
-				     is64 ? 8 : 4);
+		off = rl.N;
+		b = state.readMemory(cfa + off, is64 ? 8 : 4);
 		// XXX endian
 		if (is64)
 		    newState.setGR(i, *cast(ulong*) &b[0]);
@@ -2428,8 +2433,8 @@ class FDE
 		break;
 
 	    case RLoc.Rule.valOffsetN:
-		off = rl.N + fs.cfaOffset;
-		newState.setGR(i, state.getGR(fs.cfaReg) + off);
+		off = rl.N;
+		newState.setGR(i, cfa + off);
 		break;
 		    
 	    case RLoc.Rule.registerR:
