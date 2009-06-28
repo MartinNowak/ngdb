@@ -82,9 +82,7 @@ interface MachineState
     void writeMemory(ulong address, ubyte[] toWrite);
 
     /**
-     * Return a new machine state which is the result of unwinding one
-     * state frame from the current state. If there is no calling
-     * frame, return null.
+     * Make a copy of the machine state
      */
-    MachineState unwind();
+    MachineState dup();
 }

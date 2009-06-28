@@ -616,6 +616,38 @@ enum
     DW_MACINFO_vendor_ext		= 0xff,
 }
 
+enum
+{
+    DW_CFA_advance_loc			= 0x40,
+    DW_CFA_offset			= 0x80,
+    DW_CFA_restore			= 0xc0,
+    DW_CFA_nop				= 0x00,
+    DW_CFA_set_loc			= 0x01,
+    DW_CFA_advance_loc1			= 0x02,
+    DW_CFA_advance_loc2			= 0x03,
+    DW_CFA_advance_loc4			= 0x04,
+    DW_CFA_offset_extended		= 0x05,
+    DW_CFA_restore_extended		= 0x06,
+    DW_CFA_undefined			= 0x07,
+    DW_CFA_same_value			= 0x08,
+    DW_CFA_register			= 0x09,
+    DW_CFA_remember_state		= 0x0a,
+    DW_CFA_restore_state		= 0x0b,
+    DW_CFA_def_cfa			= 0x0c,
+    DW_CFA_def_cfa_register		= 0x0d,
+    DW_CFA_def_cfa_offset		= 0x0e,
+    DW_CFA_def_cfa_expression		= 0x0f,
+    DW_CFA_expression			= 0x10,
+    DW_CFA_offset_extended_sf		= 0x11,
+    DW_CFA_def_cfa_sf			= 0x12,
+    DW_CFA_def_cfa_offset_sf		= 0x13,
+    DW_CFA_val_offset			= 0x14,
+    DW_CFA_val_offset_sf		= 0x15,
+    DW_CFA_val_expression		= 0x16,
+    DW_CFA_lo_user			= 0x1c,
+    DW_CFA_hi_user			= 0x3f,
+}
+
 private ubyte parseUByte(ref char* p)
 {
     return *p++;
@@ -862,21 +894,7 @@ class DwarfFile: public DebugInfo
 		compilationUnits_[cu.offset] = cu;
 	    } while (p < ep);
 	}
-    }
-
-    char[] debugSection(string name)
-    {
-	try {
-	    return debugSections_[name];
-	} catch (Exception e) {
-	    debugSections_[name] = obj_.readSection(name);
-	    return debugSections_[name];
-	}
-    }
-
-    TargetModule findCompileUnit(ulong pc)
-    {
-	return null;
+	parseDebugFrame();
     }
 
     static bool hasDebug(Objfile obj)
@@ -991,9 +1009,72 @@ class DwarfFile: public DebugInfo
 	    }
 	    return false;
 	}
+
+	MachineState unwind(MachineState state)
+	{
+	    auto pc = state.getGR(state.pcregno);
+
+	    foreach (fde; fdes_)
+		if (fde.contains(pc))
+		    return fde.unwind(state);
+	    return null;
+	}
     }
 
 private:
+    char[] debugSection(string name)
+    {
+	try {
+	    return debugSections_[name];
+	} catch (Exception e) {
+	    debugSections_[name] = obj_.readSection(name);
+	    return debugSections_[name];
+	}
+    }
+
+    void parseDebugFrame()
+    {
+	char[] debugFrame = debugSection(".debug_frame");
+	char* pStart = &debugFrame[0];
+	char* pEnd = pStart + debugFrame.length;
+	char* p = pStart;
+
+	CIE[ulong] cies;
+
+	while (p < pEnd) {
+	    bool is64;
+	    ulong off = p - pStart;
+	    auto len = parseInitialLength(p, is64);
+	    auto entryStart = p;
+	    auto cie_id = parseOffset(p, is64);
+
+	    if ((is64 && cie_id == 0xffffffffffffffff)
+		|| (!is64 && cie_id == 0xffffffff)) {
+		// CIE
+		CIE cie = new CIE;
+		auto ver = parseUByte(p);
+		auto augmentation = parseString(p);
+		cie.codeAlign = parseULEB128(p);
+		cie.dataAlign = parseSLEB128(p);
+		cie.returnAddress = parseULEB128(p);
+		cie.instructionStart = p;
+		cie.instructionEnd = entryStart + len;
+		cies[off] = cie;
+	    } else {
+		// FDE
+		FDE fde = new FDE;
+		fde.is64 = is64;
+		fde.cie = cies[cie_id];
+		fde.initialLocation = parseOffset(p, is64);
+		fde.addressRange = parseOffset(p, is64);
+		fde.instructionStart = p;
+		fde.instructionEnd = entryStart + len;
+		fdes_ ~= fde;
+	    }
+	    p = entryStart + len;
+	}
+    }
+
     void parseCompilationUnit(CompilationUnit cu, ref char* p)
     {
 	bool is64;
@@ -1778,7 +1859,8 @@ private:
 	    e = parseOffset(p, cu.is64);
 	    if (s == 0 && e == 0)
 		break;
-	    if ((cu.is64 && s == 0xffffffffffffffff) || s == 0xffffffff) {
+	    if ((cu.is64 && s == 0xffffffffffffffff)
+		|| (!cu.is64 && s == 0xffffffff)) {
 		base = e;
 		continue;
 	    }
@@ -2133,4 +2215,232 @@ private:
     char[] strtab_;
     NameSet[] pubnames_;
     CompilationUnit[ulong] compilationUnits_;
+    FDE[] fdes_;
+}
+
+private:
+
+class CIE
+{
+    uint codeAlign;
+    int dataAlign;
+    uint returnAddress;
+    char* instructionStart;
+    char* instructionEnd;
+}
+
+class FDE
+{
+    bool is64;
+    CIE cie;
+    ulong initialLocation;
+    ulong addressRange;
+    char* instructionStart;
+    char* instructionEnd;
+
+    struct RLoc {
+	enum Rule {
+	    undefined,
+	    sameValue,
+	    offsetN,
+	    valOffsetN,
+	    registerR,
+	    expressionE,
+	    valExpressionE,
+	}
+	Rule rule;
+	union {
+	    long N;
+	    uint R;
+	    struct block {
+		char* start;
+		char* end;
+	    }
+	    block E;
+	}
+    }
+    struct FrameState {
+	void clear(FDE fde, uint numRegs)
+	{
+	    regs.length = numRegs;
+	    foreach (rloc; regs) {
+		rloc.rule = RLoc.Rule.undefined;
+	    }
+	    loc = fde.initialLocation;
+	}
+
+	RLoc regs[];
+	ulong loc;
+	uint cfaReg;
+	long cfaOffset;
+    }
+
+    bool contains(ulong pc)
+    {
+	return pc >= initialLocation && pc < initialLocation + addressRange;
+    }
+
+    MachineState unwind(MachineState state)
+    {
+	FrameState cieFs, fs;
+
+	cieFs.clear(this, state.grCount);
+	fs.clear(this, state.grCount);
+
+	void execute(char* p, char* pEnd, ulong pc, ref FrameState fs)
+	{
+	    uint reg;
+
+	    while (p < pEnd) {
+		auto op = *p++;
+		switch ((op & 0xc0) ? (op & 0xc0) : op) {
+		case DW_CFA_set_loc:
+		    fs.loc = parseOffset(p, is64);
+		    break;
+
+		case DW_CFA_advance_loc:
+		    fs.loc += (op & 0x3f) * cie.codeAlign;
+		    break;
+
+		case DW_CFA_advance_loc1:
+		    fs.loc += parseUByte(p) * cie.codeAlign;
+		    break;
+
+		case DW_CFA_advance_loc2:
+		    fs.loc += parseUShort(p) * cie.codeAlign;
+		    break;
+
+		case DW_CFA_advance_loc4:
+		    fs.loc += parseUInt(p) * cie.codeAlign;
+		    break;
+
+		case DW_CFA_def_cfa:
+		    fs.cfaReg = parseULEB128(p);
+		    fs.cfaOffset = parseULEB128(p);
+		    break;
+
+		case DW_CFA_def_cfa_sf:
+		    fs.cfaReg = parseULEB128(p);
+		    fs.cfaOffset = parseSLEB128(p) * cie.dataAlign;
+		    break;
+
+		case DW_CFA_def_cfa_register:
+		    fs.cfaReg = parseULEB128(p);
+		    break;
+
+		case DW_CFA_def_cfa_offset:
+		    fs.cfaOffset = parseULEB128(p);
+		    break;
+
+		case DW_CFA_def_cfa_offset_sf:
+		    fs.cfaOffset = parseSLEB128(p) * cie.dataAlign;
+		    break;
+
+		case DW_CFA_def_cfa_expression:
+		    throw new Exception("no support for CFA expressions");
+
+		case DW_CFA_undefined:
+		    fs.regs[parseULEB128(p)].rule = RLoc.Rule.undefined;
+		    break;
+
+		case DW_CFA_same_value:
+		    fs.regs[parseULEB128(p)].rule = RLoc.Rule.sameValue;
+		    break;
+
+		case DW_CFA_offset:
+		    reg= op & 0x3f;
+		    fs.regs[reg].rule = RLoc.Rule.offsetN;
+		    fs.regs[reg].N = parseULEB128(p) * cie.dataAlign;
+		    break;
+			
+		case DW_CFA_offset_extended:
+		case DW_CFA_offset_extended_sf: // XXX not sure about this
+		    reg = parseULEB128(p);
+		    fs.regs[reg].rule = RLoc.Rule.offsetN;
+		    fs.regs[reg].N = parseULEB128(p) * cie.dataAlign;
+		    break;
+
+		case DW_CFA_val_offset:
+		    reg = parseULEB128(p);
+		    fs.regs[reg].rule = RLoc.Rule.valOffsetN;
+		    fs.regs[reg].N = parseULEB128(p) * cie.dataAlign;
+		    break;
+
+		case DW_CFA_register:
+		    reg = parseULEB128(p);
+		    fs.regs[reg] = fs.regs[parseULEB128(p)];
+		    break;
+
+		case DW_CFA_expression:
+		    throw new Exception("no support for CFA expressions");
+
+		case DW_CFA_val_expression:
+		    throw new Exception("no support for CFA expressions");
+
+		case DW_CFA_restore:
+		    reg = op & 0x3f;
+		    fs.regs[reg] = cieFs.regs[op & 0x3f];
+		    break;
+
+		case DW_CFA_restore_extended:
+		    reg = parseULEB128(p);
+		    fs.regs[reg] = cieFs.regs[op & 0x3f];
+
+		case DW_CFA_remember_state:
+		case DW_CFA_restore_state:
+		    throw new Exception("no support for frame state stacks");
+
+		case DW_CFA_nop:
+		    break;
+		}
+		// If we have advanced past the PC, stop
+		if (pc < fs.loc)
+		    return;
+	    }
+	}
+
+	auto pc = state.getGR(state.pcregno);
+	execute(cie.instructionStart, cie.instructionEnd, pc, cieFs);
+
+	fs = cieFs;
+	execute(instructionStart, instructionEnd, pc, fs);
+
+	if (fs.regs[cie.returnAddress].rule == RLoc.Rule.undefined)
+	    return null;
+	MachineState newState = state.dup;
+	foreach (i, rl; fs.regs) {
+	    long off;
+	    ubyte[] b;
+	    switch (rl.rule) {
+	    case RLoc.Rule.undefined:
+	    case RLoc.Rule.sameValue:
+		break;
+
+	    case RLoc.Rule.offsetN:
+		off = rl.N + fs.cfaOffset;
+		b = state.readMemory(state.getGR(fs.cfaReg) + off,
+				     is64 ? 8 : 4);
+		// XXX endian
+		if (is64)
+		    newState.setGR(i, *cast(ulong*) &b[0]);
+		else
+		    newState.setGR(i, *cast(uint*) &b[0]);
+		break;
+
+	    case RLoc.Rule.valOffsetN:
+		off = rl.N + fs.cfaOffset;
+		newState.setGR(i, state.getGR(fs.cfaReg) + off);
+		break;
+		    
+	    case RLoc.Rule.registerR:
+		newState.setGR(i, state.getGR(rl.R));
+		break;
+
+	    case RLoc.Rule.expressionE:
+	    case RLoc.Rule.valExpressionE:
+		throw new Exception("no support for frame state stacks");
+	    }
+	}
+	return newState;
+    }
 }

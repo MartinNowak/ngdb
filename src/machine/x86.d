@@ -45,13 +45,13 @@ enum X86Reg
     ESI		= 6,
     EDI		= 7,
     EIP		= 8,
-    EFLAGS	= 9,
-    CS		= 10,
-    SS		= 11,
-    DS		= 12,
-    ES		= 13,
-    FS		= 14,
-    GS		= 15,
+    EFLAGS,
+    CS,
+    SS,
+    DS,
+    ES,
+    FS,
+    GS,
     GR_COUNT,
 }
 
@@ -178,30 +178,10 @@ class X86State: MachineState
 	    return X86Reg.GR_COUNT;
 	}
 
-	MachineState unwind()
+	MachineState dup()
 	{
-	    /*
-	     * Bogus version to start with - assume standard stack
-	     * frames and only unwind EBP and EIP.
-	     */
-	    uint32_t ebp = gregs_[X86Reg.EBP];
-	    uint32_t eip = gregs_[X86Reg.EIP];
-	    uint32_t newebp, neweip;
-	    ubyte[] t = target_.readMemory(ebp, 2*uint32_t.sizeof);
-	    newebp = readle32(&t[0]);
-	    neweip = readle32(&t[newebp.sizeof]);
-	    
-	    version (DEBUG_UNWIND)
-		writefln("{%x,%x} -> {%x,%x}", ebp, eip, newebp, neweip);
-
-	    if (newebp <= ebp)
-		return null;
-
 	    X86State newState = new X86State(target_);
 	    newState.gregs_[] = gregs_[];
-	    newState.gregs_[X86Reg.EBP] = newebp;
-	    newState.gregs_[X86Reg.EIP] = neweip;
-
 	    return newState;
 	}
 

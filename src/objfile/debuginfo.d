@@ -110,4 +110,11 @@ interface DebugInfo
      * Find the stack frame base associated with the given machine state.
      */
     bool findFrameBase(MachineState state, out Location loc);
+
+    /**
+     * Unwind the stack frame associated with a given machine state
+     * and return the state for the calling frame or null if there is
+     * no calling state.
+     */
+    MachineState unwind(MachineState state);
 }
