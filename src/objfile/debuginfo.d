@@ -48,6 +48,34 @@ struct LineEntry
     int isa;
 }
 
+struct Location
+{
+    enum Type {
+	Value,
+	Address,
+	Register
+    }
+    Type type;
+    size_t length;
+    union {
+	/*
+	 * A constant value or something made up as a composite of
+	 * value pieces.
+	 */
+	ubyte[] value;
+
+	/*
+	 * A value located in target memory.
+	 */
+	ulong address;
+
+	/*
+	 * A value located in a target register
+	 */
+	uint register;
+    }
+}
+
 /**
  * We use this interface to work with debug info for a particular
  * module.
@@ -81,5 +109,5 @@ interface DebugInfo
     /**
      * Find the stack frame base associated with the given machine state.
      */
-    bool findFrameBase(MachineState state, out ulong loc);
+    bool findFrameBase(MachineState state, out Location loc);
 }

@@ -969,12 +969,27 @@ class DwarfFile: public DebugInfo
 	    return res.length > 0;
 	}
 
-	bool findFrameBase(MachineState state, out ulong loc)
+	bool findFrameBase(MachineState state, out Location loc)
 	{
-	    auto cu = findCU(state.getGR(state.pcregno));
-	    auto off = cu.die[DW_AT_frame_base].ul;
-	    char[] locs = debugSection(".debug_loc");
-	    return evalLoclist(cu, &locs[off], state, loc);
+	    auto pc = state.getGR(state.pcregno);
+	    auto cu = findCU(pc);
+	    if (cu) {
+		try {
+		    //writefln("CU offset=%x", cu.offset);
+		    DIE func = cu.findSubprogram(pc);
+		    if (func) {
+			auto off = func[DW_AT_frame_base];
+			if (off) {
+			    //writefln("DW_AT_frame_base=%x", off.ul);
+			    char[] locs = debugSection(".debug_loc");
+			    return evalLoclist(cu, &locs[off.ul], state, loc);
+			}
+		    }
+		} catch (Exception e) {
+		    return false;
+		}
+	    }
+	    return false;
 	}
     }
 
@@ -1289,10 +1304,10 @@ private:
 	}
     }
 
-    bool evalExpr(CompilationUnit cu, char* p, char* pEnd, MachineState state,
-	out ulong result)
+    bool evalLocation(CompilationUnit cu, char* p, char* pEnd,
+		      MachineState state, out Location result)
     {
-	class ValueStack
+	struct ValueStack
 	{
 	    size_t length()
 	    {
@@ -1320,24 +1335,36 @@ private:
 	    {
 		stack[stack.length - 1 - i] = v;
 	    }
+	    void clear()
+	    {
+		stack.length = 0;
+	    }
 	    long[] stack;
 	}
 	ValueStack stack;
-	long v, v1;
-	int addrlen = cu.is64 ? 8 : 4;
-	ubyte[] t;
-	ubyte[] obj;
-	char* pp;
 
-	long addrWrap(long v)
+	/**
+	 * Evaluate the expression, leaving the result on the
+	 * stack. Evaluation stops at the end of the expression or at
+	 * the first DW_OP_piece or DW_OP_bit_piece.
+	 */
+	void evalExpr(ref char* p, char* pEnd)
 	{
-	    if (addrlen == 4)
-		v &= 0xffffffff;
-	    return v;
-	}
+	    long v, v1;
+	    int addrlen = cu.is64 ? 8 : 4;
+	    ubyte[] t;
+	    char* pp;
 
-	void evalExpr(char* p, char* pEnd)
-	{
+	    /**
+	     * Wrap a value based on the target address size.
+	     */
+	    long addrWrap(long v)
+	    {
+		if (addrlen == 4)
+		    v &= 0xffffffff;
+		return v;
+	    }
+
 	    while (p < pEnd) {
 		auto op = *p++;
 		if (op >= DW_OP_lit0 && op <= DW_OP_lit31) {
@@ -1347,11 +1374,6 @@ private:
 		if (op >= DW_OP_breg0 && op <= DW_OP_breg31) {
 		    v = cast(long) state.getGR(op - DW_OP_breg0)
 			+ parseSLEB128(p);
-		    stack.push(v);
-		    continue;
-		}
-		if (op >= DW_OP_reg0 && op <= DW_OP_reg31) {
-		    v = cast(long) state.getGR(op - DW_OP_reg0);
 		    stack.push(v);
 		    continue;
 		}
@@ -1401,12 +1423,12 @@ private:
 		    break;
 
 		case DW_OP_fbreg:
-		    ulong frame;
+		    Location frame;
 		    v = parseSLEB128(p);
 		    if (findFrameBase(state, frame))
-			stack.push(frame + v);
+			stack.push(frame.address + v);
 		    else
-			stack.push(0);
+			stack.push(v);
 		    break;
 
 		case DW_OP_bregx:
@@ -1625,40 +1647,127 @@ private:
 		case DW_OP_nop:
 		    break;
 
-		case DW_OP_regx:
-		    v = cast(long) state.getGR(parseULEB128(p));
-		    stack.push(v);
-		    break;
-
 		case DW_OP_piece:
-		    t.length = parseULEB128(p);
-		    v = stack.pop;
-		    //memcpy(&t[0], &v, t.length); // XXX byte swap
-		    obj ~= t;
-		    break;
-
 		case DW_OP_bit_piece:
-		    v = stack.pop();
-		    auto nbits = parseULEB128(p);
-		    auto boff = parseULEB128(p);
-		    v >>>= boff;
-		    v &= (1 << nbits) - 1;
-		    // XXX note sure how to compose into obj
-		    break;
+		    return;
 
 
 		}
 	    }
 	}
-	if (stack.length > 0) {
-	    result = stack.top;
-	    return true;
+
+	/*
+	 * Loop over the expression finding pieces to compose into the
+	 * final object.
+	 */
+	ubyte[] obj;
+	Location loc;
+	while (p < pEnd) {
+	    /*
+	     * Check for DW_OP_regN first, otherwise evaluate the
+	     * expression to get an address.
+	     */
+	    auto op = *p;
+	    if (op >= DW_OP_reg0 && op <= DW_OP_reg31) {
+		p++;
+		loc.type = Location.Type.Register;
+		loc.register = op - DW_OP_reg0;
+		loc.length = state.grWidth(loc.register) / 8;
+	    } else if (op == DW_OP_regx) {
+		p++;
+		loc.type = Location.Type.Register;
+		loc.register = parseULEB128(p);
+		loc.length = state.grWidth(loc.register) / 8;
+	    } else {
+		loc.type = Location.Type.Address;
+		loc.length = 1;
+		evalExpr(p, pEnd);
+		loc.address = stack.pop;
+		stack.clear;
+	    }
+	    if (p == pEnd) {
+		/*
+		 * Simple location
+		 */
+		result = loc;
+		return true;
+	    }
+	    if (p < pEnd) {
+		/*
+		 * Composite - add up the pieces
+		 */
+		op = *p++;
+		ubyte[] t;
+		switch (op) {
+		case DW_OP_piece:
+		    t.length = parseULEB128(p);
+		    switch (loc.type) {
+		    case Location.Type.Value:
+			t[] = loc.value[0..t.length];
+			break;
+
+		    case Location.Type.Address:
+			t[] = state.readMemory(loc.address, t.length);
+			break;
+
+		    case Location.Type.Register:
+			ubyte buf[8];
+			// XXX byte swap register value
+			*cast(long*) &buf[0] = state.getGR(loc.register);
+			t[] = buf[0..t.length];
+			break;
+
+		    }
+		    obj ~= t;
+		    break;
+
+		case DW_OP_bit_piece:
+		    auto nbits = parseULEB128(p);
+		    auto boff = parseULEB128(p);
+
+		    ulong getVal(ubyte[] t)
+		    {
+			// XXX assume LE for now.
+			ulong v = 0;
+			int shift;
+			foreach (b; t) {
+			    v |= b << shift;
+			    shift += 8;
+			}
+			return v;
+		    }
+
+		    ulong pv;
+		    switch (loc.type) {
+		    case Location.Type.Value:
+			pv = getVal(loc.value);
+			break;
+
+		    case Location.Type.Address:
+			pv = getVal(state.readMemory(loc.address,
+						     (nbits + 7) / 8));
+			break;
+
+		    case Location.Type.Register:
+			pv = state.getGR(loc.register);
+			break;
+		    }
+
+		    pv = (pv >>> boff) & ((1 << nbits) - 1);
+		    // XXX not sure how to compose into obj - need example
+		    //obj.length = 8; // XXX not correct
+		    //*cast(long*) obj = pv;
+		    break;
+
+		defaut:
+		    throw new Exception("Expected DW_OP_piece or DW_OP_bit_piece");
+		}
+	    }
 	}
-	return false;
     }
 
     bool evalLoclist(CompilationUnit cu, char* p, MachineState state,
-	out ulong result)
+	out Location result)
     {
 	ulong pc = state.getGR(state.pcregno);
 	ulong s, e, base;
@@ -1678,7 +1787,7 @@ private:
 	    char* expEnd = p + expLen;
 	    p = expEnd;
 	    if (pc >= base + s && pc < base + e) {
-		return evalExpr(cu, expStart, expEnd, state, result);
+		return evalLocation(cu, expStart, expEnd, state, result);
 	    }
 	}
 	return false;
@@ -1848,12 +1957,25 @@ private:
 	}
     }
 
+    struct AddressRange
+    {
+	bool contains(ulong pc)
+	{
+	    return pc >= start && pc < end;
+	}
+
+	ulong start;
+	ulong end;
+    }
+
     class DIE
     {
 	int tag;
 	bool hasChildren;
+	bool is64;
 	AttributeValue attrs[int];
 	DIE[] children;
+	AddressRange[] addresses; // set of address ranges for this DIE
 
 	this(CompilationUnit cu, char* base, ref char* diep,
 	     uint abbrevCode, char*[int] abbrevTable,
@@ -1862,6 +1984,7 @@ private:
 	    char* abbrevp = abbrevTable[abbrevCode];
 	    tag = parseULEB128(abbrevp);
 	    hasChildren = *abbrevp++ == DW_CHILDREN_yes;
+	    is64 = cu.is64;
 
 	    for (;;) {
 		int at = parseULEB128(abbrevp);
@@ -1888,7 +2011,43 @@ private:
 
 	AttributeValue opIndex(int at)
 	{
-	    return attrs[at];
+	    try {
+		return attrs[at];
+	    } catch (Exception e) {
+		return null;
+	    }
+	}
+
+	bool contains(ulong pc)
+	{
+	    if (addresses.length) {
+		for (int i = 0; i < addresses.length; i++)
+		    if (addresses[i].contains(pc))
+			return true;
+	    } else {
+		if (this[DW_AT_low_pc]
+		    && this[DW_AT_high_pc]) {
+		    addresses ~= AddressRange(this[DW_AT_low_pc].ul,
+					      this[DW_AT_high_pc].ul);
+		} else if (this[DW_AT_ranges]) {
+		    char[] ranges = debugSection(".debug_ranges");
+		    char* p = &ranges[this[DW_AT_ranges].ul];
+		    for (;;) {
+			ulong start, end;
+			start = parseOffset(p, is64);
+			end = parseOffset(p, is64);
+			if (start == 0 && end == 0)
+			    break;
+			addresses ~= AddressRange(start, end);
+		    }
+		} else {
+		    throw new Exception(
+			"DIE has no address range info");
+		}
+
+		// Now that we have parsed the DIE's location, try again
+		return contains(pc);
+	    }
 	}
 
 	void printIndent(int indent)
@@ -1913,16 +2072,6 @@ private:
 	}
     }
 
-    struct AddressRange
-    {
-	bool contains(ulong pc)
-	{
-	    return pc >= start && pc < end;
-	}
-
-	ulong start;
-	ulong end;
-    }
 
     class CompilationUnit
     {
@@ -1937,34 +2086,16 @@ private:
 		for (int i = 0; i < addresses.length; i++)
 		    if (addresses[i].contains(pc))
 			return true;
+		return false;
 	    } else {
 		// Load the DIE if necessary and check its attributes
 		assert(die is null);
 		loadDIE();
-		if (die.attrs[DW_AT_low_pc]
-		    && die.attrs[DW_AT_high_pc]) {
-		    addresses ~= AddressRange(die.attrs[DW_AT_low_pc].ul,
-					      die.attrs[DW_AT_high_pc].ul);
-		} else if (die.attrs[DW_AT_ranges]) {
-		    char[] ranges = debugSection(".debug_ranges");
-		    char* p = &ranges[die.attrs[DW_AT_ranges].ul];
-		    for (;;) {
-			ulong start, end;
-			start = parseOffset(p, is64);
-			end = parseOffset(p, is64);
-			if (start == 0 && end == 0)
-			    break;
-			addresses ~= AddressRange(start, end);
-		    }
-		} else {
-		    throw new Exception(
-			"Compilation unit has no address range info");
-		}
+		addresses = die.addresses;
 
 		// Now that we have loaded the DIE, try again
 		return contains(pc);
 	    }
-	    return false;
 	}
 
 	void loadDIE()
@@ -1977,6 +2108,14 @@ private:
 		    throw new Exception(
 			"Can't load DIE for compilation unit");
 	    }
+	}
+
+	DIE findSubprogram(ulong pc)
+	{
+	    foreach (kid; die.children)
+		if (kid.tag == DW_TAG_subprogram && kid.contains(pc))
+		    return kid;
+	    return null;
 	}
 
 	DwarfFile parent;
