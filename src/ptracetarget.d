@@ -209,7 +209,7 @@ class PtraceThread: TargetThread
     {
 	target_ = target;
 	lwpid_ = lwpid;
-	state_ = new X86State;
+	state_ = new X86State(target_);
     }
     override
     {
