@@ -1000,7 +1000,8 @@ class DwarfFile: public DebugInfo
 			if (off) {
 			    //writefln("DW_AT_frame_base=%x", off.ul);
 			    char[] locs = debugSection(".debug_loc");
-			    return evalLoclist(cu, &locs[off.ul], state, loc);
+			    Loclist ll = Loclist(cu.is64, &locs[off.ul]);
+			    return ll.eval(cu, state, loc);
 			}
 		    }
 		} catch (Exception e) {
@@ -1385,365 +1386,411 @@ private:
 	}
     }
 
-    bool evalLocation(CompilationUnit cu, char* p, char* pEnd,
-		      MachineState state, out Location result)
+    /**
+     * Return the CU that contains the given address, if any.
+     */
+    CompilationUnit findCU(ulong address)
     {
-	struct ValueStack
-	{
-	    size_t length()
-	    {
-		return stack.length;
+	foreach (cu; compilationUnits_) {
+	    if (cu.contains(address)) {
+		cu.loadDIE;
+		return cu;
 	    }
-	    void push(long v)
-	    {
-		stack ~= v;
-	    }
-	    long pop()
-	    {
-		long v = top();
-		stack.length = stack.length - 1;
-		return v;
-	    }
-	    long top()
-	    {
-		return stack[stack.length - 1];
-	    }
-	    long opIndex(int i)
-	    {
-		return stack[stack.length - 1 - i];
-	    }
-	    void opIndexAssign(long v, int i)
-	    {
-		stack[stack.length - 1 - i] = v;
-	    }
-	    void clear()
-	    {
-		stack.length = 0;
-	    }
-	    long[] stack;
 	}
-	ValueStack stack;
+	return null;
+    }
+
+
+    Objfile obj_;
+    char[] debugSections_[string];
+    char[] strtab_;
+    NameSet[] pubnames_;
+    CompilationUnit[ulong] compilationUnits_;
+    FDE[] fdes_;
+}
+
+private:
+
+struct ValueStack
+{
+    size_t length()
+    {
+	return stack.length;
+    }
+    void push(long v)
+    {
+	stack ~= v;
+    }
+    long pop()
+    {
+	long v = top();
+	stack.length = stack.length - 1;
+	return v;
+    }
+    long top()
+    {
+	return stack[stack.length - 1];
+    }
+    long opIndex(int i)
+    {
+	return stack[stack.length - 1 - i];
+    }
+    void opIndexAssign(long v, int i)
+    {
+	stack[stack.length - 1 - i] = v;
+    }
+    void clear()
+    {
+	stack.length = 0;
+    }
+    long[] stack;
+}
+
+struct Expr
+{
+    bool is64;
+    char* start;
+    char* end;
+
+    /**
+     * Evaluate the expression, leaving the result on the
+     * stack. Evaluation stops at the end of the expression or at the
+     * first DW_OP_piece or DW_OP_bit_piece. The address of the first
+     * unhandled instruction is returned.
+     */
+    char* eval(CompilationUnit cu, MachineState state, ref ValueStack stack)
+    {
+	long v, v1;
+	int addrlen = is64 ? 8 : 4;
+	ubyte[] t;
+	char* pp;
 
 	/**
-	 * Evaluate the expression, leaving the result on the
-	 * stack. Evaluation stops at the end of the expression or at
-	 * the first DW_OP_piece or DW_OP_bit_piece.
+	 * Wrap a value based on the target address size.
 	 */
-	void evalExpr(ref char* p, char* pEnd)
+	long addrWrap(long v)
 	{
-	    long v, v1;
-	    int addrlen = cu.is64 ? 8 : 4;
-	    ubyte[] t;
-	    char* pp;
-
-	    /**
-	     * Wrap a value based on the target address size.
-	     */
-	    long addrWrap(long v)
-	    {
-		if (addrlen == 4)
-		    v &= 0xffffffff;
-		return v;
-	    }
-
-	    while (p < pEnd) {
-		auto op = *p++;
-		if (op >= DW_OP_lit0 && op <= DW_OP_lit31) {
-		    stack.push(op - DW_OP_lit0);
-		    continue;
-		}
-		if (op >= DW_OP_breg0 && op <= DW_OP_breg31) {
-		    v = cast(long) state.getGR(op - DW_OP_breg0)
-			+ parseSLEB128(p);
-		    stack.push(v);
-		    continue;
-		}
-		switch (op) {
-		case DW_OP_addr:
-		    stack.push(parseOffset(p, cu.is64));
-		    break;
-		
-		case DW_OP_const1u:
-		    stack.push(parseUByte(p));
-		    break;
-		
-		case DW_OP_const1s:
-		    stack.push(parseSByte(p));
-		    break;
-		
-		case DW_OP_const2u:
-		    stack.push(parseUShort(p));
-		    break;
-		
-		case DW_OP_const2s:
-		    stack.push(parseSShort(p));
-		    break;
-
-		case DW_OP_const4u:
-		    stack.push(parseUInt(p));
-		    break;
-		
-		case DW_OP_const4s:
-		    stack.push(parseSInt(p));
-		    break;
-
-		case DW_OP_const8u:
-		    stack.push(parseULong(p));
-		    break;
-		
-		case DW_OP_const8s:
-		    stack.push(parseSLong(p));
-		    break;
-
-		case DW_OP_constu:
-		    stack.push(parseULEB128(p));
-		    break;
-
-		case DW_OP_consts:
-		    stack.push(parseSLEB128(p));
-		    break;
-
-		case DW_OP_fbreg:
-		    Location frame;
-		    v = parseSLEB128(p);
-		    if (findFrameBase(state, frame))
-			stack.push(frame.address + v);
-		    else
-			stack.push(v);
-		    break;
-
-		case DW_OP_bregx:
-		    v = cast(long) state.getGR(parseULEB128(p))
-			+ parseSLEB128(p);
-		    stack.push(v);
-		    break;
-
-		case DW_OP_dup:
-		    stack.push(stack.top);
-		    break;
-
-		case DW_OP_drop:
-		    stack.pop;
-		    break;
-
-		case DW_OP_pick:
-		    stack.push(stack[*p++]);
-		    break;
-		
-		case DW_OP_over:
-		    stack.push(stack[1]);
-		    break;
-
-		case DW_OP_swap:
-		    v = stack.top;
-		    stack[0] = stack[1];
-		    stack[1] = v;
-		    break;
-
-		case DW_OP_rot:
-		    v = stack.top;
-		    stack[0] = stack[1];
-		    stack[1] = stack[2];
-		    stack[2] = v;
-		    break;
-
-		case DW_OP_deref:
-		    v = stack.pop;
-		    t = state.readMemory(v, addrlen);
-		    pp = cast(char*) &t[0];
-		    stack.push(parseOffset(pp, cu.is64));
-		    break;
-
-		case DW_OP_deref_size:
-		    v = stack.pop;
-		    t = state.readMemory(v, *p++);
-		    while (t.length < addrlen)
-			t ~= 0;
-		    pp = cast(char*) &t[0];
-		    stack.push(parseOffset(pp, cu.is64));
-		    break;
-
-		case DW_OP_xderef:
-		    throw new Exception("DW_OP_xderef not supported");
-
-		case DW_OP_xderef_size:
-		    throw new Exception("DW_OP_xderef_size not supported");
-
-		case DW_OP_push_object_address:
-		case DW_OP_form_tls_address:
-		case DW_OP_call_frame_cfa:
-		    throw new Exception("op not supported yet");
-
-
-		case DW_OP_abs:
-		    if (stack.top < 0)
-			stack.push(addrWrap(-stack.pop));
-		    break;
-
-		case DW_OP_and:
-		    v = stack.pop;
-		    v1 = stack.pop;
-		    stack.push(addrWrap(v1 & v));
-		    break;
-
-		case DW_OP_div:
-		    v = stack.pop;
-		    v1 = stack.pop;
-		    stack.push(addrWrap(v1 / v));
-		    break;
-
-		case DW_OP_minus:
-		    v = stack.pop;
-		    v1 = stack.pop;
-		    stack.push(addrWrap(v1 - v));
-		    break;
-
-		case DW_OP_mod:
-		    v = stack.pop;
-		    v1 = stack.pop;
-		    stack.push(addrWrap(v1 % v));
-		    break;
-
-		case DW_OP_mul:
-		    v = stack.pop;
-		    v1 = stack.pop;
-		    stack.push(addrWrap(v1 * v));
-		    break;
-
-		case DW_OP_neg:
-		    stack.push(addrWrap(-stack.pop));
-		    break;
-
-		case DW_OP_not:
-		    stack.push(addrWrap(~stack.pop));
-		    break;
-
-		case DW_OP_or:
-		    v = stack.pop;
-		    v1 = stack.pop;
-		    stack.push(addrWrap(v1 | v));
-		    break;
-
-		case DW_OP_plus:
-		    v = stack.pop;
-		    v1 = stack.pop;
-		    stack.push(addrWrap(v1 + v));
-		    break;
-
-		case DW_OP_plus_uconst:
-		    v = stack.pop;
-		    stack.push(addrWrap(v + parseULEB128(p)));
-		    break;
-
-		case DW_OP_shl:
-		    v = stack.pop;
-		    v1 = stack.pop;
-		    stack.push(addrWrap(v1 << v));
-		    break;
-
-		case DW_OP_shr:
-		    v = stack.pop;
-		    v1 = stack.pop;
-		    stack.push(addrWrap(v1 >>> v));
-		    break;
-
-		case DW_OP_shra:
-		    v = stack.pop;
-		    v1 = stack.pop;
-		    stack.push(addrWrap(v1 >> v));
-		    break;
-
-		case DW_OP_xor:
-		    v = stack.pop;
-		    v1 = stack.pop;
-		    stack.push(addrWrap(v1 ^ v));
-		    break;
-
-		case DW_OP_le:
-		    v = stack.pop;
-		    v1 = stack.pop;
-		    stack.push(v1 <= v ? 1 : 0);
-		    break;
-
-		case DW_OP_ge:
-		    v = stack.pop;
-		    v1 = stack.pop;
-		    stack.push(v1 >= v ? 1 : 0);
-		    break;
-
-		case DW_OP_eq:
-		    v = stack.pop;
-		    v1 = stack.pop;
-		    stack.push(v1 == v ? 1 : 0);
-		    break;
-
-		case DW_OP_lt:
-		    v = stack.pop;
-		    v1 = stack.pop;
-		    stack.push(v1 < v ? 1 : 0);
-		    break;
-
-		case DW_OP_gt:
-		    v = stack.pop;
-		    v1 = stack.pop;
-		    stack.push(v1 > v ? 1 : 0);
-		    break;
-
-		case DW_OP_skip:
-		    v = parseSShort(p);
-		    p += v;
-		    break;
-
-		case DW_OP_bra:
-		    v = parseSShort(p);
-		    if (stack.pop != 0)
-			p += v;
-		    break;
-
-		case DW_OP_call2:
-		    v = parseUShort(p);
-		    auto die = cu.dieMap[v];
-		    try {
-			auto loc = die.attrs[DW_AT_location];
-			pp = loc.b.start;
-			evalExpr(pp, pp + loc.b.length);
-		    } catch (Exception e) {
-		    }
-		    break;
-
-		case DW_OP_call4:
-		    v = parseUInt(p);
-		    auto die = cu.dieMap[v];
-		    try {
-			auto loc = die.attrs[DW_AT_location];
-			pp = loc.b.start;
-			evalExpr(pp, pp + loc.b.length);
-		    } catch (Exception e) {
-		    }
-		    break;
-
-		case DW_OP_call_ref:
-		    throw new Exception("DW_OP_call_ref mot supported");
-
-		case DW_OP_nop:
-		    break;
-
-		case DW_OP_piece:
-		case DW_OP_bit_piece:
-		    return;
-
-
-		}
-	    }
+	    if (addrlen == 4)
+		v &= 0xffffffff;
+	    return v;
 	}
 
+	char* p = start;
+	while (p < end) {
+	    auto op = *p++;
+	    if (op >= DW_OP_lit0 && op <= DW_OP_lit31) {
+		stack.push(op - DW_OP_lit0);
+		continue;
+	    }
+	    if (op >= DW_OP_breg0 && op <= DW_OP_breg31) {
+		v = cast(long) state.getGR(op - DW_OP_breg0)
+		    + parseSLEB128(p);
+		stack.push(v);
+		continue;
+	    }
+	    switch (op) {
+	    case DW_OP_addr:
+		stack.push(parseOffset(p, is64));
+		break;
+		
+	    case DW_OP_const1u:
+		stack.push(parseUByte(p));
+		break;
+		
+	    case DW_OP_const1s:
+		stack.push(parseSByte(p));
+		break;
+		
+	    case DW_OP_const2u:
+		stack.push(parseUShort(p));
+		break;
+		
+	    case DW_OP_const2s:
+		stack.push(parseSShort(p));
+		break;
+
+	    case DW_OP_const4u:
+		stack.push(parseUInt(p));
+		break;
+		
+	    case DW_OP_const4s:
+		stack.push(parseSInt(p));
+		break;
+
+	    case DW_OP_const8u:
+		stack.push(parseULong(p));
+		break;
+		
+	    case DW_OP_const8s:
+		stack.push(parseSLong(p));
+		break;
+
+	    case DW_OP_constu:
+		stack.push(parseULEB128(p));
+		break;
+
+	    case DW_OP_consts:
+		stack.push(parseSLEB128(p));
+		break;
+
+	    case DW_OP_fbreg:
+		if (!cu) {
+		    stack.push(0);
+		    break;
+		}
+		Location frame;
+		v = parseSLEB128(p);
+		if (cu.parent.findFrameBase(state, frame))
+		    stack.push(frame.address + v);
+		else
+		    stack.push(v);
+		break;
+
+	    case DW_OP_bregx:
+		v = cast(long) state.getGR(parseULEB128(p))
+		    + parseSLEB128(p);
+		stack.push(v);
+		break;
+
+	    case DW_OP_dup:
+		stack.push(stack.top);
+		break;
+
+	    case DW_OP_drop:
+		stack.pop;
+		break;
+
+	    case DW_OP_pick:
+		stack.push(stack[*p++]);
+		break;
+		
+	    case DW_OP_over:
+		stack.push(stack[1]);
+		break;
+
+	    case DW_OP_swap:
+		v = stack.top;
+		stack[0] = stack[1];
+		stack[1] = v;
+		break;
+
+	    case DW_OP_rot:
+		v = stack.top;
+		stack[0] = stack[1];
+		stack[1] = stack[2];
+		stack[2] = v;
+		break;
+
+	    case DW_OP_deref:
+		v = stack.pop;
+		t = state.readMemory(v, addrlen);
+		pp = cast(char*) &t[0];
+		stack.push(parseOffset(pp, is64));
+		break;
+
+	    case DW_OP_deref_size:
+		v = stack.pop;
+		t = state.readMemory(v, *p++);
+		while (t.length < addrlen)
+		    t ~= 0;
+		pp = cast(char*) &t[0];
+		stack.push(parseOffset(pp, is64));
+		break;
+
+	    case DW_OP_xderef:
+		throw new Exception("DW_OP_xderef not supported");
+
+	    case DW_OP_xderef_size:
+		throw new Exception("DW_OP_xderef_size not supported");
+
+	    case DW_OP_push_object_address:
+	    case DW_OP_form_tls_address:
+	    case DW_OP_call_frame_cfa:
+		throw new Exception("op not supported yet");
+
+
+	    case DW_OP_abs:
+		if (stack.top < 0)
+		    stack.push(addrWrap(-stack.pop));
+		break;
+
+	    case DW_OP_and:
+		v = stack.pop;
+		v1 = stack.pop;
+		stack.push(addrWrap(v1 & v));
+		break;
+
+	    case DW_OP_div:
+		v = stack.pop;
+		v1 = stack.pop;
+		stack.push(addrWrap(v1 / v));
+		break;
+
+	    case DW_OP_minus:
+		v = stack.pop;
+		v1 = stack.pop;
+		stack.push(addrWrap(v1 - v));
+		break;
+
+	    case DW_OP_mod:
+		v = stack.pop;
+		v1 = stack.pop;
+		stack.push(addrWrap(v1 % v));
+		break;
+
+	    case DW_OP_mul:
+		v = stack.pop;
+		v1 = stack.pop;
+		stack.push(addrWrap(v1 * v));
+		break;
+
+	    case DW_OP_neg:
+		stack.push(addrWrap(-stack.pop));
+		break;
+
+	    case DW_OP_not:
+		stack.push(addrWrap(~stack.pop));
+		break;
+
+	    case DW_OP_or:
+		v = stack.pop;
+		v1 = stack.pop;
+		stack.push(addrWrap(v1 | v));
+		break;
+
+	    case DW_OP_plus:
+		v = stack.pop;
+		v1 = stack.pop;
+		stack.push(addrWrap(v1 + v));
+		break;
+
+	    case DW_OP_plus_uconst:
+		v = stack.pop;
+		stack.push(addrWrap(v + parseULEB128(p)));
+		break;
+
+	    case DW_OP_shl:
+		v = stack.pop;
+		v1 = stack.pop;
+		stack.push(addrWrap(v1 << v));
+		break;
+
+	    case DW_OP_shr:
+		v = stack.pop;
+		v1 = stack.pop;
+		stack.push(addrWrap(v1 >>> v));
+		break;
+
+	    case DW_OP_shra:
+		v = stack.pop;
+		v1 = stack.pop;
+		stack.push(addrWrap(v1 >> v));
+		break;
+
+	    case DW_OP_xor:
+		v = stack.pop;
+		v1 = stack.pop;
+		stack.push(addrWrap(v1 ^ v));
+		break;
+
+	    case DW_OP_le:
+		v = stack.pop;
+		v1 = stack.pop;
+		stack.push(v1 <= v ? 1 : 0);
+		break;
+
+	    case DW_OP_ge:
+		v = stack.pop;
+		v1 = stack.pop;
+		stack.push(v1 >= v ? 1 : 0);
+		break;
+
+	    case DW_OP_eq:
+		v = stack.pop;
+		v1 = stack.pop;
+		stack.push(v1 == v ? 1 : 0);
+		break;
+
+	    case DW_OP_lt:
+		v = stack.pop;
+		v1 = stack.pop;
+		stack.push(v1 < v ? 1 : 0);
+		break;
+
+	    case DW_OP_gt:
+		v = stack.pop;
+		v1 = stack.pop;
+		stack.push(v1 > v ? 1 : 0);
+		break;
+
+	    case DW_OP_skip:
+		v = parseSShort(p);
+		p += v;
+		break;
+
+	    case DW_OP_bra:
+		v = parseSShort(p);
+		if (stack.pop != 0)
+		    p += v;
+		break;
+
+	    case DW_OP_call2:
+		v = parseUShort(p);
+		if (!cu) {
+		    stack.push(0);
+		    break;
+		}
+		auto die = cu.dieMap[v];
+		try {
+		    auto loc = die.attrs[DW_AT_location];
+		    pp = loc.b.start;
+		    Expr e = Expr(is64, pp, pp + loc.b.length);
+		    e.eval(cu, state, stack);
+		} catch (Exception e) {
+		}
+		break;
+
+	    case DW_OP_call4:
+		v = parseUInt(p);
+		if (!cu) {
+		    stack.push(0);
+		    break;
+		}
+		auto die = cu.dieMap[v];
+		try {
+		    auto loc = die.attrs[DW_AT_location];
+		    pp = loc.b.start;
+		    Expr e = Expr(is64, pp, pp + loc.b.length);
+		    e.eval(cu, state, stack);
+		} catch (Exception e) {
+		}
+		break;
+
+	    case DW_OP_call_ref:
+		throw new Exception("DW_OP_call_ref mot supported");
+
+	    case DW_OP_nop:
+		break;
+
+	    case DW_OP_piece:
+	    case DW_OP_bit_piece:
+		return p-1;
+	    }
+	}
+	return p;
+    }
+
+    bool evalLocation(CompilationUnit cu, MachineState state,
+		      out Location result)
+    {
 	/*
 	 * Loop over the expression finding pieces to compose into the
 	 * final object.
 	 */
 	ubyte[] obj;
 	Location loc;
-	while (p < pEnd) {
+	char* p = start;
+	while (p < end) {
 	    /*
 	     * Check for DW_OP_regN first, otherwise evaluate the
 	     * expression to get an address.
@@ -1762,18 +1809,19 @@ private:
 	    } else {
 		loc.type = Location.Type.Address;
 		loc.length = 1;
-		evalExpr(p, pEnd);
+		ValueStack stack;
+		Expr e = Expr(is64, p, end);
+		p = e.eval(cu, state, stack);
 		loc.address = stack.pop;
-		stack.clear;
 	    }
-	    if (p == pEnd) {
+	    if (p == end) {
 		/*
 		 * Simple location
 		 */
 		result = loc;
 		return true;
 	    }
-	    if (p < pEnd) {
+	    if (p < end) {
 		/*
 		 * Composite - add up the pieces
 		 */
@@ -1846,59 +1894,42 @@ private:
 	    }
 	}
     }
+}
 
-    bool evalLoclist(CompilationUnit cu, char* p, MachineState state,
-	out Location result)
+struct Loclist
+{
+    bool is64;
+    char* start;
+
+    bool eval(CompilationUnit cu, MachineState state, out Location result)
     {
 	ulong pc = state.getGR(state.pcregno);
-	ulong s, e, base;
+	ulong sOff, eOff, base;
 
+	auto p = start;
 	base = cu.die[DW_AT_low_pc].ul;
 	for (;;) {
-	    s = parseOffset(p, cu.is64);
-	    e = parseOffset(p, cu.is64);
-	    if (s == 0 && e == 0)
+	    sOff = parseOffset(p, is64);
+	    eOff = parseOffset(p, is64);
+	    if (sOff == 0 && eOff == 0)
 		break;
-	    if ((cu.is64 && s == 0xffffffffffffffff)
-		|| (!cu.is64 && s == 0xffffffff)) {
-		base = e;
+	    if ((is64 && sOff == 0xffffffffffffffff)
+		|| (!is64 && sOff == 0xffffffff)) {
+		base = eOff;
 		continue;
 	    }
 	    size_t expLen = parseUShort(p);
-	    char* expStart = p;
-	    char* expEnd = p + expLen;
+	    auto expStart = p;
+	    auto expEnd = p + expLen;
 	    p = expEnd;
-	    if (pc >= base + s && pc < base + e) {
-		return evalLocation(cu, expStart, expEnd, state, result);
+	    if (pc >= base + sOff && pc < base + eOff) {
+		Expr e = Expr(is64, expStart, expEnd);
+		return e.evalLocation(cu, state, result);
 	    }
 	}
 	return false;
     }
-
-    /**
-     * Return the CU that contains the given address, if any.
-     */
-    CompilationUnit findCU(ulong address)
-    {
-	foreach (cu; compilationUnits_) {
-	    if (cu.contains(address)) {
-		cu.loadDIE;
-		return cu;
-	    }
-	}
-	return null;
-    }
-
-
-    Objfile obj_;
-    char[] debugSections_[string];
-    char[] strtab_;
-    NameSet[] pubnames_;
-    CompilationUnit[ulong] compilationUnits_;
-    FDE[] fdes_;
 }
-
-private:
 
 struct NameSet
 {
