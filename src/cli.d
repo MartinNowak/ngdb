@@ -63,6 +63,14 @@ interface Command
     void run(Debugger db, string[] args);
 }
 
+class CommandException: Exception
+{
+    this(string msg)
+    {
+	super(msg);
+    }
+}
+
 class CommandTable
 {
     void add(Command c)
@@ -72,12 +80,13 @@ class CommandTable
 
     Command opIndex(string name)
     {
-	try {
-	    return list_[name];
-	} catch {
+	auto cp = (name in list_);
+	if (cp) {
+	    return *cp;
+	} else {
 	    /*
 	     * Try to match a prefix of some command. If nothing
-	     * matches or the given prefix is ambiguous, throw another
+	     * matches or the given prefix is ambiguous, throw an
 	     * exception.
 	     */
 	    Command[] matches;
@@ -89,9 +98,9 @@ class CommandTable
 			matches ~= c;
 	    }
 	    if (matches.length == 0)
-		throw new Exception("unrecognised");
+		throw new CommandException("unrecognised");
 	    if (matches.length > 1)
-		throw new Exception("ambiguous");
+		throw new CommandException("ambiguous");
 	    return matches[0];
 	}
     }
@@ -147,10 +156,9 @@ private class PendingBreakpoint: Breakpoint
 
     void activate(Target target, TargetModule mod)
     {
-	try {
-	    if (bp_[mod])
-		return;
-	} catch {
+	if (mod in bp_) {
+	    return;
+	} else {
 	    DebugInfo d = mod.debugInfo;
 	    int pos;
 
@@ -312,7 +320,7 @@ class Debugger: TargetListener
 		try {
 		    Command c = commands_[args[0]];
 		    c.run(this, args);
-		} catch (Exception e) {
+		} catch (CommandException e) {
 		    writefln("Command %s is %s", args[0], e.msg);
 		}
 	    }
@@ -533,10 +541,14 @@ class InfoCommand: Command
 	{
 	    args = args[1..args.length];
 
+	    if (args.length == 0) {
+		writefln("usage: info subcommand [args ...]");
+		return;
+	    }
 	    try {
 		Command c = db.infoCommands_[args[0]];
 		c.run(db, args);
-	    } catch (Exception e) {
+	    } catch (CommandException e) {
 		writefln("Info command %s is %s", args[0], e.msg);
 	    }
 	}
@@ -778,9 +790,19 @@ class WhereCommand: Command
 	    int i = 0;
 
 	    while (s) {
-		writefln("%d: %s", i + 1,
-			 db.describeAddress(s.getGR(s.pcregno)));
-		s = s.unwind();
+		ulong pc = s.getGR(s.pcregno);
+		writefln("%d: %s", i + 1, db.describeAddress(pc));
+		Location loc;
+		MachineState ns = null;
+		foreach (mod; db.modules_) {
+		    DebugInfo d = mod.debugInfo;
+		    if (d.findFrameBase(s, loc)) {
+			ns = d.unwind(s);
+			break;
+		    }
+		}
+		s = ns;
+
 		i++;
 	    }
 	}
