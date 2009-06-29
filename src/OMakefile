@@ -21,7 +21,7 @@ objs[]+=
 	sys/wait
 	sys/reg
 
-DFLAGS+= -O
+#DFLAGS+= -O
 DFLAGS+= -I$(dir $(ROOT)/gtkD/src)
 
 LIBS[]= # $(file $(ROOT)/gtkD/src/libgtkD.a)
