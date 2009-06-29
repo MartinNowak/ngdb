@@ -2,18 +2,19 @@
 
 .PHONY:	clean
 
-#USE_DMD=yes
-#USE_GDC=yes
-USE_LDC=yes
+if $(not $(defined comp))
+	comp = gdc
+	export
 
-if $(defined USE_DMD)
+switch $(comp)
+case dmd
    DMDBASE=/home/dfr/dmd
    DMD=$(DMDBASE)/freebsd/bin/dmd
    DFLAGS= -g -I$(DMDBASE)/src/phobos
    LDFLAGS= -g -L-L$(DMDBASE)/freebsd/lib
    export
 
-if $(defined USE_GDC)
+case gdc
    DMD=gdmd
    DFLAGS= -g -version=GDC
    SPECS = $(file specs)
@@ -21,7 +22,7 @@ if $(defined USE_GDC)
    LDFLAGS= -g 
    export
 
-if $(defined USE_LDC)
+case ldc
    LDCBASE=/home/dfr/src/ldc
    DMD=$(LDCBASE)/ldc/bin/ldc
    DFLAGS= -g -I$(LDCBASE)/tangobos -d-version=tangobos
