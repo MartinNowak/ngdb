@@ -63,22 +63,25 @@ interface Command
     void run(Debugger db, string[] args);
 }
 
-class CommandException: Exception
-{
-    this(string msg)
-    {
-	super(msg);
-    }
-}
-
 class CommandTable
 {
+    void run(Debugger db, string[] args, string prefix)
+    {
+	string message;
+
+	Command c = lookup(args[0], message);
+	if (c)
+	    c.run(db, args);
+	else
+	    writefln("Command %s%s is %s", prefix, args[0], message);
+    }
+
     void add(Command c)
     {
 	list_[c.name] = c;
     }
 
-    Command opIndex(string name)
+    Command lookup(string name, out string message)
     {
 	auto cp = (name in list_);
 	if (cp) {
@@ -97,10 +100,14 @@ class CommandTable
 		    if (s[0..name.length] == name)
 			matches ~= c;
 	    }
-	    if (matches.length == 0)
-		throw new CommandException("unrecognised");
-	    if (matches.length > 1)
-		throw new CommandException("ambiguous");
+	    if (matches.length == 0) {
+		message = "unrecognised";
+		return null;
+	    }
+	    if (matches.length > 1) {
+		message = "ambiguous";
+		return null;
+	    }
 	    return matches[0];
 	}
     }
@@ -317,12 +324,7 @@ class Debugger: TargetListener
 		     rv = history(hist_, &ev, H_PREV))
 		    writef("%d %s", ev.num, .toString(ev.str));
 	    } else {
-		try {
-		    Command c = commands_[args[0]];
-		    c.run(this, args);
-		} catch (CommandException e) {
-		    writefln("Command %s is %s", args[0], e.msg);
-		}
+		commands_.run(this, args, "");
 	    }
 	}
     }
@@ -545,12 +547,7 @@ class InfoCommand: Command
 		writefln("usage: info subcommand [args ...]");
 		return;
 	    }
-	    try {
-		Command c = db.infoCommands_[args[0]];
-		c.run(db, args);
-	    } catch (CommandException e) {
-		writefln("Info command %s is %s", args[0], e.msg);
-	    }
+	    db.infoCommands_.run(db, args, "info ");
 	}
     }
 }
