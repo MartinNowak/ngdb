@@ -969,17 +969,19 @@ class DwarfFile: public DebugInfo
 	bool findLineByFunction(string func, out LineEntry[] res)
 	{
 	    foreach (ns; pubnames_) {
-		try {
+		if (ns.cuOffset in compilationUnits_) {
 		    CompilationUnit cu = compilationUnits_[ns.cuOffset];
-		    ulong dieOff = ns.names[func];
-		    cu.loadDIE;
-		    DIE die = cu.dieMap[dieOff];
-		    if (die.tag == DW_TAG_subprogram) {
-			LineEntry[] le;
-			if (findLineByAddress(die.attrs[DW_AT_low_pc].ul, le))
-			    res ~= le[1];
+		    if (func in ns.names) {
+			auto dieOff = ns.names[func];
+			cu.loadDIE;
+			DIE die = cu.dieMap[dieOff];
+			if (die.tag == DW_TAG_subprogram) {
+			    LineEntry[] le;
+			    if (findLineByAddress(die.attrs[DW_AT_low_pc].ul, le))
+				res ~= le[1];
+			}
 		    }
-		} catch {
+		} else {
 		    continue;
 		}
 	    }
@@ -992,19 +994,16 @@ class DwarfFile: public DebugInfo
 	    auto pc = state.getGR(state.pcregno);
 	    auto cu = findCU(pc);
 	    if (cu) {
-		try {
-		    //writefln("CU offset=%x", cu.offset);
-		    DIE func = cu.findSubprogram(pc);
-		    if (func) {
-			auto off = func[DW_AT_frame_base];
-			if (off) {
-			    //writefln("DW_AT_frame_base=%x", off.ul);
-			    char[] locs = debugSection(".debug_loc");
-			    Loclist ll = Loclist(cu.is64, &locs[off.ul]);
-			    return ll.eval(cu, state, loc);
-			}
+		DIE func = cu.findSubprogram(pc);
+		if (func) {
+		    auto off = func[DW_AT_frame_base];
+		    if (off) {
+			//writefln("DW_AT_frame_base=%x", off.ul);
+			char[] locs = debugSection(".debug_loc");
+			Loclist ll = Loclist(cu.is64, &locs[off.ul]);
+			return ll.eval(cu, state, loc);
 		    }
-		} catch (Exception e) {
+		} else {
 		    return false;
 		}
 	    }
@@ -1025,9 +1024,9 @@ class DwarfFile: public DebugInfo
 private:
     char[] debugSection(string name)
     {
-	try {
+	if (name in debugSections_) {
 	    return debugSections_[name];
-	} catch (Exception e) {
+	} else {
 	    debugSections_[name] = obj_.readSection(name);
 	    return debugSections_[name];
 	}
@@ -1741,12 +1740,11 @@ struct Expr
 		    break;
 		}
 		auto die = cu.dieMap[v];
-		try {
-		    auto loc = die.attrs[DW_AT_location];
+		auto loc = die[DW_AT_location];
+		if (loc) {
 		    pp = loc.b.start;
 		    Expr e = Expr(is64, pp, pp + loc.b.length);
 		    e.eval(cu, state, stack);
-		} catch (Exception e) {
 		}
 		break;
 
@@ -1757,12 +1755,11 @@ struct Expr
 		    break;
 		}
 		auto die = cu.dieMap[v];
-		try {
-		    auto loc = die.attrs[DW_AT_location];
+		auto loc = die[DW_AT_location];
+		if (loc) {
 		    pp = loc.b.start;
 		    Expr e = Expr(is64, pp, pp + loc.b.length);
 		    e.eval(cu, state, stack);
-		} catch (Exception e) {
 		}
 		break;
 
@@ -2138,11 +2135,11 @@ class DIE
 
     AttributeValue opIndex(int at)
     {
-	try {
-	    return attrs[at];
-	} catch (Exception e) {
+	AttributeValue* p = (at in attrs);
+	if (p)
+	    return *p;
+	else
 	    return null;
-	}
     }
 
     bool contains(ulong pc)
