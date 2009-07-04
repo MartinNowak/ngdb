@@ -287,6 +287,57 @@ private:
     reg regs_;
 }
 
+
+
+extern (C) char* sys_signame[32];
+
+string signame(int sig)
+{
+    static string signames[] = [
+	SIGHUP: "SIGHUP",
+	SIGINT: "SIGINT",
+	SIGQUIT: "SIGQUIT",
+	SIGILL: "SIGILL",
+	SIGTRAP: "SIGTRAP",
+	SIGABRT: "SIGABRT",
+	//SIGIOT: "SIGIOT",
+	//SIGEMT: "SIGEMT",
+	SIGFPE: "SIGFPE",
+	SIGKILL: "SIGKILL",
+	SIGBUS: "SIGBUS",
+	SIGSEGV: "SIGSEGV",
+	SIGSYS: "SIGSYS",
+	SIGPIPE: "SIGPIPE",
+	SIGALRM: "SIGALRM",
+	SIGTERM: "SIGTERM",
+	SIGURG: "SIGURG",
+	SIGSTOP: "SIGSTOP",
+	SIGTSTP: "SIGTSTP",
+	SIGCONT: "SIGCONT",
+	SIGCHLD: "SIGCHLD",
+	SIGTTIN: "SIGTTIN",
+	SIGTTOU: "SIGTTOU",
+	SIGIO: "SIGIO",
+	SIGXCPU: "SIGXCPU",
+	SIGXFSZ: "SIGXFSZ",
+	SIGVTALRM: "SIGVTALRM",
+	SIGPROF: "SIGPROF",
+	SIGWINCH: "SIGWINCH",
+	//SIGINFO: "SIGINFO",
+	SIGUSR1: "SIGUSR1",
+	SIGUSR2: "SIGUSR2",
+	//SIGTHR: "SIGTHR",
+	//SIGLWP: "SIGLWP",
+	//SIGRTMIN: "SIGRTMIN",
+	//SIGRTMAX: "SIGRTMAX"
+	];
+
+    if (sig >= 0 && sig < signames.length)
+	return signames[sig];
+    else
+	return std.string.format("SIG%d", sig);
+}
+
 class PtraceTarget: Target
 {
     this(TargetListener listener, pid_t pid, string execname)
@@ -399,8 +450,6 @@ class PtraceTarget: Target
 	    assert(state_ == TargetState.RUNNING);
 
 	    wait4(pid_, &waitStatus_, 0, null);
-	    if (WIFSTOPPED(waitStatus_) && WSTOPSIG(waitStatus_) != SIGTRAP)
-		writefln("%d", WSTOPSIG(waitStatus_));
 	    state_ = TargetState.STOPPED;
 	    stopped();
 	}
@@ -583,8 +632,8 @@ private:
 
 
 	if (WIFSTOPPED(waitStatus_) && WSTOPSIG(waitStatus_) != SIGTRAP) {
-	    foreach (t; threads_)
-		t.dumpState();
+	    int sig = WSTOPSIG(waitStatus_);
+	    listener_.onSignal(this, sig, signame(sig));
 	}
 
 	/*

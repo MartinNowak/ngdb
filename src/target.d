@@ -59,6 +59,11 @@ interface TargetListener
      * Called when a thread hits a breakpoint.
      */
     void onBreakpoint(Target, TargetThread, Breakpoint);
+
+    /**
+     * Called when the target stops because of a signal
+     */
+    void onSignal(Target, int sig, string sigName);
 }
 
 /**

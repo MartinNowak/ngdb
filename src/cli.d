@@ -32,6 +32,10 @@ import ptracetarget;
 import objfile.debuginfo;
 import machine.machine;
 
+version (DigitalMars)
+import std.c.freebsd.freebsd;
+else
+import std.c.unix.unix;
 import std.conv;
 import std.string;
 import std.stdio;
@@ -263,7 +267,7 @@ private class SourceFile
     this(string filename)
     {
 	try {
-	    string file = cast(string) read(filename);
+	    string file = cast(string) std.file.read(filename);
 	    lines_ = splitlines(file);
 	} catch {
 	    writefln("Can't open file %s", filename);
@@ -302,11 +306,20 @@ class Debugger: TargetListener
 	tok_end(tok_);
     }
 
+    static extern(C) void ignoreSig(int)
+    {
+    }
+
     void run()
     {
 	char* buf;
 	int num;
 	string[] args;
+
+	sigaction_t sa;
+	sa.sa_handler = &ignoreSig;
+	sa.sa_flags = 0;
+	sigaction(SIGINT, &sa, null);
 
 	while (!quit_ && (buf = el_gets(el_, &num)) != null && num != 0) {
 	    int ac;
@@ -490,6 +503,10 @@ class Debugger: TargetListener
 		}
 	    }
 	    stopped();
+	}
+	void onSignal(Target, int sig, string sigName)
+	{
+	    writefln("Signal %d (%s)", sig, sigName);
 	}
     }
 
