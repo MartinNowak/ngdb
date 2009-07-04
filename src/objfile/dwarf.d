@@ -1017,6 +1017,7 @@ class DwarfFile: public DebugInfo
 		    f.addVariable(v);
 		return f;
 	    }
+	    return null;
 	}
 
 	MachineState unwind(MachineState state)
