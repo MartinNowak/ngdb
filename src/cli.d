@@ -149,6 +149,14 @@ private class CompoundBreakpoint: Breakpoint
 	return false;
     }
 
+    string[] describe(Debugger db)
+    {
+	string[] res;
+	foreach (bp; bp_)
+	    res ~= db.describeAddress(bp.address, null);
+	return res;
+    }
+
 private:
     bool enabled_ = true;
     Breakpoint[] bp_;
@@ -156,8 +164,9 @@ private:
 
 private class PendingBreakpoint: Breakpoint
 {
-    this(string expr)
+    this(Debugger db, string expr)
     {
+	db_ = db;
 	expr_ = expr;
     }
 
@@ -201,6 +210,16 @@ private class PendingBreakpoint: Breakpoint
 	return expr_;
     }
 
+    string[] describe()
+    {
+	string[] res;
+	foreach (bp; bp_)
+	    res ~= bp.describe(db_);
+	if (res.length == 0)
+	    res ~= expr;
+	return res;
+    }
+
     bool matches(Breakpoint tbp)
     {
 	foreach (bp; bp_)
@@ -235,6 +254,7 @@ private class PendingBreakpoint: Breakpoint
 
     string expr_;
     bool enabled_ = true;
+    Debugger db_;
     CompoundBreakpoint[TargetModule] bp_;
 }
 
@@ -355,13 +375,30 @@ class Debugger: TargetListener
 	
     }
 
-    string describeAddress(ulong pc)
+    string describeAddress(ulong pc, MachineState state)
     {
 	LineEntry[] le;
 	foreach (mod; modules_) {
-	    DebugInfo d = mod.debugInfo;
-	    if (d && d.findLineByAddress(pc, le)) {
-		return le[0].name ~ ":" ~ .toString(le[0].line);
+	    DebugInfo di = mod.debugInfo;
+	    if (di && di.findLineByAddress(pc, le)) {
+		string s = "";
+
+		Function func = di.findFunction(pc);
+		if (func) {
+		    s ~= std.string.format("%s(", func.name);
+		    bool first = true;
+		    foreach (a; func.arguments) {
+			if (!first) {
+			    s ~= std.string.format(", ");
+			    first = false;
+			}
+			s ~= std.string.format("%s", a.toString(state));
+		    }
+		    s ~= "): ";
+		}
+
+		s ~= le[0].fullname ~ ":" ~ .toString(le[0].line);
+		return s;
 	    }
 	}
 	foreach (mod; modules_) {
@@ -448,7 +485,7 @@ class Debugger: TargetListener
 	    } else {
 		foreach (i, bp; breakpoints_) {
 		    if (bp.matches(tbp)) {
-			writefln("Breakpoint %d, %s", i + 1, describeAddress(t.pc));
+			writefln("Breakpoint %d, %s", i + 1, describeAddress(t.pc, t.state));
 		    }
 		}
 	    }
@@ -679,7 +716,7 @@ class BreakCommand: Command
 		writefln("usage: break <function or line>");
 		return;
 	    }
-	    PendingBreakpoint bp = new PendingBreakpoint(args[1]);
+	    PendingBreakpoint bp = new PendingBreakpoint(db, args[1]);
 	    db.breakpoints_ ~= bp;
 	    if (db.target_)
 		foreach (mod; db.modules_)
@@ -709,7 +746,15 @@ class InfoBreakCommand: Command
 	void run(Debugger db, string[] args)
 	{
 	    foreach (i, b; db.breakpoints_) {
-		writef("%d: %s", i + 1, b.expr);
+		string[] desc = b.describe;
+		bool first = true;
+		foreach (s; desc) {
+		    if (first)
+			writef("%d:\t", i + 1);
+		    else
+			writef("\t");
+		    writef("%s", s);
+		}
 		if (b.active)
 		    writefln(" (active)");
 		else
@@ -799,8 +844,9 @@ class InfoVariablesCommand: Command
 	    DebugInfo di;
 
 	    if (db.findDebugInfo(s, di)) {
-		auto vars = di.findArguments(s);
-		vars ~= di.findVariables(s);
+		Function func = di.findFunction(s.getGR(s.pcregno));
+		auto vars = func.arguments;
+		vars ~= func.variables;
 		foreach (v; vars) {
 		    writefln("%s = %s", v.toString, v.valueToString(s));
 		}
@@ -835,28 +881,12 @@ class WhereCommand: Command
 
 	    while (s) {
 		ulong pc = s.getGR(s.pcregno);
-		writef("%d: %s", i + 1, db.describeAddress(pc));
+		writefln("%d: %s", i + 1, db.describeAddress(pc, s));
 		
 		DebugInfo di;
 		if (db.findDebugInfo(s, di)) {
-		    Function func = di.findFunction(s);
-		    if (func) {
-			writef(": %s(", func.name);
-			bool first = true;
-			foreach (a; func.arguments) {
-			    if (!first) {
-				writef(", ");
-				first = false;
-			    }
-			    writef("%s = %s", a.toString, a.valueToString(s));
-			}
-			writefln(")");
-		    } else {
-			writefln("");
-		    }
 		    ns = di.unwind(s);
 		} else {
-		    writefln("");
 		    ns = null;
 		}
 

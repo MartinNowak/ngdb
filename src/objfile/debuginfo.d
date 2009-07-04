@@ -54,6 +54,7 @@ interface Type
 {
     string toString();
     string valueToString(MachineState, Location);
+    size_t byteWidth();
     bool isCharType();
     bool isStringType();
 }
@@ -81,16 +82,6 @@ class IntegerType: Type
 	byteWidth_ = byteWidth;
     }
 
-    bool isSigned()
-    {
-	return isSigned_;
-    }
-
-    uint bitWidth()
-    {
-	return byteWidth_;
-    }
-
     override
     {
 	string toString()
@@ -103,10 +94,17 @@ class IntegerType: Type
 	    ubyte[] val = loc.readValue(state);
 	    return .toString(readInteger(val));
 	}
+
+	uint byteWidth()
+	{
+	    return byteWidth_;
+	}
+
 	bool isCharType()
 	{
 	    return byteWidth_ == 1;
 	}
+
 	bool isStringType()
 	{
 	    return false;
@@ -116,15 +114,16 @@ class IntegerType: Type
 private:
     string name_;
     bool isSigned_;
-    int byteWidth_;
+    uint byteWidth_;
 }
 
 class PointerType: Type
 {
-    this(string name, Type baseType)
+    this(string name, Type baseType, uint byteWidth)
     {
 	name_ = name;
 	baseType_ = baseType;
+	byteWidth_ = byteWidth;
     }
 
     override
@@ -136,6 +135,7 @@ class PointerType: Type
 	    else
 		return "void*";
 	}
+
 	string valueToString(MachineState state, Location loc)
 	{
 	    string v;
@@ -171,6 +171,12 @@ class PointerType: Type
 	    }
 	    return v;
 	}
+
+	size_t byteWidth()
+	{
+	    return byteWidth_;
+	}
+
 	bool isCharType()
 	{
 	    return false;
@@ -184,6 +190,7 @@ class PointerType: Type
 private:
     string name_;
     Type baseType_;
+    uint byteWidth_;
 }
 
 class ModifierType: Type
@@ -204,6 +211,10 @@ class ModifierType: Type
 	string valueToString(MachineState state, Location loc)
 	{
 	    return baseType_.valueToString(state, loc);
+	}
+	size_t byteWidth()
+	{
+	    return baseType_.byteWidth;
 	}
 	bool isCharType()
 	{
@@ -233,6 +244,10 @@ class VoidType: Type
 	{
 	    return "void";
 	}
+	size_t byteWidth()
+	{
+	    return 1;
+	}
 	bool isCharType()
 	{
 	    return false;
@@ -249,7 +264,7 @@ interface Location
     size_t length();
     ubyte[] readValue(MachineState);
     void writeValue(MachineState, ubyte[]);
-    ulong address();
+    ulong address(MachineState);
 }
 
 struct Value
@@ -272,6 +287,15 @@ struct Variable
     {
 	return value.type.toString ~ " " ~ name;
     }
+
+    string toString(MachineState state)
+    {
+	if (state)
+	    return toString ~ " = " ~ valueToString(state);
+	else
+	    return toString;
+    }
+
     string valueToString(MachineState state)
     {
 	return value.toString(state);
@@ -358,22 +382,10 @@ interface DebugInfo
     bool findFrameBase(MachineState state, out Location loc);
 
     /**
-     * Return a list of arguments to the function matching the given
-     * machine state.
-     */
-    Variable[] findArguments(MachineState state);
-
-    /**
-     * Return a list of variables accessible the the scope matching
-     * the given machine state.
-     */
-    Variable[] findVariables(MachineState state);
-
-    /**
      * Return an object describing the function matching the given
-     * machine state.
+     * address.
      */
-    Function findFunction(MachineState state);
+    Function findFunction(ulong pc);
 
     /**
      * Unwind the stack frame associated with a given machine state

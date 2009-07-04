@@ -996,33 +996,24 @@ class DwarfFile: public DebugInfo
 	    DIE func;
 	    if (findSubprogram(pc, cu, func)) {
 		auto l = func[DW_AT_frame_base];
-		if (l)
-		    return l.evalLocation(cu, state, loc);
+		if (l) {
+		    loc = new DwarfLocation(cu, l, 1);
+		    return true;
+		}
 	    }
 	    return false;
 	}
 
-	Variable[] findArguments(MachineState state)
+	Function findFunction(ulong pc)
 	{
-	    return findVars(state, DW_TAG_formal_parameter);
-	}
-
-	Variable[] findVariables(MachineState state)
-	{
-	    return findVars(state, DW_TAG_variable);
-	}
-
-	Function findFunction(MachineState state)
-	{
-	    ulong pc = state.getGR(state.pcregno);
 	    CompilationUnit cu;
 	    DIE func;
 	    if (findSubprogram(pc, cu, func)) {
 		Function f = new Function(func[DW_AT_name].toString,
 					  cu[func[DW_AT_type]].toType);
-		foreach (v; findVars(cu, func, state, DW_TAG_formal_parameter))
+		foreach (v; findVars(cu, func, DW_TAG_formal_parameter))
 		    f.addArgument(v);
-		foreach (v; findVars(cu, func, state, DW_TAG_variable))
+		foreach (v; findVars(cu, func, DW_TAG_variable))
 		    f.addVariable(v);
 		return f;
 	    }
@@ -1428,8 +1419,7 @@ private:
 	return false;
     }
 
-    Variable[] findVars(CompilationUnit cu, DIE func,
-			MachineState state, int tag)
+    Variable[] findVars(CompilationUnit cu, DIE func, int tag)
     {
 	Variable[] vars;
 	Variable var;
@@ -1444,22 +1434,12 @@ private:
 	    if (n && t && l) {
 		var.name = n.toString;
 		var.value.type = cu[t].toType;
-		if (l.evalLocation(cu, state, var.value.loc))
-		    vars ~= var;
+		var.value.loc = new DwarfLocation(cu, l,
+		    var.value.type.byteWidth);
+		vars ~= var;
 	    }
 	}
 	return vars;
-    }
-
-    Variable[] findVars(MachineState state, int tag)
-    {
-	auto pc = state.getGR(state.pcregno);
-	CompilationUnit cu;
-	DIE func;
-
-	if (findSubprogram(pc, cu, func))
-	    return findVars(cu, func, state, tag);
-	return null;
     }
 
     Objfile obj_;
@@ -1471,6 +1451,50 @@ private:
 }
 
 private:
+
+class DwarfLocation: Location
+{
+    this(CompilationUnit cu, AttributeValue av, size_t len)
+    {
+	cu_ = cu;
+	av_ = av;
+	length_ = len;
+    }
+
+    override {
+	size_t length()
+	{
+	    return length_;
+	}
+
+	ubyte[] readValue(MachineState state)
+	{
+	    Location loc;
+	    if (av_.evalLocation(cu_, state, loc))
+		return loc.readValue(state);
+	    return null;
+	}
+
+	void writeValue(MachineState state, ubyte[] value)
+	{
+	    Location loc;
+	    if (av_.evalLocation(cu_, state, loc))
+		return loc.writeValue(state, value);
+	}
+
+	ulong address(MachineState state)
+	{
+	    Location loc;
+	    if (av_.evalLocation(cu_, state, loc))
+		return loc.address(state);
+	    return 0;
+	}
+    }
+
+    CompilationUnit cu_;
+    AttributeValue av_;
+    size_t length_;
+}
 
 class DwarfRegLoc: Location
 {
@@ -1496,7 +1520,7 @@ class DwarfRegLoc: Location
 	    return state.writeGR(regno_, value);
 	}
 
-	ulong address()
+	ulong address(MachineState)
 	{
 	    assert(false);
 	    return 0;
@@ -1532,7 +1556,7 @@ class DwarfMemLoc: Location
 	    return state.writeMemory(address_, value);
 	}
 
-	ulong address()
+	ulong address(MachineState)
 	{
 	    return address_;
 	}
@@ -1566,7 +1590,7 @@ class DwarfConstLoc: Location
 	    value_[] = value[];
 	}
 
-	ulong address()
+	ulong address(MachineState)
 	{
 	    assert(false);
 	    return 0;
@@ -1706,7 +1730,7 @@ struct Expr
 		Location frame;
 		v = parseSLEB128(p);
 		if (cu.parent.findFrameBase(state, frame))
-		    stack.push(frame.address + v);
+		    stack.push(frame.address(state) + v);
 		else
 		    stack.push(v);
 		break;
@@ -2399,7 +2423,7 @@ class DIE
 	    }
 
 	case DW_TAG_pointer_type:
-	    return new PointerType(name, subType);
+	    return new PointerType(name, subType, is64 ? 8 : 4);
 
 	case DW_TAG_const_type:
 	    return new ModifierType(name, "const", subType);
