@@ -361,7 +361,7 @@ class Debugger: TargetListener
 	foreach (mod; modules_) {
 	    DebugInfo d = mod.debugInfo;
 	    if (d && d.findLineByAddress(pc, le)) {
-		return le[0].fullname ~ ":" ~ .toString(le[0].line);
+		return le[0].name ~ ":" ~ .toString(le[0].line);
 	    }
 	}
 	foreach (mod; modules_) {
@@ -396,6 +396,18 @@ class Debugger: TargetListener
 	if (!infoCommands_)
 	    infoCommands_ = new CommandTable;
 	infoCommands_.add(c);
+    }
+
+    bool findDebugInfo(MachineState s, out DebugInfo di)
+    {
+	Location loc;
+	foreach (mod; modules_) {
+	    if (mod.debugInfo.findFrameBase(s, loc)) {
+		di = mod.debugInfo;
+		return true;
+	    }
+	}
+	return false;
     }
 
     override
@@ -762,6 +774,41 @@ class InfoRegistersCommand: Command
     }
 }
 
+class InfoVariablesCommand: Command
+{
+    static this()
+    {
+	Debugger.registerInfoCommand(new InfoVariablesCommand);
+    }
+
+    override {
+	string name()
+	{
+	    return "variables";
+	}
+
+	string description()
+	{
+	    return "List variabless";
+	}
+
+	void run(Debugger db, string[] args)
+	{
+	    TargetThread t = db.threads_[0];
+	    MachineState s = t.state;
+	    DebugInfo di;
+
+	    if (db.findDebugInfo(s, di)) {
+		auto vars = di.findArguments(s);
+		vars ~= di.findVariables(s);
+		foreach (v; vars) {
+		    writefln("%s = %s", v.toString, v.valueToString(s));
+		}
+	    }
+	}
+    }
+}
+
 class WhereCommand: Command
 {
     static this()
@@ -783,21 +830,36 @@ class WhereCommand: Command
 	void run(Debugger db, string[] args)
 	{
 	    TargetThread t = db.threads_[0];
-	    MachineState s = t.state;
+	    MachineState s = t.state, ns;
 	    int i = 0;
 
 	    while (s) {
 		ulong pc = s.getGR(s.pcregno);
-		writefln("%d: %s", i + 1, db.describeAddress(pc));
-		Location loc;
-		MachineState ns = null;
-		foreach (mod; db.modules_) {
-		    DebugInfo d = mod.debugInfo;
-		    if (d.findFrameBase(s, loc)) {
-			ns = d.unwind(s);
-			break;
+		writef("%d: %s", i + 1, db.describeAddress(pc));
+		
+		DebugInfo di;
+		if (db.findDebugInfo(s, di)) {
+		    Function func = di.findFunction(s);
+		    if (func) {
+			writef(": %s(", func.name);
+			bool first = true;
+			foreach (a; func.arguments) {
+			    if (!first) {
+				writef(", ");
+				first = false;
+			    }
+			    writef("%s = %s", a.toString, a.valueToString(s));
+			}
+			writefln(")");
+		    } else {
+			writefln("");
 		    }
+		    ns = di.unwind(s);
+		} else {
+		    writefln("");
+		    ns = null;
 		}
+
 		s = ns;
 
 		i++;

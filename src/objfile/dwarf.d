@@ -932,8 +932,8 @@ class DwarfFile: public DebugInfo
 
 	    debug (line)
 		writefln("finding 0x%x", address);
-	    auto cu = findCU(address);
-	    if (cu) {
+	    CompilationUnit cu;
+	    if (findCU(address, cu)) {
 		uint lineOffset = cu.die[DW_AT_stmt_list].ul;
 		char[] lines = debugSection(".debug_line");
 		char* p = &lines[lineOffset];
@@ -992,22 +992,40 @@ class DwarfFile: public DebugInfo
 	bool findFrameBase(MachineState state, out Location loc)
 	{
 	    auto pc = state.getGR(state.pcregno);
-	    auto cu = findCU(pc);
-	    if (cu) {
-		DIE func = cu.findSubprogram(pc);
-		if (func) {
-		    auto off = func[DW_AT_frame_base];
-		    if (off) {
-			//writefln("DW_AT_frame_base=%x", off.ul);
-			char[] locs = debugSection(".debug_loc");
-			Loclist ll = Loclist(cu.is64, &locs[off.ul]);
-			return ll.eval(cu, state, loc);
-		    }
-		} else {
-		    return false;
-		}
+	    CompilationUnit cu;
+	    DIE func;
+	    if (findSubprogram(pc, cu, func)) {
+		auto l = func[DW_AT_frame_base];
+		if (l)
+		    return l.evalLocation(cu, state, loc);
 	    }
 	    return false;
+	}
+
+	Variable[] findArguments(MachineState state)
+	{
+	    return findVars(state, DW_TAG_formal_parameter);
+	}
+
+	Variable[] findVariables(MachineState state)
+	{
+	    return findVars(state, DW_TAG_variable);
+	}
+
+	Function findFunction(MachineState state)
+	{
+	    ulong pc = state.getGR(state.pcregno);
+	    CompilationUnit cu;
+	    DIE func;
+	    if (findSubprogram(pc, cu, func)) {
+		Function f = new Function(func[DW_AT_name].toString,
+					  cu[func[DW_AT_type]].toType);
+		foreach (v; findVars(cu, func, state, DW_TAG_formal_parameter))
+		    f.addArgument(v);
+		foreach (v; findVars(cu, func, state, DW_TAG_variable))
+		    f.addVariable(v);
+		return f;
+	    }
 	}
 
 	MachineState unwind(MachineState state)
@@ -1388,17 +1406,61 @@ private:
     /**
      * Return the CU that contains the given address, if any.
      */
-    CompilationUnit findCU(ulong address)
+    bool findCU(ulong address, out CompilationUnit res)
     {
 	foreach (cu; compilationUnits_) {
 	    if (cu.contains(address)) {
 		cu.loadDIE;
-		return cu;
+		res = cu;
+		return true;
 	    }
 	}
-	return null;
+	return false;
     }
 
+    /**
+     * Returh the CU and subprogram containing the given address.
+     */
+    bool findSubprogram(ulong address, out CompilationUnit cu, out DIE func)
+    {
+	if (findCU(address, cu))
+	    return cu.findSubprogram(address, func);
+	return false;
+    }
+
+    Variable[] findVars(CompilationUnit cu, DIE func,
+			MachineState state, int tag)
+    {
+	Variable[] vars;
+	Variable var;
+	Expr e;
+	foreach (die; func.children) {
+	    if (die.tag != tag)
+		continue;
+
+	    auto n = die[DW_AT_name];
+	    auto t = die[DW_AT_type];
+	    auto l = die[DW_AT_location];
+	    if (n && t && l) {
+		var.name = n.toString;
+		var.value.type = cu[t].toType;
+		if (l.evalLocation(cu, state, var.value.loc))
+		    vars ~= var;
+	    }
+	}
+	return vars;
+    }
+
+    Variable[] findVars(MachineState state, int tag)
+    {
+	auto pc = state.getGR(state.pcregno);
+	CompilationUnit cu;
+	DIE func;
+
+	if (findSubprogram(pc, cu, func))
+	    return findVars(cu, func, state, tag);
+	return null;
+    }
 
     Objfile obj_;
     char[] debugSections_[string];
@@ -1909,7 +1971,7 @@ struct Expr
 		ValueStack stack;
 		Expr e = Expr(is64, p, end);
 		p = e.eval(cu, state, stack);
-		loc = new DwarfMemLoc(stack.pop, 1);
+		loc = new DwarfMemLoc(stack.pop, is64 ? 8 : 4);
 	    }
 	    if (p == end) {
 		/*
@@ -2139,10 +2201,49 @@ class AttributeValue
 	}
     }
 
+    bool isBlock()
+    {
+	return form == DW_FORM_block1 || form == DW_FORM_block2
+	    || form == DW_FORM_block4 || form == DW_FORM_block;
+    }
+
+    bool isLoclistptr()
+    {
+	return form == DW_FORM_data4 || form == DW_FORM_data8;
+    }
+
+    bool evalLocation(CompilationUnit cu, MachineState state,
+		      out Location loc)
+    {
+	if (isLoclistptr) {
+	    char[] locs = cu.parent.debugSection(".debug_loc");
+	    Loclist ll = Loclist(cu.is64, &locs[ul]);
+	    return ll.eval(cu, state, loc);
+	} else {
+	    assert(isBlock);
+	    Expr e = Expr(cu.is64, b.start, b.end);
+	    return e.evalLocation(cu, state, loc);
+	}
+    }
+
+    string toString()
+    {
+	return .toString(str);
+    }
+
+    uint ui()
+    {
+	return cast(uint) ul;
+    }
+
     int form;
     struct block {
 	size_t length;
 	char* start;
+	char* end()
+	{
+	    return start + length;
+	}
     }
 
     union {
@@ -2167,18 +2268,21 @@ struct AddressRange
 class DIE
 {
     DwarfFile top;
+    CompilationUnit parent;
     int tag;
     bool hasChildren;
     bool is64;
     AttributeValue attrs[int];
     DIE[] children;
     AddressRange[] addresses; // set of address ranges for this DIE
+    Type type;
 
     this(CompilationUnit cu, char* base, ref char* diep,
 	 uint abbrevCode, char*[int] abbrevTable,
 	 int addrlen, char[] strtab)
     {
 	top = cu.parent;
+	parent = cu;
 
 	char* abbrevp = abbrevTable[abbrevCode];
 	tag = parseULEB128(abbrevp);
@@ -2255,6 +2359,79 @@ class DIE
 	    writef(" ");
     }
 
+    Type toTypeHard()
+    {
+	auto n = this[DW_AT_name];
+	auto t = this[DW_AT_type];
+	string name = null;
+	Type subType = null;
+
+	if (n)
+	    name = n.toString;
+	if (t)
+	    subType = parent[t].toType;
+	else
+	    subType = new VoidType;
+
+	switch (tag) {
+	case DW_TAG_base_type:
+	    switch (this[DW_AT_encoding].ul) {
+	    case DW_ATE_signed:
+	    case DW_ATE_signed_char:
+		return new IntegerType(name, true, this[DW_AT_byte_size].ui);
+
+	    case DW_ATE_unsigned:
+	    case DW_ATE_unsigned_char:
+		return new IntegerType(name, false, this[DW_AT_byte_size].ui);
+
+	    case DW_ATE_address:
+	    case DW_ATE_boolean:
+	    case DW_ATE_complex_float:
+	    case DW_ATE_float:
+	    case DW_ATE_imaginary_float:
+	    case DW_ATE_packed_decimal:
+	    case DW_ATE_numeric_string:
+	    case DW_ATE_edited:
+	    case DW_ATE_signed_fixed:
+	    case DW_ATE_unsigned_fixed:
+	    case DW_ATE_decimal_float:
+		assert(false);
+	    }
+
+	case DW_TAG_pointer_type:
+	    return new PointerType(name, subType);
+
+	case DW_TAG_const_type:
+	    return new ModifierType(name, "const", subType);
+
+	case DW_TAG_packed_type:
+	    return new ModifierType(name, "packed", subType);
+
+	case DW_TAG_reference_type:
+	    return new ModifierType(name, "ref", subType);
+
+	case DW_TAG_restrict_type:
+	    return new ModifierType(name, "restrict", subType);
+
+	case DW_TAG_shared_type:
+	    return new ModifierType(name, "shared", subType);
+
+	case DW_TAG_volatile_type:
+	    return new ModifierType(name, "volatile", subType);
+
+	default:
+	    return new VoidType;
+	}
+    }
+
+    Type toType()
+    {
+	if (!type)
+	    type = toTypeHard;
+
+	return type;
+    }
+
     void print(int indent)
     {
 	printIndent(indent);
@@ -2309,12 +2486,23 @@ class CompilationUnit
 	}
     }
 
-    DIE findSubprogram(ulong pc)
+    bool findSubprogram(ulong pc, out DIE func)
     {
 	foreach (kid; die.children)
-	    if (kid.tag == DW_TAG_subprogram && kid.contains(pc))
-		return kid;
-	return null;
+	    if (kid.tag == DW_TAG_subprogram && kid.contains(pc)) {
+		func = kid;
+		return true;
+	    }
+	return false;
+    }
+
+    DIE opIndex(AttributeValue av)
+    {
+	DIE* p = (av.ul in dieMap);
+	if (p)
+	    return *p;
+	else
+	    return null;
     }
 
     DwarfFile parent;

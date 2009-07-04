@@ -26,6 +26,8 @@
 
 module objfile.debuginfo;
 version(tangobos) import std.compat;
+import std.string;
+import std.ctype;
 
 import machine.machine;
 
@@ -48,12 +50,276 @@ struct LineEntry
     int isa;
 }
 
+interface Type
+{
+    string toString();
+    string valueToString(MachineState, Location);
+    bool isCharType();
+    bool isStringType();
+}
+
+ulong
+readInteger(ubyte[] bytes)
+{
+    // XXX endian
+    uint bit = 0;
+    ulong value = 0;
+
+    foreach (b; bytes) {
+	value |= b << bit;
+	bit += 8;
+    }
+    return value;
+}
+
+class IntegerType: Type
+{
+    this(string name, bool isSigned, uint byteWidth)
+    {
+	name_ = name;
+	isSigned_ = isSigned;
+	byteWidth_ = byteWidth;
+    }
+
+    bool isSigned()
+    {
+	return isSigned_;
+    }
+
+    uint bitWidth()
+    {
+	return byteWidth_;
+    }
+
+    override
+    {
+	string toString()
+	{
+	    return name_;
+	}
+
+	string valueToString(MachineState state, Location loc)
+	{
+	    ubyte[] val = loc.readValue(state);
+	    return .toString(readInteger(val));
+	}
+	bool isCharType()
+	{
+	    return byteWidth_ == 1;
+	}
+	bool isStringType()
+	{
+	    return false;
+	}
+    }
+
+private:
+    string name_;
+    bool isSigned_;
+    int byteWidth_;
+}
+
+class PointerType: Type
+{
+    this(string name, Type baseType)
+    {
+	name_ = name;
+	baseType_ = baseType;
+    }
+
+    override
+    {
+	string toString()
+	{
+	    if (baseType_)
+		return baseType_.toString ~ "*";
+	    else
+		return "void*";
+	}
+	string valueToString(MachineState state, Location loc)
+	{
+	    string v;
+	    ulong p = readInteger(loc.readValue(state));
+	    v = std.string.format("0x%x", p);
+	    if (isStringType) {
+		ubyte[] b;
+		char c;
+		v ~= " \"";
+		do {
+		    b = state.readMemory(p++, 1);
+		    c = cast(char) b[0];
+		    if (c) {
+			if (isprint(c)) {
+			    v ~= c;
+			} else {
+			    string specials[char] = [
+				'\a': "\\a",
+				'\b': "\\b",
+				'\f': "\\f",
+				'\n': "\\n",
+				'\r': "\\r",
+				'\t': "\\t",
+				'\v': "\\v"];
+			    if (c in specials)
+				v ~= specials[c];
+			    else
+				v ~= std.string.format("%02x", c);
+			}
+		    }
+		} while (c);
+		v ~= "\"";
+	    }
+	    return v;
+	}
+	bool isCharType()
+	{
+	    return false;
+	}
+	bool isStringType()
+	{
+	    return baseType_.isCharType;
+	}
+    }
+
+private:
+    string name_;
+    Type baseType_;
+}
+
+class ModifierType: Type
+{
+    this(string name, string modifier, Type baseType)
+    {
+	name_ = name;
+	modifier_ = modifier;
+	baseType_ = baseType;
+    }
+
+    override
+    {
+	string toString()
+	{
+	    return modifier_ ~ " " ~ baseType_.toString;
+	}
+	string valueToString(MachineState state, Location loc)
+	{
+	    return baseType_.valueToString(state, loc);
+	}
+	bool isCharType()
+	{
+	    return baseType_.isCharType;
+	}
+	bool isStringType()
+	{
+	    return baseType_.isStringType;
+	}
+    }
+
+private:
+    string name_;
+    string modifier_;
+    Type baseType_;
+}
+
+class VoidType: Type
+{
+    override
+    {
+	string toString()
+	{
+	    return "void";
+	}
+	string valueToString(MachineState, Location)
+	{
+	    return "void";
+	}
+	bool isCharType()
+	{
+	    return false;
+	}
+	bool isStringType()
+	{
+	    return false;
+	}
+    }
+}
+
 interface Location
 {
     size_t length();
     ubyte[] readValue(MachineState);
     void writeValue(MachineState, ubyte[]);
     ulong address();
+}
+
+struct Value
+{
+    Location loc;
+    Type type;
+
+    string toString(MachineState state)
+    {
+	return type.valueToString(state, loc);
+    }
+}
+
+struct Variable
+{
+    string name;
+    Value value;
+
+    string toString()
+    {
+	return value.type.toString ~ " " ~ name;
+    }
+    string valueToString(MachineState state)
+    {
+	return value.toString(state);
+    }
+}
+
+class Function
+{
+    this(string name, Type returnType)
+    {
+	name_ = name;
+	returnType_ = returnType;
+    }
+
+    void addArgument(Variable var)
+    {
+	arguments_ ~= var;
+    }
+
+    void addVariable(Variable var)
+    {
+	variables_ ~= var;
+    }
+
+    string name()
+    {
+	return name_;
+    }
+
+    Type returnType()
+    {
+	return returnType_;
+    }
+
+    Variable[] arguments()
+    {
+	return arguments_;
+    }
+
+    Variable[] variables()
+    {
+	return variables_;
+    }
+
+    string name_;
+    Type returnType_;
+    Variable[] arguments_;
+    Variable[] variables_;
 }
 
 /**
@@ -90,6 +356,24 @@ interface DebugInfo
      * Find the stack frame base associated with the given machine state.
      */
     bool findFrameBase(MachineState state, out Location loc);
+
+    /**
+     * Return a list of arguments to the function matching the given
+     * machine state.
+     */
+    Variable[] findArguments(MachineState state);
+
+    /**
+     * Return a list of variables accessible the the scope matching
+     * the given machine state.
+     */
+    Variable[] findVariables(MachineState state);
+
+    /**
+     * Return an object describing the function matching the given
+     * machine state.
+     */
+    Function findFunction(MachineState state);
 
     /**
      * Unwind the stack frame associated with a given machine state
