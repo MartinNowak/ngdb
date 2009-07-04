@@ -48,32 +48,12 @@ struct LineEntry
     int isa;
 }
 
-struct Location
+interface Location
 {
-    enum Type {
-	Value,
-	Address,
-	Register
-    }
-    Type type;
-    size_t length;
-    union {
-	/*
-	 * A constant value or something made up as a composite of
-	 * value pieces.
-	 */
-	ubyte[] value;
-
-	/*
-	 * A value located in target memory.
-	 */
-	ulong address;
-
-	/*
-	 * A value located in a target register
-	 */
-	uint register;
-    }
+    size_t length();
+    ubyte[] readValue(MachineState);
+    void writeValue(MachineState, ubyte[]);
+    ulong address();
 }
 
 /**

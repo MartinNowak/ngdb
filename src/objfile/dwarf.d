@@ -1410,6 +1410,110 @@ private:
 
 private:
 
+class DwarfRegLoc: Location
+{
+    this(uint regno, size_t length)
+    {
+	regno_ = regno;
+	length_ = length;
+    }
+
+    override {
+	size_t length()
+	{
+	    return length_;
+	}
+
+	ubyte[] readValue(MachineState state)
+	{
+	    return state.readGR(regno_);
+	}
+
+	void writeValue(MachineState state, ubyte[] value)
+	{
+	    return state.writeGR(regno_, value);
+	}
+
+	ulong address()
+	{
+	    assert(false);
+	    return 0;
+	}
+    }
+
+    uint regno_;
+    size_t length_;
+}
+
+class DwarfMemLoc: Location
+{
+    this(ulong address, size_t length)
+    {
+	address_ = address;
+	length_ = length;
+    }
+
+    override {
+	size_t length()
+	{
+	    return length_;
+	}
+
+	ubyte[] readValue(MachineState state)
+	{
+	    return state.readMemory(address_, length_);
+	}
+
+	void writeValue(MachineState state, ubyte[] value)
+	{
+	    assert(value.length == length_);
+	    return state.writeMemory(address_, value);
+	}
+
+	ulong address()
+	{
+	    return address_;
+	}
+    }
+
+    ulong address_;
+    size_t length_;
+}
+
+class DwarfConstLoc: Location
+{
+    this(ubyte[] value)
+    {
+	value_[] = value[];
+    }
+
+    override {
+	size_t length()
+	{
+	    return value_.length;
+	}
+
+	ubyte[] readValue(MachineState state)
+	{
+	    return value_;
+	}
+
+	void writeValue(MachineState state, ubyte[] value)
+	{
+	    assert(value.length == value_.length);
+	    value_[] = value[];
+	}
+
+	ulong address()
+	{
+	    assert(false);
+	    return 0;
+	}
+    }
+
+    ubyte[] value_;
+}
+
 struct ValueStack
 {
     size_t length()
@@ -1795,21 +1899,17 @@ struct Expr
 	    auto op = *p;
 	    if (op >= DW_OP_reg0 && op <= DW_OP_reg31) {
 		p++;
-		loc.type = Location.Type.Register;
-		loc.register = op - DW_OP_reg0;
-		loc.length = state.grWidth(loc.register) / 8;
+		uint regno = op - DW_OP_reg0;
+		loc = new DwarfRegLoc(regno, state.grWidth(regno) / 8);
 	    } else if (op == DW_OP_regx) {
 		p++;
-		loc.type = Location.Type.Register;
-		loc.register = parseULEB128(p);
-		loc.length = state.grWidth(loc.register) / 8;
+		uint regno = parseULEB128(p);
+		loc = new DwarfRegLoc(regno, state.grWidth(regno) / 8);
 	    } else {
-		loc.type = Location.Type.Address;
-		loc.length = 1;
 		ValueStack stack;
 		Expr e = Expr(is64, p, end);
 		p = e.eval(cu, state, stack);
-		loc.address = stack.pop;
+		loc = new DwarfMemLoc(stack.pop, 1);
 	    }
 	    if (p == end) {
 		/*
@@ -1827,23 +1927,7 @@ struct Expr
 		switch (op) {
 		case DW_OP_piece:
 		    t.length = parseULEB128(p);
-		    switch (loc.type) {
-		    case Location.Type.Value:
-			t[] = loc.value[0..t.length];
-			break;
-
-		    case Location.Type.Address:
-			t[] = state.readMemory(loc.address, t.length);
-			break;
-
-		    case Location.Type.Register:
-			ubyte buf[8];
-			// XXX byte swap register value
-			*cast(long*) &buf[0] = state.getGR(loc.register);
-			t[] = buf[0..t.length];
-			break;
-
-		    }
+		    t[] = loc.readValue(state)[0..t.length];
 		    obj ~= t;
 		    break;
 
@@ -1863,21 +1947,12 @@ struct Expr
 			return v;
 		    }
 
-		    ulong pv;
-		    switch (loc.type) {
-		    case Location.Type.Value:
-			pv = getVal(loc.value);
-			break;
-
-		    case Location.Type.Address:
-			pv = getVal(state.readMemory(loc.address,
-						     (nbits + 7) / 8));
-			break;
-
-		    case Location.Type.Register:
-			pv = state.getGR(loc.register);
-			break;
-		    }
+		    size_t len = (nbits + 7) / 8;
+		    t = loc.readValue(state);
+		    ulong pv = 0;
+		    uint i, b;
+		    for (i = 0, b = 0; len > 0; i++, b += 8, len--)
+			pv |= t[i] << b;
 
 		    pv = (pv >>> boff) & ((1 << nbits) - 1);
 		    // XXX not sure how to compose into obj - need example

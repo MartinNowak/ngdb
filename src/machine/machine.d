@@ -39,7 +39,7 @@ interface MachineState
     /**
      * Set a general register by register number.
      */
-    void setGR(int gregno, ulong val);
+    void setGR(uint gregno, ulong val);
 
     /**
      * Set a general register by register name.
@@ -49,12 +49,22 @@ interface MachineState
     /**
      * Get a general register by register number.
      */
-    ulong getGR(int gregno);
+    ulong getGR(uint gregno);
 
     /**
      * Get a general register by register name.
      */
     ulong getGR(string gregname);
+
+    /**
+     * Read raw register bytes in target byte order
+     */
+    ubyte[] readGR(uint gregno);
+
+    /**
+     * Write raw register bytes in target byte order
+     */
+    void writeGR(uint gregno, ubyte[]);
 
     /**
      * Return the width in bits of a general register

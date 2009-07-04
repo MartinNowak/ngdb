@@ -148,7 +148,7 @@ class X86State: MachineState
 	    }
 	}
 
-	void setGR(int gregno, ulong val)
+	void setGR(uint gregno, ulong val)
 	{
 	    gregs_[gregno] = val;
 	}
@@ -158,7 +158,7 @@ class X86State: MachineState
 	    return setGR(nameToGRegno(gregname), val);
 	}
 
-	ulong getGR(int gregno)
+	ulong getGR(uint gregno)
 	{
 	    return gregs_[gregno];
 	}
@@ -166,6 +166,19 @@ class X86State: MachineState
 	ulong getGR(string gregname)
 	{
 	    return getGR(nameToGRegno(gregname));
+	}
+
+	ubyte[] readGR(uint gregno)
+	{
+	    ubyte[] v;
+	    v[0..4] = (cast(ubyte*) &gregs_[gregno])[0..4];
+	    return v;
+	}
+
+	void writeGR(uint gregno, ubyte[] v)
+	{
+	    assert(v.length == 4);
+	    (cast(ubyte*) &gregs_[gregno])[0..4] = v[0..4];
 	}
 
 	size_t grWidth(int greg)
