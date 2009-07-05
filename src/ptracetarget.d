@@ -144,11 +144,10 @@ private:
 
 class PtraceBreakpoint
 {
-    this(PtraceTarget target, ulong addr, void* id)
+    this(PtraceTarget target, ulong addr)
     {
 	target_ = target;
 	addr_ = addr;
-	id_ = id;
     }
 
     void activate()
@@ -174,15 +173,38 @@ class PtraceBreakpoint
 	return addr_;
     }
 
-    void* id()
+    void addID(void* id)
     {
-	return id_;
+	ids_ ~= id;
+    }
+
+    void removeID(void* id)
+    {
+	void*[] newids;
+
+	foreach (t; ids_)
+	    if (t != id)
+		newids ~= t;
+	ids_ = newids;
+    }
+
+    bool matchID(void* id)
+    {
+	foreach (t; ids_)
+	    if (t == id)
+		return true;
+	return false;
+    }
+
+    void*[] ids()
+    {
+	return ids_;
     }
 
 private:
     PtraceTarget target_;
     ulong addr_;
-    void* id_;
+    void*[] ids_;
     ubyte[] save_;
     static ubyte[] break_ = [ 0xcc ]; // XXX i386 int3
 }
@@ -439,19 +461,26 @@ class PtraceTarget: Target
 	{
 	    debug(breakpoints)
 		writefln("setting breakpoint at 0x%x for 0x%x", addr, id);
-	    PtraceBreakpoint pbp = new PtraceBreakpoint(this, addr, id);
-	    breakpoints_ ~= pbp;
-	    return pbp;
+	    if (addr in breakpoints_) {
+		breakpoints_[addr].addID(id);
+	    } else {
+		PtraceBreakpoint pbp = new PtraceBreakpoint(this, addr);
+		pbp.addID(id);
+		breakpoints_[addr] = pbp;
+	    }
 	}
 
 	void clearBreakpoint(void* id)
 	{
 	    debug(breakpoints)
 		writefln("clearing breakpoints for 0x%x", id);
-	    PtraceBreakpoint[] newBreakpoints;
-	    foreach (pbp; breakpoints_) {
-		if (pbp.id != id)
-		    newBreakpoints ~= pbp;
+	    PtraceBreakpoint[ulong] newBreakpoints;
+	    foreach (addr, pbp; breakpoints_) {
+		if (pbp.matchID(id)) {
+		    pbp.removeID(id);
+		}
+		if (pbp.ids.length > 0)
+		    newBreakpoints[addr] = pbp;
 	    }
 	    breakpoints_ = newBreakpoints;
 	}
@@ -489,7 +518,7 @@ private:
     int waitStatus_;
     PtraceThread[lwpid_t] threads_;
     PtraceModule[] modules_;
-    PtraceBreakpoint[] breakpoints_;
+    PtraceBreakpoint[ulong] breakpoints_;
     TargetListener listener_;
     string execname_;
     bool breakpointsActive_;
@@ -614,13 +643,14 @@ private:
 	 * them up and inform the listener.
 	 */
 	foreach (t; threads_) {
-	    foreach (pbp; breakpoints_.dup) {
+	    foreach (pbp; breakpoints_.values) {
 		if (t.pc == pbp.address + 1) {
 		    t.pc = pbp.address;
 		    debug(breakpoints)
 			writefln("hit breakpoint at 0x%x for 0x%x",
 				 t.pc, pbp.id);
-		    listener_.onBreakpoint(this, t, pbp.id);
+		    foreach (id; pbp.ids)
+			listener_.onBreakpoint(this, t, id);
 		}
 	    }
 	}
