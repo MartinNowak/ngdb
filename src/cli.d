@@ -119,94 +119,64 @@ class CommandTable
     Command[string] list_;
 }
 
-private class CompoundBreakpoint: Breakpoint
+private class Breakpoint
 {
-    override {
-	void enabled(bool b)
-	{
-	    enabled_ = b;
-	    foreach (bp; bp_)
-		bp.enabled = b;
-	}
-	bool enabled()
-	{
-	    return enabled_;
-	}
-	ulong address()
-	{
-	    return 0;
-	}
-    }
-
-    void clear()
-    {
-	foreach (bp; bp_)
-	    bp.clear();
-	bp_.length = 0;
-    }
-
-    bool matches(Breakpoint tbp)
-    {
-	foreach (bp; bp_)
-	    if (bp == tbp)
-		return true;
-	return false;
-    }
-
-    string[] describe(Debugger db)
-    {
-	string[] res;
-	foreach (bp; bp_)
-	    res ~= db.describeAddress(bp.address, null);
-	return res;
-    }
-
-private:
-    bool enabled_ = true;
-    Breakpoint[] bp_;
-}
-
-private class PendingBreakpoint: Breakpoint
-{
-    this(Debugger db, string expr)
+    this(Debugger db, uint id, string expr)
     {
 	db_ = db;
+	id_ = id;
 	expr_ = expr;
     }
 
-    void activate(Target target, TargetModule mod)
+    void activate(TargetModule mod)
     {
-	if (mod in bp_) {
+	if (mod in modules_)
 	    return;
+	modules_[mod] = true;
+
+	DebugInfo d = mod.debugInfo;
+	int pos;
+
+	LineEntry[] lines;
+	bool found;
+	if ((pos = expr_.find(':')) >= 0) {
+	    // Assume the expr is file:line
+	    uint line = toUint(expr_[pos + 1..expr_.length]);
+	    string file = expr_[0..pos];
+	    found = d.findLineByName(file, line, lines);
 	} else {
-	    DebugInfo d = mod.debugInfo;
-	    int pos;
-
-	    LineEntry[] lines;
-	    bool found;
-	    if ((pos = expr_.find(':')) >= 0) {
-		// Assume the expr is file:line
-		uint line = toUint(expr_[pos + 1..expr_.length]);
-		string file = expr_[0..pos];
-		found = d.findLineByName(file, line, lines);
-
-	    } else {
-		// Try looking up a function
-		found = d.findLineByFunction(expr_, lines);
-	    }
-	    if (found) {
-		CompoundBreakpoint cb = new CompoundBreakpoint;
-		foreach (le; lines) {
-		    cb.bp_ ~= target.setBreakpoint(le.address);
-		}
-		bp_[mod] = cb;
+	    // Try looking up a function
+	    found = d.findLineByFunction(expr_, lines);
+	}
+	if (found) {
+	    foreach (le; lines) {
+		db_.target_.setBreakpoint(le.address, cast(void*) this);
+		addresses_ ~= le.address;
 	    }
 	}
+    }
+
+    void disable()
+    {
+	db_.target_.clearBreakpoint(cast(void*) this);
+	enabled_ = false;
+    }
+
+    void enable()
+    {
+	foreach (address; addresses_)
+	    db_.target_.setBreakpoint(address, cast(void*) this);
+	enabled_ = true;
     }
 
     bool active()
     {
-	return bp_.length > 0;
+	return addresses_.length > 0;
+    }
+
+    uint id()
+    {
+	return id_;
     }
 
     string expr()
@@ -217,49 +187,19 @@ private class PendingBreakpoint: Breakpoint
     string[] describe()
     {
 	string[] res;
-	foreach (bp; bp_)
-	    res ~= bp.describe(db_);
+	foreach (address; addresses_)
+	    res ~= db_.describeAddress(address, null);
 	if (res.length == 0)
 	    res ~= expr;
 	return res;
     }
 
-    bool matches(Breakpoint tbp)
-    {
-	foreach (bp; bp_)
-	    if (bp.matches(tbp))
-		return true;
-	return false;
-    }
-
-    override {
-	void enabled(bool b)
-	{
-	    enabled_ = b;
-	    foreach (bp; bp_)
-		bp.enabled = b;
-	}
-	bool enabled()
-	{
-	    return enabled_;
-	}
-	ulong address()
-	{
-	    return 0;
-	}
-	void clear()
-	{
-	    foreach (mod, bp; bp_) {
-		clear();
-		bp_.remove(mod);
-	    }
-	}
-    }
-
     string expr_;
     bool enabled_ = true;
     Debugger db_;
-    CompoundBreakpoint[TargetModule] bp_;
+    uint id_;
+    bool[TargetModule] modules_;
+    ulong[] addresses_;
 }
 
 private class SourceFile
@@ -297,6 +237,8 @@ class Debugger: TargetListener
 	el_set(el_, EL_HIST, &history, hist_);
 
 	tok_ = tok_init(null);
+
+	nextBPID_ = 1;
     }
 
     ~this()
@@ -428,7 +370,7 @@ class Debugger: TargetListener
 	foreach (mod; modules_) {
 	    DebugInfo d = mod.debugInfo;
 	    if (d && d.findLineByAddress(t.pc, le)) {
-		stepBreakpoint_ = target_.setBreakpoint(le[1].address);
+		target_.setBreakpoint(le[1].address, cast(void*) this);
 		return;
 	    }
 	}
@@ -488,16 +430,18 @@ class Debugger: TargetListener
 	    modules_ ~= mod;
 
 	    foreach (bp; breakpoints_)
-		bp.activate(target_, mod);
+		bp.activate(mod);
 	}
-	void onBreakpoint(Target, TargetThread t, Breakpoint tbp)
+	void onBreakpoint(Target, TargetThread t, void* id)
 	{
-	    if (tbp == stepBreakpoint_) {
-		stepBreakpoint_.clear();
-		stepBreakpoint_ = null;
+	    /*
+	     * We use this as id for the step breakpoint.
+	     */
+	    if (id == cast(void*) this) {
+		target_.clearBreakpoint(id);
 	    } else {
 		foreach (i, bp; breakpoints_) {
-		    if (bp.matches(tbp)) {
+		    if (id == cast(void*) bp) {
 			writefln("Breakpoint %d, %s", i + 1, describeAddress(t.pc, t.state));
 		    }
 		}
@@ -531,9 +475,9 @@ private:
     Target target_;
     TargetModule[] modules_;
     TargetThread[] threads_;
-    PendingBreakpoint[] breakpoints_;
-    Breakpoint stepBreakpoint_;
+    Breakpoint[] breakpoints_;
     SourceFile[string] sourceFiles_;
+    uint nextBPID_;
 }
 
 class QuitCommand: Command
@@ -733,11 +677,11 @@ class BreakCommand: Command
 		writefln("usage: break <function or line>");
 		return;
 	    }
-	    PendingBreakpoint bp = new PendingBreakpoint(db, args[1]);
+	    Breakpoint bp = new Breakpoint(db, db.nextBPID_++, args[1]);
 	    db.breakpoints_ ~= bp;
 	    if (db.target_)
 		foreach (mod; db.modules_)
-		    bp.activate(db.target_, mod);
+		    bp.activate(mod);
 	}
     }
 }
@@ -762,12 +706,12 @@ class InfoBreakCommand: Command
 
 	void run(Debugger db, string[] args)
 	{
-	    foreach (i, b; db.breakpoints_) {
+	    foreach (b; db.breakpoints_) {
 		string[] desc = b.describe;
 		bool first = true;
 		foreach (s; desc) {
 		    if (first)
-			writef("%d:\t", i + 1);
+			writef("%d:\t", b.id);
 		    else
 			writef("\t");
 		    writef("%s", s);

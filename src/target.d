@@ -58,7 +58,7 @@ interface TargetListener
     /**
      * Called when a thread hits a breakpoint.
      */
-    void onBreakpoint(Target, TargetThread, Breakpoint);
+    void onBreakpoint(Target, TargetThread, void*);
 
     /**
      * Called when the target stops because of a signal
@@ -144,33 +144,6 @@ enum TargetState {
 }
 
 /**
- * A breakpoint in a target
- */
-interface Breakpoint
-{
-    /**
-     * Set enabled/disabled state
-     */
-    void enabled(bool);
-
-    /**
-     * Get enabled/disabled state
-     */
-    bool enabled();
-
-    /**
-     * Remove a breakpoint
-     */
-    void clear();
-
-    /**
-     * Return the machine address of the breakpoint
-     */
-    ulong address();
-}
-
-
-/**
  * This interface represents a debugging target.
  */
 interface Target
@@ -224,17 +197,18 @@ interface Target
     void wait();
 
     /**
-     * Set a breakpoint at the given address. Return an object that
-     * represents the breakpoint and which can be used to cancel it.
+     * Set a breakpoint at the given address. When the breakpoint is
+     * hit, the listener's onBreakpoint method is called with the
+     * given id value. To cancel the breakpoint, call clearBreakpoint
+     * with the same id value as that used to set it. Many breakpoints
+     * can be created with the same id value.
      */
-    Breakpoint setBreakpoint(ulong addr);
+    void setBreakpoint(ulong addr, void* id);
 
     /**
-     * Set a breakpoint at address associated with the given
-     * expression (if any). Return an object that represents the
-     * breakpoint and which can be used to cancel it.
+     * Clear any breakpoints set with the given id.
      */
-    Breakpoint setBreakpoint(string expr);
+    void clearBreakpoint(void* id);
 }
 
 /**

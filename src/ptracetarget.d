@@ -142,63 +142,47 @@ private:
     DwarfFile dwarf_;
 }
 
-class PtraceBreakpoint: Breakpoint
+class PtraceBreakpoint
 {
-    this(PtraceTarget target, ulong addr)
+    this(PtraceTarget target, ulong addr, void* id)
     {
 	target_ = target;
 	addr_ = addr;
-	enabled_ = true;
-    }
-
-    override {
-	ulong address()
-	{
-	    return addr_;
-	}
-
-	void enabled(bool enabled)
-	{
-	    enabled_ = enabled;
-	}
-
-	bool enabled()
-	{
-	    return enabled_;
-	}
-	
-	void clear()
-	{
-	    target_.clearBreakpoint(this);
-	}
+	id_ = id;
     }
 
     void activate()
     {
-	if (enabled_) {
-	    /*
-	     * Write a breakpoint instruction, saving what was there
-	     * before.
-	     */
-	    save_ = target_.readMemory(addr_, break_.length, false);
-	    target_.writeMemory(addr_, break_, false);
-	}
+	/*
+	 * Write a breakpoint instruction, saving what was there
+	 * before.
+	 */
+	save_ = target_.readMemory(addr_, break_.length, false);
+	target_.writeMemory(addr_, break_, false);
     }
 
     void deactivate()
     {
-	if (enabled_) {
-	    /*
-	     * Disable by writing back our saved bytes.
-	     */
-	    target_.writeMemory(addr_, save_, false);
-	}
+	/*
+	 * Disable by writing back our saved bytes.
+	 */
+	target_.writeMemory(addr_, save_, false);
+    }
+
+    ulong address()
+    {
+	return addr_;
+    }
+
+    void* id()
+    {
+	return id_;
     }
 
 private:
     PtraceTarget target_;
     ulong addr_;
-    bool enabled_;
+    void* id_;
     ubyte[] save_;
     static ubyte[] break_ = [ 0xcc ]; // XXX i386 int3
 }
@@ -419,24 +403,25 @@ class PtraceTarget: Target
 	     * If a thread is currently sitting on a breakpoint, step
 	     * over it.
 	     */
-	    bool atBreakpoint;
-	    do {
-		atBreakpoint = false;
-		foreach (t; threads_.values.dup) {
-		    foreach (pbp; breakpoints_) {
-			if (t.pc == pbp.address) {
-			    atBreakpoint = true;
-			    debug (ptrace)
-				writefln("stepping over breakpoint at 0x%x",
-					 t.pc);
-			    step(t);
-			    debug (ptrace)
-				writefln("after step, thread.pc 0x%x",
-					 t.pc);
-			}
+	    foreach (t; threads_.values.dup) {
+		foreach (pbp; breakpoints_) {
+		    if (t.pc == pbp.address) {
+			debug(breakpoints)
+			    writefln("stepping over breakpoint at 0x%x",
+				     t.pc);
+			step(t);
+			debug(breakpoints)
+			    writefln("after step, thread.pc 0x%x",
+				     t.pc);
+			/*
+			 * Step each thread at most once so that we
+			 * will correctly stop at the next instruction
+			 * if that also has a breakpoint set.
+			 */
+			break;
 		    }
 		}
-	    } while (atBreakpoint);
+	    }
 
 	    foreach (pbp; breakpoints_)
 		pbp.activate;
@@ -454,33 +439,25 @@ class PtraceTarget: Target
 	    stopped();
 	}
 
-	Breakpoint setBreakpoint(ulong addr)
+	void setBreakpoint(ulong addr, void* id)
 	{
-	    PtraceBreakpoint pbp = new PtraceBreakpoint(this, addr);
+	    debug(breakpoints)
+		writefln("setting breakpoint at 0x%x for 0x%x", addr, id);
+	    PtraceBreakpoint pbp = new PtraceBreakpoint(this, addr, id);
 	    breakpoints_ ~= pbp;
 	    return pbp;
 	}
 
-	Breakpoint setBreakpoint(string expr)
+	void clearBreakpoint(void* id)
 	{
-	    return null;
-	}
-
-    }
-
-    void clearBreakpoint(PtraceBreakpoint pbp)
-    {
-	foreach (t; breakpoints_) {
-	    if (t == pbp) {
-		PtraceBreakpoint[] newBreakpoints;
-		newBreakpoints.length = breakpoints_.length - 1;
-		int i = 0;
-		foreach (tt; breakpoints_)
-		    if (tt !is pbp)
-			newBreakpoints[i++] = tt;
-		breakpoints_ = newBreakpoints;
-		break;
+	    debug(breakpoints)
+		writefln("clearing breakpoints for 0x%x", id);
+	    PtraceBreakpoint[] newBreakpoints;
+	    foreach (pbp; breakpoints_) {
+		if (pbp.id != id)
+		    newBreakpoints ~= pbp;
 	    }
+	    breakpoints_ = newBreakpoints;
 	}
     }
 
@@ -638,13 +615,16 @@ private:
 
 	/*
 	 * Figure out if any threads hit a breakpoint and if so, back
-	 * them up.
+	 * them up and inform the listener.
 	 */
 	foreach (t; threads_) {
 	    foreach (pbp; breakpoints_.dup) {
 		if (t.pc == pbp.address + 1) {
 		    t.pc = pbp.address;
-		    listener_.onBreakpoint(this, t, pbp);
+		    debug(breakpoints)
+			writefln("hit breakpoint at 0x%x for 0x%x",
+				 t.pc, pbp.id);
+		    listener_.onBreakpoint(this, t, pbp.id);
 		}
 	    }
 	}
