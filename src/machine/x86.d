@@ -171,6 +171,7 @@ class X86State: MachineState
 	ubyte[] readGR(uint gregno)
 	{
 	    ubyte[] v;
+	    v.length = 4;
 	    v[0..4] = (cast(ubyte*) &gregs_[gregno])[0..4];
 	    return v;
 	}
