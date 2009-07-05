@@ -271,10 +271,6 @@ private:
     reg regs_;
 }
 
-
-
-extern (C) char* sys_signame[32];
-
 string signame(int sig)
 {
     static string signames[] = [
