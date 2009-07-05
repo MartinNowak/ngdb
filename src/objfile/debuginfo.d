@@ -142,32 +142,38 @@ class PointerType: Type
 	    ulong p = readInteger(loc.readValue(state));
 	    v = std.string.format("0x%x", p);
 	    if (isStringType) {
-		ubyte[] b;
-		char c;
-		v ~= " \"";
-		do {
-		    b = state.readMemory(p++, 1);
-		    c = cast(char) b[0];
-		    if (c) {
-			if (isprint(c)) {
-			    v ~= c;
-			} else {
-			    string specials[char] = [
-				'\a': "\\a",
-				'\b': "\\b",
-				'\f': "\\f",
-				'\n': "\\n",
-				'\r': "\\r",
-				'\t': "\\t",
-				'\v': "\\v"];
-			    if (c in specials)
-				v ~= specials[c];
-			    else
-				v ~= std.string.format("%02x", c);
+		string sv;
+		try {
+		    ubyte[] b;
+		    char c;
+		    sv = " \"";
+		    do {
+			b = state.readMemory(p++, 1);
+			c = cast(char) b[0];
+			if (c) {
+			    if (isprint(c)) {
+				sv ~= c;
+			    } else {
+				string specials[char] = [
+				    '\a': "\\a",
+				    '\b': "\\b",
+				    '\f': "\\f",
+				    '\n': "\\n",
+				    '\r': "\\r",
+				    '\t': "\\t",
+				    '\v': "\\v"];
+				if (c in specials)
+				    sv ~= specials[c];
+				else
+				    sv ~= std.string.format("%02x", c);
+			    }
 			}
-		    }
-		} while (c);
-		v ~= "\"";
+		    } while (c);
+		    sv ~= "\"";
+		} catch (Exception e) {
+		    sv = "";
+		}
+		v ~= sv;
 	    }
 	    return v;
 	}
@@ -232,6 +238,166 @@ private:
     Type baseType_;
 }
 
+class TypedefType: Type
+{
+    this(string name, Type baseType)
+    {
+	name_ = name;
+	baseType_ = baseType;
+    }
+
+    override
+    {
+	string toString()
+	{
+	    return name_;
+	}
+	string valueToString(MachineState state, Location loc)
+	{
+	    return baseType_.valueToString(state, loc);
+	}
+	size_t byteWidth()
+	{
+	    return baseType_.byteWidth;
+	}
+	bool isCharType()
+	{
+	    return baseType_.isCharType;
+	}
+	bool isStringType()
+	{
+	    return baseType_.isStringType;
+	}
+    }
+
+private:
+    string name_;
+    Type baseType_;
+}
+
+class CompoundType: Type
+{
+    this(string kind, string name, uint byteWidth)
+    {
+	kind_ = kind;
+	name_ = name;
+	byteWidth_ = byteWidth;
+    }
+
+    void addField(string name, Type type, Location loc)
+    {
+	fields_ ~= field(name, type, loc);
+    }
+
+    override
+    {
+	string toString()
+	{
+	    return kind_ ~ " " ~ name_;
+	}
+	string valueToString(MachineState state, Location loc)
+	{
+	    string v = "{ ";
+	    bool first = true;
+
+	    foreach (f; fields_) {
+		if (!first) {
+		    v ~= std.string.format(", ");
+		}
+		first = false;
+		v ~= f.name ~ " = ";
+		v ~= f.type.valueToString(state,
+					  loc.fieldLocation(f.loc));
+	    }
+	    v ~= " }";
+	    return v;
+	}
+	size_t byteWidth()
+	{
+	    return byteWidth_;
+	}
+	bool isCharType()
+	{
+	    return false;
+	}
+	bool isStringType()
+	{
+	    return false;
+	}
+    }
+
+private:
+    struct field {
+	string name;
+	Type type;
+	Location loc;
+    }
+
+    string kind_;
+    string name_;
+    uint byteWidth_;
+    field[] fields_;
+}
+
+class ArrayType: Type
+{
+    this(Type baseType)
+    {
+	baseType_ = baseType;
+    }
+
+    void addDim(size_t indexBase, size_t count)
+    {
+	dims_ ~= dim(indexBase, count);
+    }
+
+    override
+    {
+	string toString()
+	{
+	    string v = baseType_.toString;
+	    foreach (d; dims_) {
+		if (d.indexBase > 0)
+		    v ~= std.string.format("[%d..%d]", d.indexBase,
+					   d.indexBase + d.count - 1);
+		else
+		    v ~= std.string.format("[%d]", d.count);
+	    }
+	    return v;
+	}
+	string valueToString(MachineState state, Location loc)
+	{
+	    return toString;
+	}
+	size_t byteWidth()
+	{
+	    size_t n = 1;
+	    foreach (d; dims_)
+		n *= d.count;
+
+	    return baseType_.byteWidth * n;
+	}
+	bool isCharType()
+	{
+	    return false;
+	}
+	bool isStringType()
+	{
+	    return false;
+	}
+    }
+
+private:
+    struct dim {
+	size_t indexBase;
+	size_t count;
+    }
+
+    Type baseType_;
+    dim[] dims_;
+}
+
+
 class VoidType: Type
 {
     override
@@ -265,6 +431,7 @@ interface Location
     ubyte[] readValue(MachineState);
     void writeValue(MachineState, ubyte[]);
     ulong address(MachineState);
+    Location fieldLocation(Location fieldLoc);
 }
 
 struct Value

@@ -1453,7 +1453,20 @@ private:
 
 private:
 
-class DwarfLocation: Location
+class DWLoc: Location
+{
+    abstract size_t length();
+    abstract ubyte[] readValue(MachineState);
+    abstract void writeValue(MachineState, ubyte[]);
+    abstract ulong address(MachineState);
+    abstract Location fieldLocation(Location fieldLoc);
+    abstract bool evalLocation(CompilationUnit cu, MachineState state,
+			       out Location loc);
+    abstract bool evalExpr(CompilationUnit cu, MachineState state,
+			   ref ValueStack stack);
+}
+
+class DwarfLocation: DWLoc
 {
     this(CompilationUnit cu, AttributeValue av, size_t len)
     {
@@ -1490,10 +1503,158 @@ class DwarfLocation: Location
 		return loc.address(state);
 	    return 0;
 	}
+
+	Location fieldLocation(Location fieldLoc)
+	{
+	    DWLoc loc = cast(DWLoc) fieldLoc;
+	    if (loc)
+		return new DwarfFieldLocation(cu_, this, loc);
+	}
+
+	bool evalLocation(CompilationUnit cu, MachineState state,
+			  out Location loc)
+	{
+	    return av_.evalLocation(cu, state, loc);
+	}
+
+	bool evalExpr(CompilationUnit cu, MachineState state,
+		      ref ValueStack stack)
+	{
+	    return av_.evalExpr(cu, state, stack);
+	}
     }
 
     CompilationUnit cu_;
     AttributeValue av_;
+    size_t length_;
+}
+
+class DwarfFieldLocation: DWLoc
+{
+    this(CompilationUnit cu, DWLoc baseLoc, DWLoc fieldLoc)
+    {
+	cu_ = cu;
+	baseLoc_ = baseLoc;
+	fieldLoc_ = fieldLoc;
+    }
+
+    override {
+	size_t length()
+	{
+	    return (cast(Location) fieldLoc_).length;
+	}
+
+	ubyte[] readValue(MachineState state)
+	{
+	    Location loc;
+
+	    if (evalLocation(cu_, state, loc))
+		return loc.readValue(state);
+
+	    return null;
+	}
+
+	void writeValue(MachineState state, ubyte[] value)
+	{
+	    Location loc;
+
+	    if (evalLocation(cu_, state, loc))
+		loc.writeValue(state, value);
+	}
+
+	ulong address(MachineState state)
+	{
+	    Location loc;
+
+	    if (evalLocation(cu_, state, loc))
+		return loc.address(state);
+
+	    return 0;
+	}
+
+	Location fieldLocation(Location fieldLoc)
+	{
+	    DWLoc loc = cast(DWLoc) fieldLoc;
+	    if (loc)
+		return new DwarfFieldLocation(cu_, this, loc);
+	}
+
+	bool evalLocation(CompilationUnit cu, MachineState state,
+			  out Location loc)
+	{
+	    ValueStack stack;
+	    ulong off;
+
+	    stack.push(0);
+	    fieldLoc_.evalExpr(cu_, state, stack);
+	    off = stack.pop;
+
+	    if (baseLoc_.evalLocation(cu_, state, loc)) {
+		if (cast(DwarfMemLoc) loc) {
+		    loc = new DwarfMemLoc(loc.address(state) + off,
+					  fieldLoc_.length);
+		} else {
+		    loc = new DwarfOffsetLoc(loc, off, fieldLoc_.length);
+		}
+		return true;
+	    }
+
+	    return false;
+	}
+
+	bool evalExpr(CompilationUnit cu, MachineState state,
+			   ref ValueStack stack)
+	{
+	    return false;
+	}
+    }
+
+    CompilationUnit cu_;
+    DWLoc baseLoc_;
+    DWLoc fieldLoc_;
+}
+
+class DwarfOffsetLoc: Location
+{
+    this(Location loc, uint off, size_t length)
+    {
+	loc_ = loc;
+	off_ = off;
+	length_ = length;
+    }
+
+    override {
+	size_t length()
+	{
+	    return length_;
+	}
+
+	ubyte[] readValue(MachineState state)
+	{
+	    ubyte[] val = loc_.readValue(state);
+	    return val[off_..off_ + length_];
+	}
+
+	void writeValue(MachineState state, ubyte[] value)
+	{
+	    ubyte[] val = loc_.readValue(state);
+	    val[off_..off_ + length_] = value[];
+	    loc_.writeValue(state, val);
+	}
+
+	ulong address(MachineState state)
+	{
+	    return loc_.address(state) + off_;
+	}
+
+	Location fieldLocation(Location fieldLoc)
+	{
+	    return null;
+	}
+    }
+
+    Location loc_;
+    uint off_;
     size_t length_;
 }
 
@@ -1525,6 +1686,11 @@ class DwarfRegLoc: Location
 	{
 	    assert(false);
 	    return 0;
+	}
+
+	Location fieldLocation(Location fieldLoc)
+	{
+	    return null;
 	}
     }
 
@@ -1561,6 +1727,11 @@ class DwarfMemLoc: Location
 	{
 	    return address_;
 	}
+
+	Location fieldLocation(Location fieldLoc)
+	{
+	    return null;
+	}
     }
 
     ulong address_;
@@ -1595,6 +1766,11 @@ class DwarfConstLoc: Location
 	{
 	    assert(false);
 	    return 0;
+	}
+
+	Location fieldLocation(Location fieldLoc)
+	{
+	    return null;
 	}
     }
 
@@ -1648,7 +1824,7 @@ struct Expr
      * first DW_OP_piece or DW_OP_bit_piece. The address of the first
      * unhandled instruction is returned.
      */
-    char* eval(CompilationUnit cu, MachineState state, ref ValueStack stack)
+    char* evalExpr(CompilationUnit cu, MachineState state, ref ValueStack stack)
     {
 	long v, v1;
 	int addrlen = is64 ? 8 : 4;
@@ -1935,7 +2111,7 @@ struct Expr
 		if (loc) {
 		    pp = loc.b.start;
 		    Expr e = Expr(is64, pp, pp + loc.b.length);
-		    e.eval(cu, state, stack);
+		    e.evalExpr(cu, state, stack);
 		}
 		break;
 
@@ -1950,7 +2126,7 @@ struct Expr
 		if (loc) {
 		    pp = loc.b.start;
 		    Expr e = Expr(is64, pp, pp + loc.b.length);
-		    e.eval(cu, state, stack);
+		    e.evalExpr(cu, state, stack);
 		}
 		break;
 
@@ -1995,7 +2171,7 @@ struct Expr
 	    } else {
 		ValueStack stack;
 		Expr e = Expr(is64, p, end);
-		p = e.eval(cu, state, stack);
+		p = e.evalExpr(cu, state, stack);
 		loc = new DwarfMemLoc(stack.pop, is64 ? 8 : 4);
 	    }
 	    if (p == end) {
@@ -2060,7 +2236,8 @@ struct Loclist
     bool is64;
     char* start;
 
-    bool eval(CompilationUnit cu, MachineState state, out Location result)
+    bool evalLocation(CompilationUnit cu, MachineState state,
+		      out Location result)
     {
 	ulong pc = state.getGR(state.pcregno);
 	ulong sOff, eOff, base;
@@ -2084,6 +2261,36 @@ struct Loclist
 	    if (pc >= base + sOff && pc < base + eOff) {
 		Expr e = Expr(is64, expStart, expEnd);
 		return e.evalLocation(cu, state, result);
+	    }
+	}
+	return false;
+    }
+
+    bool evalExpr(CompilationUnit cu, MachineState state, ref ValueStack stack)
+    {
+	ulong pc = state.getGR(state.pcregno);
+	ulong sOff, eOff, base;
+
+	auto p = start;
+	base = cu.die[DW_AT_low_pc].ul;
+	for (;;) {
+	    sOff = parseOffset(p, is64);
+	    eOff = parseOffset(p, is64);
+	    if (sOff == 0 && eOff == 0)
+		break;
+	    if ((is64 && sOff == 0xffffffffffffffff)
+		|| (!is64 && sOff == 0xffffffff)) {
+		base = eOff;
+		continue;
+	    }
+	    size_t expLen = parseUShort(p);
+	    auto expStart = p;
+	    auto expEnd = p + expLen;
+	    p = expEnd;
+	    if (pc >= base + sOff && pc < base + eOff) {
+		Expr e = Expr(is64, expStart, expEnd);
+		e.evalExpr(cu, state, stack);
+		return true;
 	    }
 	}
 	return false;
@@ -2243,11 +2450,26 @@ class AttributeValue
 	if (isLoclistptr) {
 	    char[] locs = cu.parent.debugSection(".debug_loc");
 	    Loclist ll = Loclist(cu.is64, &locs[ul]);
-	    return ll.eval(cu, state, loc);
+	    return ll.evalLocation(cu, state, loc);
 	} else {
 	    assert(isBlock);
 	    Expr e = Expr(cu.is64, b.start, b.end);
 	    return e.evalLocation(cu, state, loc);
+	}
+    }
+
+    bool evalExpr(CompilationUnit cu, MachineState state,
+		  ref ValueStack stack)
+    {
+	if (isLoclistptr) {
+	    char[] locs = cu.parent.debugSection(".debug_loc");
+	    Loclist ll = Loclist(cu.is64, &locs[ul]);
+	    return ll.evalExpr(cu, state, stack);
+	} else {
+	    assert(isBlock);
+	    Expr e = Expr(cu.is64, b.start, b.end);
+	    e.evalExpr(cu, state, stack);
+	    return true;
 	}
     }
 
@@ -2443,6 +2665,49 @@ class DIE
 
 	case DW_TAG_volatile_type:
 	    return new ModifierType(name, "volatile", subType);
+
+	case DW_TAG_structure_type:
+	{
+	    ulong sz = this[DW_AT_byte_size] ? this[DW_AT_byte_size].ul: 0;
+	    CompoundType ct = new CompoundType("struct", name, sz);
+	    foreach (elem; children) {
+		if (elem.tag == DW_TAG_member) {
+		    Type type = parent[elem[DW_AT_type]].toType;
+		    DwarfLocation loc;
+		    loc = new DwarfLocation(parent,
+					    elem[DW_AT_data_member_location],
+					    type.byteWidth);
+		    ct.addField(elem[DW_AT_name].toString, type, loc);
+		}
+	    }
+	    return ct;
+	}
+
+	case DW_TAG_array_type:
+	{
+	    ArrayType at = new ArrayType(subType);
+	    foreach (elem; children) {
+		if (elem.tag == DW_TAG_subrange_type) {
+		    uint lb, ub, count;
+		    lb = ub = 0;
+		    if (elem[DW_AT_lower_bound])
+			lb = elem[DW_AT_lower_bound].ul;
+		    if (elem[DW_AT_upper_bound])
+			ub = elem[DW_AT_upper_bound].ul;
+		    if (elem[DW_AT_count]) {
+			lb = 0;
+			count = elem[DW_AT_upper_bound].ul;
+		    } else {
+			count = ub + 1;
+		    }
+		    at.addDim(lb, count);
+		}
+	    }
+	    return at;
+	}
+
+	case DW_TAG_typedef:
+	    return new TypedefType(name, subType);
 
 	default:
 	    return new VoidType;

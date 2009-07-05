@@ -345,8 +345,8 @@ class Debugger: TargetListener
 		    foreach (a; func.arguments) {
 			if (!first) {
 			    s ~= std.string.format(", ");
-			    first = false;
 			}
+			first = false;
 			s ~= std.string.format("%s", a.toString(state));
 		    }
 		    s ~= "): ";
