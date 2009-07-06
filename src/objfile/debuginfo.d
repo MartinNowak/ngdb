@@ -25,10 +25,11 @@
  */
 
 module objfile.debuginfo;
+
 version(tangobos) import std.compat;
 import std.string;
-import std.ctype;
 
+import objfile.language;
 import machine.machine;
 
 /**
@@ -52,11 +53,11 @@ struct LineEntry
 
 interface Type
 {
-    string toString();
-    string valueToString(MachineState, Location);
+    string toString(Language);
+    string valueToString(Language, MachineState, Location);
     size_t byteWidth();
     bool isCharType();
-    bool isStringType();
+    bool isIntegerType();
 }
 
 ulong
@@ -84,12 +85,12 @@ class IntegerType: Type
 
     override
     {
-	string toString()
+	string toString(Language)
 	{
 	    return name_;
 	}
 
-	string valueToString(MachineState state, Location loc)
+	string valueToString(Language, MachineState state, Location loc)
 	{
 	    ubyte[] val = loc.readValue(state);
 	    return .toString(readInteger(val));
@@ -105,9 +106,9 @@ class IntegerType: Type
 	    return byteWidth_ == 1;
 	}
 
-	bool isStringType()
+	bool isIntegerType()
 	{
-	    return false;
+	    return true;
 	}
     }
 
@@ -128,53 +129,21 @@ class PointerType: Type
 
     override
     {
-	string toString()
+	string toString(Language lang)
 	{
 	    if (baseType_)
-		return baseType_.toString ~ "*";
+		return lang.pointerType(baseType_.toString(lang));
 	    else
-		return "void*";
+		return lang.pointerType("void");
 	}
 
-	string valueToString(MachineState state, Location loc)
+	string valueToString(Language lang, MachineState state, Location loc)
 	{
 	    string v;
 	    ulong p = readInteger(loc.readValue(state));
 	    v = std.string.format("0x%x", p);
-	    if (isStringType) {
-		string sv;
-		try {
-		    ubyte[] b;
-		    char c;
-		    sv = " \"";
-		    do {
-			b = state.readMemory(p++, 1);
-			c = cast(char) b[0];
-			if (c) {
-			    if (isprint(c)) {
-				sv ~= c;
-			    } else {
-				string specials[char] = [
-				    '\a': "\\a",
-				    '\b': "\\b",
-				    '\f': "\\f",
-				    '\n': "\\n",
-				    '\r': "\\r",
-				    '\t': "\\t",
-				    '\v': "\\v"];
-				if (c in specials)
-				    sv ~= specials[c];
-				else
-				    sv ~= std.string.format("%02x", c);
-			    }
-			}
-		    } while (c);
-		    sv ~= "\"";
-		} catch (Exception e) {
-		    sv = "";
-		}
-		v ~= sv;
-	    }
+	    if (lang.isStringType(this))
+		v ~= " " ~ lang.stringConstant(state, this, loc);
 	    return v;
 	}
 
@@ -187,10 +156,70 @@ class PointerType: Type
 	{
 	    return false;
 	}
-	bool isStringType()
+
+	bool isIntegerType()
 	{
-	    return baseType_.isCharType;
+	    return false;
 	}
+    }
+
+    Type baseType()
+    {
+	return baseType_;
+    }
+
+private:
+    string name_;
+    Type baseType_;
+    uint byteWidth_;
+}
+
+class ReferenceType: Type
+{
+    this(string name, Type baseType, uint byteWidth)
+    {
+	name_ = name;
+	baseType_ = baseType;
+	byteWidth_ = byteWidth;
+    }
+
+    override
+    {
+	string toString(Language lang)
+	{
+	    if (baseType_)
+		return lang.referenceType(baseType_.toString(lang));
+	    else
+		return lang.referenceType("void");
+	}
+
+	string valueToString(Language, MachineState state, Location loc)
+	{
+	    string v;
+	    ulong p = readInteger(loc.readValue(state));
+	    v = std.string.format("0x%x", p);
+	    return v;
+	}
+
+	size_t byteWidth()
+	{
+	    return byteWidth_;
+	}
+
+	bool isCharType()
+	{
+	    return false;
+	}
+
+	bool isIntegerType()
+	{
+	    return false;
+	}
+    }
+
+    Type baseType()
+    {
+	return baseType_;
     }
 
 private:
@@ -210,13 +239,13 @@ class ModifierType: Type
 
     override
     {
-	string toString()
+	string toString(Language lang)
 	{
-	    return modifier_ ~ " " ~ baseType_.toString;
+	    return modifier_ ~ " " ~ baseType_.toString(lang);
 	}
-	string valueToString(MachineState state, Location loc)
+	string valueToString(Language lang, MachineState state, Location loc)
 	{
-	    return baseType_.valueToString(state, loc);
+	    return baseType_.valueToString(lang, state, loc);
 	}
 	size_t byteWidth()
 	{
@@ -226,9 +255,9 @@ class ModifierType: Type
 	{
 	    return baseType_.isCharType;
 	}
-	bool isStringType()
+	bool isIntegerType()
 	{
-	    return baseType_.isStringType;
+	    return baseType_.isIntegerType;
 	}
     }
 
@@ -248,13 +277,13 @@ class TypedefType: Type
 
     override
     {
-	string toString()
+	string toString(Language)
 	{
 	    return name_;
 	}
-	string valueToString(MachineState state, Location loc)
+	string valueToString(Language lang, MachineState state, Location loc)
 	{
-	    return baseType_.valueToString(state, loc);
+	    return baseType_.valueToString(lang, state, loc);
 	}
 	size_t byteWidth()
 	{
@@ -264,9 +293,9 @@ class TypedefType: Type
 	{
 	    return baseType_.isCharType;
 	}
-	bool isStringType()
+	bool isIntegerType()
 	{
-	    return baseType_.isStringType;
+	    return baseType_.isIntegerType;
 	}
     }
 
@@ -277,6 +306,12 @@ private:
 
 class CompoundType: Type
 {
+    struct field {
+	string name;
+	Type type;
+	Location loc;
+    }
+
     this(string kind, string name, uint byteWidth)
     {
 	kind_ = kind;
@@ -291,12 +326,15 @@ class CompoundType: Type
 
     override
     {
-	string toString()
+	string toString(Language lang)
 	{
-	    return kind_ ~ " " ~ name_;
+	    return lang.structureType(name_);
 	}
-	string valueToString(MachineState state, Location loc)
+	string valueToString(Language lang, MachineState state, Location loc)
 	{
+	    if (lang.isStringType(this))
+		return lang.stringConstant(state, this, loc);
+
 	    string v = "{ ";
 	    bool first = true;
 
@@ -306,7 +344,7 @@ class CompoundType: Type
 		}
 		first = false;
 		v ~= f.name ~ " = ";
-		v ~= f.type.valueToString(state,
+		v ~= f.type.valueToString(lang, state,
 					  loc.fieldLocation(f.loc));
 	    }
 	    v ~= " }";
@@ -320,19 +358,23 @@ class CompoundType: Type
 	{
 	    return false;
 	}
-	bool isStringType()
+	bool isIntegerType()
 	{
 	    return false;
 	}
     }
 
-private:
-    struct field {
-	string name;
-	Type type;
-	Location loc;
+    size_t length()
+    {
+	return fields_.length;
     }
 
+    field opIndex(size_t i)
+    {
+	return fields_[i];
+    }
+
+private:
     string kind_;
     string name_;
     uint byteWidth_;
@@ -353,9 +395,9 @@ class ArrayType: Type
 
     override
     {
-	string toString()
+	string toString(Language lang)
 	{
-	    string v = baseType_.toString;
+	    string v = baseType_.toString(lang);
 	    foreach (d; dims_) {
 		if (d.indexBase > 0)
 		    v ~= std.string.format("[%d..%d]", d.indexBase,
@@ -365,9 +407,9 @@ class ArrayType: Type
 	    }
 	    return v;
 	}
-	string valueToString(MachineState state, Location loc)
+	string valueToString(Language lang, MachineState state, Location loc)
 	{
-	    return toString;
+	    return toString(lang);
 	}
 	size_t byteWidth()
 	{
@@ -381,7 +423,7 @@ class ArrayType: Type
 	{
 	    return false;
 	}
-	bool isStringType()
+	bool isIntegerType()
 	{
 	    return false;
 	}
@@ -402,11 +444,11 @@ class VoidType: Type
 {
     override
     {
-	string toString()
+	string toString(Language)
 	{
 	    return "void";
 	}
-	string valueToString(MachineState, Location)
+	string valueToString(Language, MachineState, Location)
 	{
 	    return "void";
 	}
@@ -418,7 +460,7 @@ class VoidType: Type
 	{
 	    return false;
 	}
-	bool isStringType()
+	bool isIntegerType()
 	{
 	    return false;
 	}
@@ -439,9 +481,9 @@ struct Value
     Location loc;
     Type type;
 
-    string toString(MachineState state)
+    string toString(Language lang, MachineState state)
     {
-	return type.valueToString(state, loc);
+	return type.valueToString(lang, state, loc);
     }
 }
 
@@ -450,22 +492,22 @@ struct Variable
     string name;
     Value value;
 
-    string toString()
+    string toString(Language lang)
     {
-	return value.type.toString ~ " " ~ name;
+	return value.type.toString(lang) ~ " " ~ name;
     }
 
-    string toString(MachineState state)
+    string toString(Language lang, MachineState state)
     {
 	if (state)
-	    return toString ~ " = " ~ valueToString(state);
+	    return toString(lang) ~ " = " ~ valueToString(lang, state);
 	else
-	    return toString;
+	    return toString(lang);
     }
 
-    string valueToString(MachineState state)
+    string valueToString(Language lang, MachineState state)
     {
-	return value.toString(state);
+	return value.toString(lang, state);
     }
 }
 
@@ -519,6 +561,11 @@ class Function
  */
 interface DebugInfo
 {
+    /**
+     * Return a Language object that matches the compilation unit
+     * containing the given address.
+     */
+    Language findLanguage(ulong address);
 
     /**
      * Search for a source line by address. If found, two line entries

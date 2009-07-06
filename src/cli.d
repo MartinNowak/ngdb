@@ -30,6 +30,7 @@ import editline;
 import target;
 import ptracetarget;
 import objfile.debuginfo;
+import objfile.language;
 import machine.machine;
 
 version (DigitalMars)
@@ -134,7 +135,7 @@ private class Breakpoint
 	    return;
 	modules_[mod] = true;
 
-	DebugInfo d = mod.debugInfo;
+	DebugInfo di = mod.debugInfo;
 	int pos;
 
 	LineEntry[] lines;
@@ -143,10 +144,11 @@ private class Breakpoint
 	    // Assume the expr is file:line
 	    uint line = toUint(expr_[pos + 1..expr_.length]);
 	    string file = expr_[0..pos];
-	    found = d.findLineByName(file, line, lines);
+	    found = di.findLineByName(file, line, lines);
 	} else {
 	    // Try looking up a function
-	    found = d.findLineByFunction(expr_, lines);
+	    if (di)
+		found = di.findLineByFunction(expr_, lines);
 	}
 	if (found) {
 	    foreach (le; lines) {
@@ -347,7 +349,8 @@ class Debugger: TargetListener
 			    s ~= std.string.format(", ");
 			}
 			first = false;
-			s ~= std.string.format("%s", a.toString(state));
+			Language lang = di.findLanguage(pc);
+			s ~= std.string.format("%s", a.toString(lang, state));
 		    }
 		    s ~= "): ";
 		}
@@ -362,6 +365,7 @@ class Debugger: TargetListener
 		return sym.name ~ "+" ~ .toString(pc - sym.value);
 	    }
 	}
+	return std.string.format("0x%x", pc);
     }
 
     void setStepBreakpoint(TargetThread t)
@@ -394,7 +398,8 @@ class Debugger: TargetListener
     {
 	Location loc;
 	foreach (mod; modules_) {
-	    if (mod.debugInfo.findFrameBase(s, loc)) {
+	    di = mod.debugInfo;
+	    if (di && di.findFrameBase(s, loc)) {
 		di = mod.debugInfo;
 		return true;
 	    }
@@ -713,7 +718,8 @@ class InfoBreakCommand: Command
 		    if (first)
 			writef("%d:\t", b.id);
 		    else
-			writef("\t");
+			writef("\n\t");
+		    first = false;
 		    writef("%s", s);
 		}
 		if (b.active)
@@ -808,8 +814,10 @@ class InfoVariablesCommand: Command
 		Function func = di.findFunction(s.getGR(s.pcregno));
 		auto vars = func.arguments;
 		vars ~= func.variables;
+		Language lang = di.findLanguage(s.getGR(s.pcregno));
 		foreach (v; vars) {
-		    writefln("%s = %s", v.toString, v.valueToString(s));
+		    writefln("%s = %s", v.toString(lang),
+			     v.valueToString(lang, s));
 		}
 	    }
 	}

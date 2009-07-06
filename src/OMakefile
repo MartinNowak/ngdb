@@ -8,6 +8,7 @@ objs[]=
 	objfile/elf64
 	objfile/debuginfo
 	objfile/dwarf
+	objfile/language
 	objfile/objfile
 	main
 	ptracetarget
@@ -20,6 +21,7 @@ objs[]+=
 	sys/reg
 
 #DFLAGS+= -O
+
 DFLAGS+= -I$(dir $(ROOT)/gtkD/src)
 
 LIBS[]= # $(file $(ROOT)/gtkD/src/libgtkD.a)

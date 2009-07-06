@@ -121,9 +121,8 @@ class PtraceModule: TargetModule
 		    ts = TargetSymbol(s.name, s.value, s.size);
 		    return true;
 		}
-	    } else {
-		return false;
 	    }
+	    return false;
 	}
     }
 

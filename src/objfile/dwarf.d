@@ -30,6 +30,7 @@ module objfile.dwarf;
 
 import objfile.objfile;
 import objfile.debuginfo;
+import objfile.language;
 import machine.machine;
 import std.string;
 import std.stdio;
@@ -646,6 +647,12 @@ enum
     DW_CFA_val_expression		= 0x16,
     DW_CFA_lo_user			= 0x1c,
     DW_CFA_hi_user			= 0x3f,
+
+    // Extensions
+    DW_CFA_MIPS_advance_loc8	= 0x1d,
+    DW_CFA_GNU_window_save		= 0x2d,
+    DW_CFA_GNU_args_size		= 0x2e,
+    DW_CFA_GNU_negative_offset_extended	= 0x2f,
 }
 
 private ubyte parseUByte(ref char* p)
@@ -903,10 +910,36 @@ class DwarfFile: public DebugInfo
 	    && obj.hasSection(".debug_info")
 	    && obj.hasSection(".debug_abbrev"))
 	    return true;
+	return false;
     }
 
     // DebugInfo compliance
     override {
+	Language findLanguage(ulong address)
+	{
+	    CompilationUnit cu;
+	    if (findCU(address, cu)) {
+		AttributeValue lang = cu.die[DW_AT_language];
+		if (!lang)
+		    return new CLikeLanguage;
+		switch (lang.ul) {
+		case DW_LANG_C:
+		case DW_LANG_C89:
+		case DW_LANG_C99:
+		    return new CLikeLanguage;
+
+		case DW_LANG_C_plus_plus:
+		    return new CPlusPlusLanguage;
+
+		case DW_LANG_D:
+		    return new DLanguage;
+
+		default:
+		    return new CLikeLanguage;
+		}
+	    }	    
+	}
+
 	bool findLineByAddress(ulong address, out LineEntry[] res)
 	{
 	    bool found = false;
@@ -938,7 +971,7 @@ class DwarfFile: public DebugInfo
 		char[] lines = debugSection(".debug_line");
 		char* p = &lines[lineOffset];
 		parseLineTable(p, &processEntry);
-		return found;
+		return res.length == 2;
 	    }
 	    return false;
 	}
@@ -1009,8 +1042,11 @@ class DwarfFile: public DebugInfo
 	    CompilationUnit cu;
 	    DIE func;
 	    if (findSubprogram(pc, cu, func)) {
-		Function f = new Function(func[DW_AT_name].toString,
-					  cu[func[DW_AT_type]].toType);
+		auto n = func[DW_AT_name];
+		auto t = func[DW_AT_type];
+		Function f = new Function((n ? func[DW_AT_name].toString
+					   : "<unknown>"),
+					  (t ? cu[t].toType : new VoidType));
 		foreach (v; findVars(cu, func, DW_TAG_formal_parameter))
 		    f.addArgument(v);
 		foreach (v; findVars(cu, func, DW_TAG_variable))
@@ -2598,6 +2634,7 @@ class DIE
 	    // Now that we have parsed the DIE's location, try again
 	    return contains(pc);
 	}
+	return false;
     }
 
     void printIndent(int indent)
@@ -2814,6 +2851,8 @@ class CIE
     char* instructionEnd;
 }
 
+//debug=unwind;
+
 class FDE
 {
     bool is64;
@@ -2875,90 +2914,147 @@ class FDE
 	void execute(char* p, char* pEnd, ulong pc, ref FrameState fs)
 	{
 	    uint reg;
+	    ulong off;
 
 	    while (p < pEnd) {
 		auto op = *p++;
 		switch ((op & 0xc0) ? (op & 0xc0) : op) {
 		case DW_CFA_set_loc:
 		    fs.loc = parseOffset(p, is64);
+		    debug(unwind)
+			writefln("DW_CFA_set_loc: 0x%x", fs.loc);
 		    break;
 
 		case DW_CFA_advance_loc:
-		    fs.loc += (op & 0x3f) * cie.codeAlign;
+		    off = (op & 0x3f) * cie.codeAlign;
+		    fs.loc += off;
+		    debug(unwind)
+			writefln("DW_CFA_advance_loc: %d to 0x%x", off, fs.loc);
 		    break;
 
 		case DW_CFA_advance_loc1:
-		    fs.loc += parseUByte(p) * cie.codeAlign;
+		    off = parseUByte(p) * cie.codeAlign;
+		    fs.loc += off;
+		    debug(unwind)
+			writefln("DW_CFA_advance_loc1: %d to 0x%x", off, fs.loc);
 		    break;
 
 		case DW_CFA_advance_loc2:
-		    fs.loc += parseUShort(p) * cie.codeAlign;
+		    off = parseUShort(p) * cie.codeAlign;
+		    fs.loc += off;
+		    debug(unwind)
+			writefln("DW_CFA_advance_loc2: %d to 0x%x", off, fs.loc);
 		    break;
 
 		case DW_CFA_advance_loc4:
-		    fs.loc += parseUInt(p) * cie.codeAlign;
+		    off = parseUInt(p) * cie.codeAlign;
+		    fs.loc += off;
+		    debug(unwind)
+			writefln("DW_CFA_advance_loc4: %d to 0x%x", off, fs.loc);
+		    break;
+
+		case DW_CFA_MIPS_advance_loc8:
+		    off = parseULong(p) * cie.codeAlign;
+		    fs.loc += off;
+		    debug(unwind)
+			writefln("DW_CFA_MIPS_advance_loc8: %d to 0x%x", off, fs.loc);
 		    break;
 
 		case DW_CFA_def_cfa:
 		    fs.cfaReg = parseULEB128(p);
 		    fs.cfaOffset = parseULEB128(p);
+		    debug(unwind)
+			writefln("DW_CFA_def_cfa: cfa=%d, off=%d",
+				 fs.cfaReg, fs.cfaOffset);
 		    break;
 
 		case DW_CFA_def_cfa_sf:
 		    fs.cfaReg = parseULEB128(p);
 		    fs.cfaOffset = parseSLEB128(p) * cie.dataAlign;
+		    debug(unwind)
+			writefln("DW_CFA_def_cfa_sf: cfa=%d, off=%d",
+				 fs.cfaReg, fs.cfaOffset);
 		    break;
 
 		case DW_CFA_def_cfa_register:
 		    fs.cfaReg = parseULEB128(p);
+		    debug(unwind)
+			writefln("DW_CFA_def_cfa_register: cfa=%d, off=%d",
+				 fs.cfaReg, fs.cfaOffset);
 		    break;
 
 		case DW_CFA_def_cfa_offset:
 		    fs.cfaOffset = parseULEB128(p);
+		    debug(unwind)
+			writefln("DW_CFA_def_cfa_offset: cfa=%d, off=%d",
+				 fs.cfaReg, fs.cfaOffset);
 		    break;
 
 		case DW_CFA_def_cfa_offset_sf:
 		    fs.cfaOffset = parseSLEB128(p) * cie.dataAlign;
+		    debug(unwind)
+			writefln("DW_CFA_def_cfa_offset_sf: cfa=%d, off=%d",
+				 fs.cfaReg, fs.cfaOffset);
 		    break;
 
 		case DW_CFA_def_cfa_expression:
 		    throw new Exception("no support for CFA expressions");
 
 		case DW_CFA_undefined:
-		    fs.regs[parseULEB128(p)].rule = RLoc.Rule.undefined;
+		    reg = parseULEB128(p);
+		    fs.regs[reg].rule = RLoc.Rule.undefined;
+		    debug(unwind)
+			writefln("DW_CFA_undefined: reg=%d", reg);
 		    break;
 
 		case DW_CFA_same_value:
-		    fs.regs[parseULEB128(p)].rule = RLoc.Rule.sameValue;
+		    reg = parseULEB128(p);
+		    fs.regs[reg].rule = RLoc.Rule.sameValue;
+		    debug(unwind)
+			writefln("DW_CFA_same_value: reg=%d", reg);
 		    break;
 
 		case DW_CFA_offset:
 		    reg= op & 0x3f;
 		    fs.regs[reg].rule = RLoc.Rule.offsetN;
 		    fs.regs[reg].N = parseULEB128(p) * cie.dataAlign;
+		    debug(unwind)
+			writefln("DW_CFA_offset: reg=%d, off=%d",
+				 reg, fs.regs[reg].N);
 		    break;
 			
 		case DW_CFA_offset_extended:
 		    reg = parseULEB128(p);
 		    fs.regs[reg].rule = RLoc.Rule.offsetN;
 		    fs.regs[reg].N = parseULEB128(p) * cie.dataAlign;
+		    debug(unwind)
+			writefln("DW_CFA_offset_extended: reg=%d, off=%d",
+				 reg, fs.regs[reg].N);
 		    break;
 
 		case DW_CFA_offset_extended_sf:
 		    reg = parseULEB128(p);
 		    fs.regs[reg].rule = RLoc.Rule.offsetN;
 		    fs.regs[reg].N = parseSLEB128(p) * cie.dataAlign;
+		    debug(unwind)
+			writefln("DW_CFA_offset_extended_sf: reg=%d, off=%d",
+				 reg, fs.regs[reg].N);
 		    break;
 
 		case DW_CFA_val_offset:
 		    reg = parseULEB128(p);
 		    fs.regs[reg].rule = RLoc.Rule.valOffsetN;
 		    fs.regs[reg].N = parseULEB128(p) * cie.dataAlign;
+		    debug(unwind)
+			writefln("DW_CFA_val_offset: reg=%d, off=%d",
+				 reg, fs.regs[reg].N);
 		    break;
 
 		case DW_CFA_register:
 		    reg = parseULEB128(p);
 		    fs.regs[reg] = fs.regs[parseULEB128(p)];
+		    debug(unwind)
+			writefln("DW_CFA_register: reg=%d", reg);
 		    break;
 
 		case DW_CFA_expression:
@@ -2970,18 +3066,37 @@ class FDE
 		case DW_CFA_restore:
 		    reg = op & 0x3f;
 		    fs.regs[reg] = cieFs.regs[op & 0x3f];
+		    debug(unwind)
+			writefln("DW_CFA_restore: reg=%d", reg);
 		    break;
 
 		case DW_CFA_restore_extended:
 		    reg = parseULEB128(p);
 		    fs.regs[reg] = cieFs.regs[op & 0x3f];
+		    debug(unwind)
+			writefln("DW_CFA_restore_extended: reg=%d", reg);
+		    break;
 
 		case DW_CFA_remember_state:
 		case DW_CFA_restore_state:
 		    throw new Exception("no support for frame state stacks");
 
+		case DW_CFA_GNU_window_save:
+		    throw new Exception("DW_CFA_GNU_window_save");
+
+		case DW_CFA_GNU_args_size:
+		    parseULEB128(p);
+		    break;
+
+		case DW_CFA_GNU_negative_offset_extended:
+		    throw new Exception("DW_CFA_GNU_negative_offset_extended");
+
 		case DW_CFA_nop:
 		    break;
+
+		default:
+		    throw new Exception(std.string.format(
+					    "unknown CFA opcode %x", op));
 		}
 		// If we have advanced past the PC, stop
 		if (pc < fs.loc)
