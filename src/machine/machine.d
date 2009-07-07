@@ -92,6 +92,15 @@ interface MachineState
     void writeMemory(ulong address, ubyte[] toWrite);
 
     /**
+     * Disassemble the instruction at 'address' advancing the value of
+     * 'address' to point at the next instruction in sequence. The
+     * delegate 'lookupAddress' is used to translate machine addresses
+     * to a symbolic equivalent.
+     */
+    string disassemble(ref ulong address,
+		       string delegate(ulong) lookupAddress);
+
+    /**
      * Make a copy of the machine state
      */
     MachineState dup();

@@ -26,6 +26,7 @@
 
 module machine.x86;
 import machine.machine;
+private import machine.x86dis;
 import target;
 
 import std.stdio;
@@ -214,6 +215,11 @@ class X86State: MachineState
 	    target_.writeMemory(address, toWrite);
 	}
 
+	string disassemble(ref ulong address,
+			   string delegate(ulong) lookupAddress)
+	{
+	    return db_disasm(this, address, lookupAddress);
+	}
     }
 
     int nameToGRegno(string regname)
