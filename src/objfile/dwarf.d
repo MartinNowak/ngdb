@@ -822,7 +822,10 @@ class DwarfFile: public DebugInfo
 		    if (!off)
 			break;
 		    string name = parseString(p);
-		    set.names[name] = off;
+		    if (name in set.names)
+			set.names[name] ~= off;
+		    else
+			set.names[name] = [off];
 		    //writefln("%s = %d (cu %d)", name, off, set.sectionOffset);
 		}
 		pubnames_ ~= set;
@@ -847,7 +850,10 @@ class DwarfFile: public DebugInfo
 		    if (!off)
 			break;
 		    string name = parseString(p);
-		    set.names[name] = off;
+		    if (name in set.names)
+			set.names[name] ~= off;
+		    else
+			set.names[name] = [off];
 		    writefln("%s = %d (cu %d)", name, off, set.cuOffset);
 		}
 
@@ -948,7 +954,7 @@ class DwarfFile: public DebugInfo
 	    bool processEntry(LineEntry* le)
 	    {
 		debug (line)
-		    writefln("%s:%d 0x%x", le.file, le.line, le.address);
+		    writefln("%s:%d 0x%x", le.fullname, le.line, le.address);
 		if (le.address <= address) {
 		    lastEntry = *le;
 		    found = true;
@@ -1005,13 +1011,15 @@ class DwarfFile: public DebugInfo
 		if (ns.cuOffset in compilationUnits_) {
 		    CompilationUnit cu = compilationUnits_[ns.cuOffset];
 		    if (func in ns.names) {
-			auto dieOff = ns.names[func];
 			cu.loadDIE;
-			DIE die = cu.dieMap[dieOff];
-			if (die.tag == DW_TAG_subprogram) {
-			    LineEntry[] le;
-			    if (findLineByAddress(die.attrs[DW_AT_low_pc].ul, le))
-				res ~= le[1];
+			foreach (dieOff; ns.names[func]) {
+			    DIE die = cu.dieMap[dieOff];
+			    if (die.tag == DW_TAG_subprogram) {
+				LineEntry[] le;
+				auto lpc = die.attrs[DW_AT_low_pc].ul;
+				if (findLineByAddress(lpc, le))
+				    res ~= le[1];
+			    }
 			}
 		    }
 		} else {
@@ -1042,11 +1050,11 @@ class DwarfFile: public DebugInfo
 	    CompilationUnit cu;
 	    DIE func;
 	    if (findSubprogram(pc, cu, func)) {
-		auto n = func[DW_AT_name];
-		auto t = func[DW_AT_type];
-		Function f = new Function((n ? func[DW_AT_name].toString
-					   : "<unknown>"),
-					  (t ? cu[t].toType : new VoidType));
+		Function f = new Function(func.name);
+		auto rt = func[DW_AT_type];
+		if (rt)
+		    f.returnType = cu[rt].toType;
+		f.containingType = func.containingType;
 		foreach (v; findVars(cu, func, DW_TAG_formal_parameter))
 		    f.addArgument(v);
 		foreach (v; findVars(cu, func, DW_TAG_variable))
@@ -1161,7 +1169,7 @@ private:
 	    return;
 
 	cu.is64 = is64;
-	cu.die = new DIE(cu, base, p, abbrevCode,
+	cu.die = new DIE(cu, null, base, p, abbrevCode,
 			 abbrevTable, addrlen, strtab_);
 	cu.dieMap[off] = cu.die;
     }
@@ -1229,18 +1237,20 @@ private:
 	if (p != pEndHeader)
 	    throw new Exception("unexpected bytes in line table header");
 
-	DwarfLineEntry le;
+	DwarfLineEntry init, le;
 
-	le.address = 0;
-	le.file = 1;
-	le.line = 1;
-	le.column = 0;
-	le.isStatement = defaultIsStatement;
-	le.basicBlock = false;
-	le.endSequence = false;
-	le.prologueEnd = false;
-	le.epilogueBegin = false;
-	le.isa = 0;
+	init.address = 0;
+	init.file = 1;
+	init.line = 1;
+	init.column = 0;
+	init.isStatement = defaultIsStatement;
+	init.basicBlock = false;
+	init.endSequence = false;
+	init.prologueEnd = false;
+	init.epilogueBegin = false;
+	init.isa = 0;
+
+	le = init;
 
 	int specialOpcodeAddressIncrement(ubyte op)
 	{
@@ -1318,6 +1328,7 @@ private:
 		    le.endSequence = true;
 		    if (processRow(&le))
 			return;
+		    le = init;
 		    break;
 
 		case DW_LNE_set_address:
@@ -1353,7 +1364,7 @@ private:
 		break;
 
 	    case DW_LNS_advance_pc:
-		le.address += instructionLength * parseSLEB128(p);
+		le.address += instructionLength * parseULEB128(p);
 		debug (line)
 		    writefln("%d:DW_LNS_advance_pc(0x%x)", op, le.address);
 		break;
@@ -2279,7 +2290,11 @@ struct Loclist
 	ulong sOff, eOff, base;
 
 	auto p = start;
-	base = cu.die[DW_AT_low_pc].ul;
+	auto lpc = cu.die[DW_AT_low_pc];
+	if (lpc)
+	    base = lpc.ul;
+	else
+	    base = 0;
 	for (;;) {
 	    sOff = parseOffset(p, is64);
 	    eOff = parseOffset(p, is64);
@@ -2336,7 +2351,7 @@ struct Loclist
 struct NameSet
 {
     ulong cuOffset;
-    ulong names[string];
+    ulong[][string] names;
 }
 
 class AttributeValue
@@ -2550,8 +2565,9 @@ struct AddressRange
 
 class DIE
 {
-    DwarfFile top;
-    CompilationUnit parent;
+    CompilationUnit cu_;
+    DIE parent_;
+    ulong offset;
     int tag;
     bool hasChildren;
     bool is64;
@@ -2560,12 +2576,12 @@ class DIE
     AddressRange[] addresses; // set of address ranges for this DIE
     Type type;
 
-    this(CompilationUnit cu, char* base, ref char* diep,
+    this(CompilationUnit cu, DIE parent, char* base, ref char* diep,
 	 uint abbrevCode, char*[int] abbrevTable,
 	 int addrlen, char[] strtab)
     {
-	top = cu.parent;
-	parent = cu;
+	cu_ = cu;
+	parent_ = parent;
 
 	char* abbrevp = abbrevTable[abbrevCode];
 	tag = parseULEB128(abbrevp);
@@ -2584,11 +2600,12 @@ class DIE
 	if (hasChildren) {
 	    char* p = diep;
 	    while ((abbrevCode = parseULEB128(diep)) != 0) {
-		DIE die = new DIE(cu, base, diep,
+		DIE die = new DIE(cu, this, base, diep,
 				  abbrevCode, abbrevTable,
 				  addrlen, strtab);
 
 		cu.dieMap[p - base] = die;
+		die.offset = p - base;
 		children ~= die;
 		p = diep;
 	    }
@@ -2598,10 +2615,38 @@ class DIE
     AttributeValue opIndex(int at)
     {
 	AttributeValue* p = (at in attrs);
-	if (p)
+	if (p) {
 	    return *p;
-	else
+	} else {
+	    /*
+	     * Check for DW_AT_specification and get the field from
+	     * that if possible.
+	     */
+	    p = (DW_AT_specification in attrs);
+	    if (p)
+		return cu_[*p][at];
 	    return null;
+	}
+    }
+
+    Type containingType()
+    {
+	auto ct = this[DW_AT_containing_type];
+	if (ct)
+	    return cu_[ct].toType;
+
+	/*
+	 * GCC doesn't set containing_type - work around it here.
+	 */
+	if (parent_ && parent_.tag == DW_TAG_structure_type)
+	    return parent_.toType;
+
+	auto spec = this[DW_AT_specification];
+	if (spec) {
+	    DIE die = cu_[spec];
+	    return die.containingType;
+	}
+	return null;
     }
 
     bool contains(ulong pc)
@@ -2616,7 +2661,7 @@ class DIE
 		addresses ~= AddressRange(this[DW_AT_low_pc].ul,
 					  this[DW_AT_high_pc].ul);
 	    } else if (this[DW_AT_ranges]) {
-		char[] ranges = top.debugSection(".debug_ranges");
+		char[] ranges = cu_.parent.debugSection(".debug_ranges");
 		char* p = &ranges[this[DW_AT_ranges].ul];
 		for (;;) {
 		    ulong start, end;
@@ -2643,17 +2688,23 @@ class DIE
 	    writef(" ");
     }
 
-    Type toTypeHard()
+    string name()
     {
 	auto n = this[DW_AT_name];
-	auto t = this[DW_AT_type];
-	string name = null;
-	Type subType = null;
 
 	if (n)
-	    name = n.toString;
+	    return n.toString;
+	else
+	    return "<unknown>";
+    }
+
+    Type toTypeHard()
+    {
+	auto t = this[DW_AT_type];
+	Type subType = null;
+
 	if (t)
-	    subType = parent[t].toType;
+	    subType = cu_[t].toType;
 	else
 	    subType = new VoidType;
 
@@ -2668,8 +2719,10 @@ class DIE
 	    case DW_ATE_unsigned_char:
 		return new IntegerType(name, false, this[DW_AT_byte_size].ui);
 
-	    case DW_ATE_address:
 	    case DW_ATE_boolean:
+		return new BooleanType(name, this[DW_AT_byte_size].ui);
+
+	    case DW_ATE_address:
 	    case DW_ATE_complex_float:
 	    case DW_ATE_float:
 	    case DW_ATE_imaginary_float:
@@ -2679,7 +2732,9 @@ class DIE
 	    case DW_ATE_signed_fixed:
 	    case DW_ATE_unsigned_fixed:
 	    case DW_ATE_decimal_float:
-		assert(false);
+		writefln("Unsupported base type encoding %d - using integer",
+			 this[DW_AT_encoding].ul);
+		return new IntegerType(name, false, this[DW_AT_byte_size].ui);
 	    }
 
 	case DW_TAG_pointer_type:
@@ -2692,7 +2747,7 @@ class DIE
 	    return new ModifierType(name, "packed", subType);
 
 	case DW_TAG_reference_type:
-	    return new ModifierType(name, "ref", subType);
+	    return new ReferenceType(name, subType, is64 ? 8 : 4);
 
 	case DW_TAG_restrict_type:
 	    return new ModifierType(name, "restrict", subType);
@@ -2707,11 +2762,17 @@ class DIE
 	{
 	    ulong sz = this[DW_AT_byte_size] ? this[DW_AT_byte_size].ul: 0;
 	    CompoundType ct = new CompoundType("struct", name, sz);
+
+	    /*
+	     * Set our memoized type so that we can avoid recursion
+	     * when structures reference each other.
+	     */
+	    type = ct;
 	    foreach (elem; children) {
 		if (elem.tag == DW_TAG_member) {
-		    Type type = parent[elem[DW_AT_type]].toType;
+		    Type type = cu_[elem[DW_AT_type]].toType;
 		    DwarfLocation loc;
-		    loc = new DwarfLocation(parent,
+		    loc = new DwarfLocation(cu_,
 					    elem[DW_AT_data_member_location],
 					    type.byteWidth);
 		    ct.addField(elem[DW_AT_name].toString, type, loc);
@@ -2723,6 +2784,12 @@ class DIE
 	case DW_TAG_array_type:
 	{
 	    ArrayType at = new ArrayType(subType);
+
+	    /*
+	     * Set our memoized type so that we can avoid recursion
+	     * when structures reference each other.
+	     */
+	    type = at;
 	    foreach (elem; children) {
 		if (elem.tag == DW_TAG_subrange_type) {
 		    uint lb, ub, count;
