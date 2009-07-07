@@ -28,6 +28,7 @@ module objfile.debuginfo;
 
 version(tangobos) import std.compat;
 import std.string;
+import std.stdio;
 
 import objfile.language;
 import machine.machine;
@@ -115,6 +116,48 @@ class IntegerType: Type
 private:
     string name_;
     bool isSigned_;
+    uint byteWidth_;
+}
+
+class BooleanType: Type
+{
+    this(string name, uint byteWidth)
+    {
+	name_ = name;
+	byteWidth_ = byteWidth;
+    }
+
+    override
+    {
+	string toString(Language)
+	{
+	    return name_;
+	}
+
+	string valueToString(Language, MachineState state, Location loc)
+	{
+	    ubyte[] val = loc.readValue(state);
+	    return readInteger(val) ? "true" : "false";
+	}
+
+	uint byteWidth()
+	{
+	    return byteWidth_;
+	}
+
+	bool isCharType()
+	{
+	    return false;
+	}
+
+	bool isIntegerType()
+	{
+	    return true;
+	}
+    }
+
+private:
+    string name_;
     uint byteWidth_;
 }
 
@@ -513,10 +556,31 @@ struct Variable
 
 class Function
 {
-    this(string name, Type returnType)
+    this(string name)
     {
 	name_ = name;
-	returnType_ = returnType;
+	returnType_ = new VoidType;
+	containingType_ = null;
+    }
+
+    string toString(Language lang, MachineState state)
+    {
+	string s;
+
+	s = returnType_.toString(lang) ~ " ";
+	if (containingType_)
+	    s ~= containingType_.toString(lang) ~ lang.namespaceSeparator;
+	s ~= std.string.format("%s(", name_);
+	bool first = true;
+	foreach (a; arguments_) {
+	    if (!first) {
+		s ~= std.string.format(", ");
+	    }
+	    first = false;
+	    s ~= std.string.format("%s", a.toString(lang, state));
+	}
+	s ~= "): ";
+	return s;
     }
 
     void addArgument(Variable var)
@@ -534,9 +598,24 @@ class Function
 	return name_;
     }
 
+    void returnType(Type rt)
+    {
+	returnType_ = rt;
+    }
+
     Type returnType()
     {
 	return returnType_;
+    }
+
+    void containingType(Type ct)
+    {
+	containingType_ = ct;
+    }
+
+    Type containingType()
+    {
+	return containingType_;
     }
 
     Variable[] arguments()
@@ -551,6 +630,7 @@ class Function
 
     string name_;
     Type returnType_;
+    Type containingType_;
     Variable[] arguments_;
     Variable[] variables_;
 }
