@@ -260,6 +260,10 @@ private:
 		 regs_.r_err, regs_.r_eip, regs_.r_cs, regs_.r_eflags);
 	writefln("esp:%08x  ss:%08x  gs: %08x",
 		 regs_.r_esp, regs_.r_ss, regs_.r_gs);
+	for (int i = 0; i < 4; i++) {
+	    ubyte[] s = target_.readMemory(regs_.r_esp + 4 * i, 4);
+	    writef("%x ", s[0] + (s[1] << 8) + (s[2] << 16) + (s[3] << 24));
+	}
     }
 
     static int pcRegno_ = X86Reg.EIP;
@@ -631,7 +635,6 @@ private:
 	foreach (t; threads_)
 	    t.readState();
 
-
 	if (WIFSTOPPED(waitStatus_) && WSTOPSIG(waitStatus_) != SIGTRAP) {
 	    int sig = WSTOPSIG(waitStatus_);
 	    listener_.onSignal(this, sig, signame(sig));
@@ -645,11 +648,12 @@ private:
 	    foreach (pbp; breakpoints_.values) {
 		if (t.pc == pbp.address + 1) {
 		    t.pc = pbp.address;
-		    debug(breakpoints)
-			writefln("hit breakpoint at 0x%x for 0x%x",
-				 t.pc, pbp.id);
-		    foreach (id; pbp.ids)
+		    foreach (id; pbp.ids) {
+			debug(breakpoints)
+			    writefln("hit breakpoint at 0x%x for 0x%x",
+				     t.pc, id);
 			listener_.onBreakpoint(this, t, id);
+		    }
 		}
 	    }
 	}
