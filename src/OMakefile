@@ -3,6 +3,7 @@ objs[]=
 	editline
 	machine/machine
 	machine/x86
+	machine/x86dis
 	objfile/elf
 	objfile/elf32
 	objfile/elf64
@@ -21,6 +22,7 @@ objs[]+=
 	sys/reg
 
 #DFLAGS+= -O
+#DFLAGS+= -debug=breakpoints
 
 DFLAGS+= -I$(dir $(ROOT)/gtkD/src)
 
