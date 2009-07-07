@@ -40,6 +40,7 @@ interface Language
     string referenceType(string baseType);
     bool isStringType(Type type);
     string stringConstant(MachineState state, Type type, Location loc);
+    string namespaceSeparator();
 }
 
 class CLikeLanguage: Language
@@ -73,6 +74,10 @@ class CLikeLanguage: Language
 		return _stringConstant(state, p, 0);
 	    }
 	    return "";
+	}
+        string namespaceSeparator()
+	{
+	    return "::";
 	}
     }
 
@@ -174,6 +179,10 @@ class DLanguage: CLikeLanguage
 	    return _stringConstant(state,
 				   readInteger(ptrLoc.readValue(state)),
 				   readInteger(lenLoc.readValue(state)));
+	}
+        string namespaceSeparator()
+	{
+	    return ".";
 	}
     }
 }
