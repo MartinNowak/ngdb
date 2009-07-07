@@ -342,17 +342,7 @@ class Debugger: TargetListener
 
 		Function func = di.findFunction(pc);
 		if (func) {
-		    s ~= std.string.format("%s(", func.name);
-		    bool first = true;
-		    foreach (a; func.arguments) {
-			if (!first) {
-			    s ~= std.string.format(", ");
-			}
-			first = false;
-			Language lang = di.findLanguage(pc);
-			s ~= std.string.format("%s", a.toString(lang, state));
-		    }
-		    s ~= "): ";
+		    s = func.toString(di.findLanguage(pc), state);
 		}
 
 		s ~= le[0].fullname ~ ":" ~ .toString(le[0].line);
@@ -778,9 +768,19 @@ class InfoRegistersCommand: Command
 
 	void run(Debugger db, string[] args)
 	{
+
+	    string lookupAddress(ulong addr)
+	    {
+		return std.string.format("0x%x", addr);
+	    }
+
 	    foreach (i, t; db.threads_) {
 		writefln("%d: stopped at 0x%08x", i + 1, t.pc);
 		t.state.dumpState;
+		ulong pc = t.state.getGR(t.state.pcregno);
+		ulong tpc = pc;
+		writefln("0x%08x:\t%s", pc,
+			 t.state.disassemble(tpc, &lookupAddress));
 	    }
 	}
     }
