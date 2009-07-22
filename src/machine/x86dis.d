@@ -1,1497 +1,2457 @@
-/*-
- * Mach Operating System
- * Copyright (c) 1991,1990 Carnegie Mellon University
- * All Rights Reserved.
- *
- * Permission to use, copy, modify and distribute this software and its
- * documentation is hereby granted, provided that both the copyright
- * notice and this permission notice appear in all copies of the
- * software, derivative works or modified versions, and any portions
- * thereof, and that both notices appear in supporting documentation.
- *
- * CARNEGIE MELLON ALLOWS FREE USE OF THIS SOFTWARE IN ITS
- * CONDITION.  CARNEGIE MELLON DISCLAIMS ANY LIABILITY OF ANY KIND FOR
- * ANY DAMAGES WHATSOEVER RESULTING FROM THE USE OF THIS SOFTWARE.
- *
- * Carnegie Mellon requests users of this software to return to
- *
- *  Software Distribution Coordinator  or  Software.Distribution@CS.CMU.EDU
- *  School of Computer Science
- *  Carnegie Mellon University
- *  Pittsburgh PA 15213-3890
- *
- * any improvements or extensions that they make and grant Carnegie the
- * rights to redistribute these changes.
- */
-
 module machine.x86dis;
 
-import machine.machine;
 import std.string;
-
-/*
- * Size attributes
- */
-enum {
-    BYTE = 0,
-    WORD = 1,
-    LONG = 2,
-    QUAD = 3,
-    SNGL = 4,
-    DBLR = 5,
-    EXTR = 6,
-    SDEP = 7,
-    NONE = 8,
-}
-
-/*
- * Addressing modes
- */
-enum {
-    E = 1,			/* general effective address */
-    Eind = 2,			/* indirect address (jump, call) */
-    Ew = 3,			/* address, word size */
-    Eb = 4,			/* address, byte size */
-    R = 5,			/* register, in 'reg' field */
-    Rw = 6,			/* word register, in 'reg' field */
-    Ri = 7,			/* register in instruction */
-    S = 8,			/* segment reg, in 'reg' field */
-    Si = 9,			/* segment reg, in instruction */
-    A = 10,			/* accumulator */
-    BX = 11,			/* (bx) */
-    CL = 12,			/* cl, for shifts */
-    DX = 13,			/* dx, for IO */
-    SI = 14,			/* si */
-    DI = 15,			/* di */
-    CR = 16,			/* control register */
-    DR = 17,			/* debug register */
-    TR = 18,			/* test register */
-    I = 19,			/* immediate, unsigned */
-    Is = 20,			/* immediate, signed */
-    Ib = 21,			/* byte immediate, unsigned */
-    Ibs = 22,			/* byte immediate, signed */
-    Iw = 23,			/* word immediate, unsigned */
-    O = 25,			/* direct address */
-    Db = 26,			/* byte displacement from EIP */
-    Dl = 27,			/* long displacement from EIP */
-    o1 = 28,			/* constant 1 */
-    o3 = 29,			/* constant 3 */
-    OS = 30,			/* immediate offset/segment */
-    ST = 31,			/* FP stack top */
-    STI = 32,			/* FP stack */
-    X = 33,			/* extended FP op */
-    XA = 34,			/* for 'fstcw %ax' */
-    El = 35,			/* address, long size */
-    Ril = 36,			/* long register in instruction */
-    Iba = 37,			/* byte immediate, don't print if 0xa */
-}
-
-struct instT {
-	string	i_name;			/* name */
-	bool	i_has_modrm;		/* has regmodrm byte */
-	short	i_size;			/* operand size */
-	int	i_mode;			/* addressing modes */
-	union {				/* pointer to extra opcode table */
-		instT*	i_extrai;
-		finstT*	i_extraf;
-		string*	i_extrat;
-		string	i_extras;
-	}
-};
-
-static int op1(int x) { return x; }
-static int op2(int x, int y) { return x | (y << 8); }
-static int op3(int x, int y, int z) { return x | (y << 8) | (z << 16); }
-
-struct finstT {
-    string	f_name;			/* name for memory instruction */
-    int		f_size;			/* size for memory instruction */
-    int		f_rrmode;		/* mode for rr instruction */
-    union {
-	string	f_rrname;		/* name for rr instruction */
-	string*	f_rrnames;		/* pointer to table */
-    }
-}
-
-static string db_Grp6[8] = [
-	"sldt",
-	"str",
-	"lldt",
-	"ltr",
-	"verr",
-	"verw",
-	"",
-	""
-];
-
-static string db_Grp7[8] = [
-	"sgdt",
-	"sidt",
-	"lgdt",
-	"lidt",
-	"smsw",
-	"",
-	"lmsw",
-	"invlpg"
-];
-
-static string db_Grp8[8] = [
-	"",
-	"",
-	"",
-	"",
-	"bt",
-	"bts",
-	"btr",
-	"btc"
-];
-
-static string db_Grp9[8] = [
-	"",
-	"cmpxchg8b",
-	"",
-	"",
-	"",
-	"",
-	"",
-	""
-];
-
-static string db_Grp15[8] = [
-	"fxsave",
-	"fxrstor",
-	"ldmxcsr",
-	"stmxcsr",
-	"",
-	"",
-	"",
-	"clflush"
-];
-
-static string db_Grp15b[8] = [
-	"",
-	"",
-	"",
-	"",
-	"",
-	"lfence",
-	"mfence",
-	"sfence"
-];
-
-static instT db_inst_0f0x[16] = [
-/*00*/	{ "",	   true,  NONE,  op1(Ew),     i_extrat:&db_Grp6[0] },
-/*01*/	{ "",	   true,  NONE,  op1(Ew),     i_extrat:&db_Grp7[0] },
-/*02*/	{ "lar",   true,  LONG,  op2(E,R),    null },
-/*03*/	{ "lsl",   true,  LONG,  op2(E,R),    null },
-/*04*/	{ "",      false, NONE,  0,	      null },
-/*05*/	{ "syscall",false,NONE,  0,	      null },
-/*06*/	{ "clts",  false, NONE,  0,	      null },
-/*07*/	{ "sysret",false, NONE,  0,	      null },
-
-/*08*/	{ "invd",  false, NONE,  0,	      null },
-/*09*/	{ "wbinvd",false, NONE,  0,	      null },
-/*0a*/	{ "",      false, NONE,  0,	      null },
-/*0b*/	{ "",      false, NONE,  0,	      null },
-/*0c*/	{ "",      false, NONE,  0,	      null },
-/*0d*/	{ "",      false, NONE,  0,	      null },
-/*0e*/	{ "",      false, NONE,  0,	      null },
-/*0f*/	{ "",      false, NONE,  0,	      null },
-];
-
-static instT db_inst_0f2x[16] = [
-/*20*/	{ "mov",   true,  LONG,  op2(CR,El),  null },
-/*21*/	{ "mov",   true,  LONG,  op2(DR,El),  null },
-/*22*/	{ "mov",   true,  LONG,  op2(El,CR),  null },
-/*23*/	{ "mov",   true,  LONG,  op2(El,DR),  null },
-/*24*/	{ "mov",   true,  LONG,  op2(TR,El),  null },
-/*25*/	{ "",      false, NONE,  0,	      null },
-/*26*/	{ "mov",   true,  LONG,  op2(El,TR),  null },
-/*27*/	{ "",      false, NONE,  0,	      null },
-
-/*28*/	{ "",      false, NONE,  0,	      null },
-/*29*/	{ "",      false, NONE,  0,	      null },
-/*2a*/	{ "",      false, NONE,  0,	      null },
-/*2b*/	{ "",      false, NONE,  0,	      null },
-/*2c*/	{ "",      false, NONE,  0,	      null },
-/*2d*/	{ "",      false, NONE,  0,	      null },
-/*2e*/	{ "",      false, NONE,  0,	      null },
-/*2f*/	{ "",      false, NONE,  0,	      null },
-];
-
-static instT db_inst_0f3x[16] = [
-/*30*/	{ "wrmsr", false, NONE,  0,	      null },
-/*31*/	{ "rdtsc", false, NONE,  0,	      null },
-/*32*/	{ "rdmsr", false, NONE,  0,	      null },
-/*33*/	{ "rdpmc", false, NONE,  0,	      null },
-/*34*/	{ "sysenter",false,NONE,  0,	      null },
-/*35*/	{ "sysexit",false,NONE,  0,	      null },
-/*36*/	{ "",	   false, NONE,  0,	      null },
-/*37*/	{ "getsec",false, NONE,  0,	      null },
-
-/*38*/	{ "",	   false, NONE,  0,	      null },
-/*39*/	{ "",	   false, NONE,  0,	      null },
-/*3a*/	{ "",	   false, NONE,  0,	      null },
-/*3b*/	{ "",	   false, NONE,  0,	      null },
-/*3c*/	{ "",	   false, NONE,  0,	      null },
-/*3d*/	{ "",	   false, NONE,  0,	      null },
-/*3e*/	{ "",	   false, NONE,  0,	      null },
-/*3f*/	{ "",	   false, NONE,  0,	      null },
-];
-
-static instT db_inst_0f4x[16] = [
-/*40*/	{ "cmovo",  true, NONE,  op2(E, R),   null },
-/*41*/	{ "cmovno", true, NONE,  op2(E, R),   null },
-/*42*/	{ "cmovb",  true, NONE,  op2(E, R),   null },
-/*43*/	{ "cmovnb", true, NONE,  op2(E, R),   null },
-/*44*/	{ "cmovz",  true, NONE,  op2(E, R),   null },
-/*45*/	{ "cmovnz", true, NONE,  op2(E, R),   null },
-/*46*/	{ "cmovbe", true, NONE,  op2(E, R),   null },
-/*47*/	{ "cmovnbe",true, NONE,  op2(E, R),   null },
-
-/*48*/	{ "cmovs",  true, NONE,  op2(E, R),   null },
-/*49*/	{ "cmovns", true, NONE,  op2(E, R),   null },
-/*4a*/	{ "cmovp",  true, NONE,  op2(E, R),   null },
-/*4b*/	{ "cmovnp", true, NONE,  op2(E, R),   null },
-/*4c*/	{ "cmovl",  true, NONE,  op2(E, R),   null },
-/*4d*/	{ "cmovnl", true, NONE,  op2(E, R),   null },
-/*4e*/	{ "cmovle", true, NONE,  op2(E, R),   null },
-/*4f*/	{ "cmovnle",true, NONE,  op2(E, R),   null },
-];
-
-static instT db_inst_0f8x[16] = [
-/*80*/	{ "jo",    false, NONE,  op1(Dl),     null },
-/*81*/	{ "jno",   false, NONE,  op1(Dl),     null },
-/*82*/	{ "jb",    false, NONE,  op1(Dl),     null },
-/*83*/	{ "jnb",   false, NONE,  op1(Dl),     null },
-/*84*/	{ "jz",    false, NONE,  op1(Dl),     null },
-/*85*/	{ "jnz",   false, NONE,  op1(Dl),     null },
-/*86*/	{ "jbe",   false, NONE,  op1(Dl),     null },
-/*87*/	{ "jnbe",  false, NONE,  op1(Dl),     null },
-
-/*88*/	{ "js",    false, NONE,  op1(Dl),     null },
-/*89*/	{ "jns",   false, NONE,  op1(Dl),     null },
-/*8a*/	{ "jp",    false, NONE,  op1(Dl),     null },
-/*8b*/	{ "jnp",   false, NONE,  op1(Dl),     null },
-/*8c*/	{ "jl",    false, NONE,  op1(Dl),     null },
-/*8d*/	{ "jnl",   false, NONE,  op1(Dl),     null },
-/*8e*/	{ "jle",   false, NONE,  op1(Dl),     null },
-/*8f*/	{ "jnle",  false, NONE,  op1(Dl),     null },
-];
-
-static instT db_inst_0f9x[16] = [
-/*90*/	{ "seto",  true,  NONE,  op1(Eb),     null },
-/*91*/	{ "setno", true,  NONE,  op1(Eb),     null },
-/*92*/	{ "setb",  true,  NONE,  op1(Eb),     null },
-/*93*/	{ "setnb", true,  NONE,  op1(Eb),     null },
-/*94*/	{ "setz",  true,  NONE,  op1(Eb),     null },
-/*95*/	{ "setnz", true,  NONE,  op1(Eb),     null },
-/*96*/	{ "setbe", true,  NONE,  op1(Eb),     null },
-/*97*/	{ "setnbe",true,  NONE,  op1(Eb),     null },
-
-/*98*/	{ "sets",  true,  NONE,  op1(Eb),     null },
-/*99*/	{ "setns", true,  NONE,  op1(Eb),     null },
-/*9a*/	{ "setp",  true,  NONE,  op1(Eb),     null },
-/*9b*/	{ "setnp", true,  NONE,  op1(Eb),     null },
-/*9c*/	{ "setl",  true,  NONE,  op1(Eb),     null },
-/*9d*/	{ "setnl", true,  NONE,  op1(Eb),     null },
-/*9e*/	{ "setle", true,  NONE,  op1(Eb),     null },
-/*9f*/	{ "setnle",true,  NONE,  op1(Eb),     null },
-];
-
-static instT db_inst_0fax[16] = [
-/*a0*/	{ "push",  false, NONE,  op1(Si),     null },
-/*a1*/	{ "pop",   false, NONE,  op1(Si),     null },
-/*a2*/	{ "cpuid", false, NONE,  0,	      null },
-/*a3*/	{ "bt",    true,  LONG,  op2(R,E),    null },
-/*a4*/	{ "shld",  true,  LONG,  op3(Ib,R,E), null },
-/*a5*/	{ "shld",  true,  LONG,  op3(CL,R,E), null },
-/*a6*/	{ "",      false, NONE,  0,	      null },
-/*a7*/	{ "",      false, NONE,  0,	      null },
-
-/*a8*/	{ "push",  false, NONE,  op1(Si),     null },
-/*a9*/	{ "pop",   false, NONE,  op1(Si),     null },
-/*aa*/	{ "rsm",   false, NONE,  0,	      null },
-/*ab*/	{ "bts",   true,  LONG,  op2(R,E),    null },
-/*ac*/	{ "shrd",  true,  LONG,  op3(Ib,R,E), null },
-/*ad*/	{ "shrd",  true,  LONG,  op3(CL,R,E), null },
-/*ae*/	{ "",      true,  LONG,  op1(E),      i_extrat:&db_Grp15[0] },
-/*af*/	{ "imul",  true,  LONG,  op2(E,R),    null },
-];
-
-static instT db_inst_0fbx[16] = [
-/*b0*/	{ "cmpxchg",true, BYTE,	 op2(R, E),   null },
-/*b0*/	{ "cmpxchg",true, LONG,	 op2(R, E),   null },
-/*b2*/	{ "lss",   true,  LONG,  op2(E, R),   null },
-/*b3*/	{ "btr",   true,  LONG,  op2(R, E),   null },
-/*b4*/	{ "lfs",   true,  LONG,  op2(E, R),   null },
-/*b5*/	{ "lgs",   true,  LONG,  op2(E, R),   null },
-/*b6*/	{ "movzb", true,  LONG,  op2(Eb, R),  null },
-/*b7*/	{ "movzw", true,  LONG,  op2(Ew, R),  null },
-
-/*b8*/	{ "",      false, NONE,  0,	      null },
-/*b9*/	{ "",      false, NONE,  0,	      null },
-/*ba*/	{ "",      true,  LONG,  op2(Ib, E),  i_extrat:&db_Grp8[0] },
-/*bb*/	{ "btc",   true,  LONG,  op2(R, E),   null },
-/*bc*/	{ "bsf",   true,  LONG,  op2(E, R),   null },
-/*bd*/	{ "bsr",   true,  LONG,  op2(E, R),   null },
-/*be*/	{ "movsb", true,  LONG,  op2(Eb, R),  null },
-/*bf*/	{ "movsw", true,  LONG,  op2(Ew, R),  null },
-];
-
-static instT db_inst_0fcx[16] = [
-/*c0*/	{ "xadd",  true,  BYTE,	 op2(R, E),   null },
-/*c1*/	{ "xadd",  true,  LONG,	 op2(R, E),   null },
-/*c2*/	{ "",	   false, NONE,	 0,	      null },
-/*c3*/	{ "",	   false, NONE,	 0,	      null },
-/*c4*/	{ "",	   false, NONE,	 0,	      null },
-/*c5*/	{ "",	   false, NONE,	 0,	      null },
-/*c6*/	{ "",	   false, NONE,	 0,	      null },
-/*c7*/	{ "",	   true,  NONE,  op1(E),      i_extrat:&db_Grp9[0] },
-/*c8*/	{ "bswap", false, LONG,  op1(Ril),    null },
-/*c9*/	{ "bswap", false, LONG,  op1(Ril),    null },
-/*ca*/	{ "bswap", false, LONG,  op1(Ril),    null },
-/*cb*/	{ "bswap", false, LONG,  op1(Ril),    null },
-/*cc*/	{ "bswap", false, LONG,  op1(Ril),    null },
-/*cd*/	{ "bswap", false, LONG,  op1(Ril),    null },
-/*ce*/	{ "bswap", false, LONG,  op1(Ril),    null },
-/*cf*/	{ "bswap", false, LONG,  op1(Ril),    null },
-];
-
-static instT* db_inst_0f[16] = [
-	&db_inst_0f0x[0],
-	null,
-	&db_inst_0f2x[0],
-	&db_inst_0f3x[0],
-	&db_inst_0f4x[0],
-	null,
-	null,
-	null,
-	&db_inst_0f8x[0],
-	&db_inst_0f9x[0],
-	&db_inst_0fax[0],
-	&db_inst_0fbx[0],
-	&db_inst_0fcx[0],
-	null,
-	null,
-	null
-];
-
-static string db_Esc92[8] = [
-	"fnop",	"",	"",	"",	"",	"",	"",	""
-];
-static string db_Esc94[8] = [
-	"fchs",	"fabs",	"",	"",	"ftst",	"fxam",	"",	""
-];
-static string db_Esc95[8] = [
-	"fld1",	"fldl2t","fldl2e","fldpi","fldlg2","fldln2","fldz",""
-];
-static string db_Esc96[8] = [
-	"f2xm1","fyl2x","fptan","fpatan","fxtract","fprem1","fdecstp",
-	"fincstp"
-];
-static string db_Esc97[8] = [
-	"fprem","fyl2xp1","fsqrt","fsincos","frndint","fscale","fsin","fcos"
-];
-
-static string db_Esca5[8] = [
-	"",	"fucompp","",	"",	"",	"",	"",	""
-];
-
-static string db_Escb4[8] = [
-	"fneni","fndisi",	"fnclex","fninit","fsetpm",	"",	"",	""
-];
-
-static string db_Esce3[8] = [
-	"",	"fcompp","",	"",	"",	"",	"",	""
-];
-
-static string db_Escf4[8] = [
-	"fnstsw","",	"",	"",	"",	"",	"",	""
-];
-
-static finstT db_Esc8[8] = [
-/*0*/	{ "fadd",   SNGL,  op2(STI,ST),	null },
-/*1*/	{ "fmul",   SNGL,  op2(STI,ST),	null },
-/*2*/	{ "fcom",   SNGL,  op2(STI,ST),	null },
-/*3*/	{ "fcomp",  SNGL,  op2(STI,ST),	null },
-/*4*/	{ "fsub",   SNGL,  op2(STI,ST),	null },
-/*5*/	{ "fsubr",  SNGL,  op2(STI,ST),	null },
-/*6*/	{ "fdiv",   SNGL,  op2(STI,ST),	null },
-/*7*/	{ "fdivr",  SNGL,  op2(STI,ST),	null },
-];
-
-static finstT db_Esc9[8] = [
-/*0*/	{ "fld",    SNGL,  op1(STI),	null },
-/*1*/	{ "",       NONE,  op1(STI),	f_rrname:"fxch" },
-/*2*/	{ "fst",    SNGL,  op1(X),	f_rrnames:&db_Esc92[0] },
-/*3*/	{ "fstp",   SNGL,  0,		null },
-/*4*/	{ "fldenv", NONE,  op1(X),	f_rrnames:&db_Esc94[0] },
-/*5*/	{ "fldcw",  NONE,  op1(X),	f_rrnames:&db_Esc95[0] },
-/*6*/	{ "fnstenv",NONE,  op1(X),	f_rrnames:&db_Esc96[0] },
-/*7*/	{ "fnstcw", NONE,  op1(X),	f_rrnames:&db_Esc97[0] },
-];
-
-static finstT db_Esca[8] = [
-/*0*/	{ "fiadd",  LONG,  0,		null },
-/*1*/	{ "fimul",  LONG,  0,		null },
-/*2*/	{ "ficom",  LONG,  0,		null },
-/*3*/	{ "ficomp", LONG,  0,		null },
-/*4*/	{ "fisub",  LONG,  0,		null },
-/*5*/	{ "fisubr", LONG,  op1(X),	f_rrnames:&db_Esca5[0] },
-/*6*/	{ "fidiv",  LONG,  0,		null },
-/*7*/	{ "fidivr", LONG,  0,		null }
-];
-
-static finstT db_Escb[8] = [
-/*0*/	{ "fild",   LONG,  0,		null },
-/*1*/	{ "",       NONE,  0,		null },
-/*2*/	{ "fist",   LONG,  0,		null },
-/*3*/	{ "fistp",  LONG,  0,		null },
-/*4*/	{ "",       WORD,  op1(X),	f_rrnames:&db_Escb4[0] },
-/*5*/	{ "fld",    EXTR,  0,		null },
-/*6*/	{ "",       WORD,  0,		null },
-/*7*/	{ "fstp",   EXTR,  0,		null },
-];
-
-static finstT db_Escc[8] = [
-/*0*/	{ "fadd",   DBLR,  op2(ST,STI),	null },
-/*1*/	{ "fmul",   DBLR,  op2(ST,STI),	null },
-/*2*/	{ "fcom",   DBLR,  0,		null },
-/*3*/	{ "fcomp",  DBLR,  0,		null },
-/*4*/	{ "fsub",   DBLR,  op2(ST,STI),	f_rrname:"fsubr" },
-/*5*/	{ "fsubr",  DBLR,  op2(ST,STI),	f_rrname:"fsub" },
-/*6*/	{ "fdiv",   DBLR,  op2(ST,STI),	f_rrname:"fdivr" },
-/*7*/	{ "fdivr",  DBLR,  op2(ST,STI),	f_rrname:"fdiv" },
-];
-
-static finstT db_Escd[8] = [
-/*0*/	{ "fld",    DBLR,  op1(STI),	f_rrname:"ffree" },
-/*1*/	{ "",       NONE,  0,		null },
-/*2*/	{ "fst",    DBLR,  op1(STI),	null },
-/*3*/	{ "fstp",   DBLR,  op1(STI),	null },
-/*4*/	{ "frstor", NONE,  op1(STI),	f_rrname:"fucom" },
-/*5*/	{ "",       NONE,  op1(STI),	f_rrname:"fucomp" },
-/*6*/	{ "fnsave", NONE,  0,		null },
-/*7*/	{ "fnstsw", NONE,  0,		null },
-];
-
-static finstT db_Esce[8] = [
-/*0*/	{ "fiadd",  WORD,  op2(ST,STI),	f_rrname:"faddp" },
-/*1*/	{ "fimul",  WORD,  op2(ST,STI),	f_rrname:"fmulp" },
-/*2*/	{ "ficom",  WORD,  0,		null },
-/*3*/	{ "ficomp", WORD,  op1(X),	f_rrnames:&db_Esce3[0] },
-/*4*/	{ "fisub",  WORD,  op2(ST,STI),	f_rrname:"fsubrp" },
-/*5*/	{ "fisubr", WORD,  op2(ST,STI),	f_rrname:"fsubp" },
-/*6*/	{ "fidiv",  WORD,  op2(ST,STI),	f_rrname:"fdivrp" },
-/*7*/	{ "fidivr", WORD,  op2(ST,STI),	f_rrname:"fdivp" },
-];
-
-static finstT db_Escf[8] = [
-/*0*/	{ "fild",   WORD,  0,		null },
-/*1*/	{ "",       NONE,  0,		null },
-/*2*/	{ "fist",   WORD,  0,		null },
-/*3*/	{ "fistp",  WORD,  0,		null },
-/*4*/	{ "fbld",   NONE,  op1(XA),	f_rrnames:&db_Escf4[0] },
-/*5*/	{ "fild",   QUAD,  0,		null },
-/*6*/	{ "fbstp",  NONE,  0,		null },
-/*7*/	{ "fistp",  QUAD,  0,		null },
-];
-
-static finstT* db_Esc_inst[] = [
-	&db_Esc8[0], &db_Esc9[0], &db_Esca[0], &db_Escb[0],
-	&db_Escc[0], &db_Escd[0], &db_Esce[0], &db_Escf[0]
-];
-
-static string db_Grp1[8] = [
-	"add",
-	"or",
-	"adc",
-	"sbb",
-	"and",
-	"sub",
-	"xor",
-	"cmp"
-];
-
-static string db_Grp2[8] = [
-	"rol",
-	"ror",
-	"rcl",
-	"rcr",
-	"shl",
-	"shr",
-	"shl",
-	"sar"
-];
-
-static instT db_Grp3[8] = [
-	{ "test",  true, NONE, op2(I,E), null },
-	{ "test",  true, NONE, op2(I,E), null },
-	{ "not",   true, NONE, op1(E),   null },
-	{ "neg",   true, NONE, op1(E),   null },
-	{ "mul",   true, NONE, op2(E,A), null },
-	{ "imul",  true, NONE, op2(E,A), null },
-	{ "div",   true, NONE, op2(E,A), null },
-	{ "idiv",  true, NONE, op2(E,A), null },
-];
-
-static instT db_Grp4[8] = [
-	{ "inc",   true, BYTE, op1(E),   null },
-	{ "dec",   true, BYTE, op1(E),   null },
-	{ "",      true, NONE, 0,	 null },
-	{ "",      true, NONE, 0,	 null },
-	{ "",      true, NONE, 0,	 null },
-	{ "",      true, NONE, 0,	 null },
-	{ "",      true, NONE, 0,	 null },
-	{ "",      true, NONE, 0,	 null }
-];
-
-static instT db_Grp5[8] = [
-	{ "inc",   true, LONG, op1(E),   null },
-	{ "dec",   true, LONG, op1(E),   null },
-	{ "call",  true, LONG, op1(Eind),null },
-	{ "lcall", true, LONG, op1(Eind),null },
-	{ "jmp",   true, LONG, op1(Eind),null },
-	{ "ljmp",  true, LONG, op1(Eind),null },
-	{ "push",  true, LONG, op1(E),   null },
-	{ "",      true, NONE, 0,	 null }
-];
-
-static instT db_inst_table[256] = [
-/*00*/	{ "add",   true,  BYTE,  op2(R, E),  null },
-/*01*/	{ "add",   true,  LONG,  op2(R, E),  null },
-/*02*/	{ "add",   true,  BYTE,  op2(E, R),  null },
-/*03*/	{ "add",   true,  LONG,  op2(E, R),  null },
-/*04*/	{ "add",   false, BYTE,  op2(I, A),  null },
-/*05*/	{ "add",   false, LONG,  op2(Is, A), null },
-/*06*/	{ "push",  false, NONE,  op1(Si),    null },
-/*07*/	{ "pop",   false, NONE,  op1(Si),    null },
-
-/*08*/	{ "or",    true,  BYTE,  op2(R, E),  null },
-/*09*/	{ "or",    true,  LONG,  op2(R, E),  null },
-/*0a*/	{ "or",    true,  BYTE,  op2(E, R),  null },
-/*0b*/	{ "or",    true,  LONG,  op2(E, R),  null },
-/*0c*/	{ "or",    false, BYTE,  op2(I, A),  null },
-/*0d*/	{ "or",    false, LONG,  op2(I, A),  null },
-/*0e*/	{ "push",  false, NONE,  op1(Si),    null },
-/*0f*/	{ "",      false, NONE,  0,	     null },
-
-/*10*/	{ "adc",   true,  BYTE,  op2(R, E),  null },
-/*11*/	{ "adc",   true,  LONG,  op2(R, E),  null },
-/*12*/	{ "adc",   true,  BYTE,  op2(E, R),  null },
-/*13*/	{ "adc",   true,  LONG,  op2(E, R),  null },
-/*14*/	{ "adc",   false, BYTE,  op2(I, A),  null },
-/*15*/	{ "adc",   false, LONG,  op2(Is, A), null },
-/*16*/	{ "push",  false, NONE,  op1(Si),    null },
-/*17*/	{ "pop",   false, NONE,  op1(Si),    null },
-
-/*18*/	{ "sbb",   true,  BYTE,  op2(R, E),  null },
-/*19*/	{ "sbb",   true,  LONG,  op2(R, E),  null },
-/*1a*/	{ "sbb",   true,  BYTE,  op2(E, R),  null },
-/*1b*/	{ "sbb",   true,  LONG,  op2(E, R),  null },
-/*1c*/	{ "sbb",   false, BYTE,  op2(I, A),  null },
-/*1d*/	{ "sbb",   false, LONG,  op2(Is, A), null },
-/*1e*/	{ "push",  false, NONE,  op1(Si),    null },
-/*1f*/	{ "pop",   false, NONE,  op1(Si),    null },
-
-/*20*/	{ "and",   true,  BYTE,  op2(R, E),  null },
-/*21*/	{ "and",   true,  LONG,  op2(R, E),  null },
-/*22*/	{ "and",   true,  BYTE,  op2(E, R),  null },
-/*23*/	{ "and",   true,  LONG,  op2(E, R),  null },
-/*24*/	{ "and",   false, BYTE,  op2(I, A),  null },
-/*25*/	{ "and",   false, LONG,  op2(I, A),  null },
-/*26*/	{ "",      false, NONE,  0,	     null },
-/*27*/	{ "daa",   false, NONE,  0,	     null },
-
-/*28*/	{ "sub",   true,  BYTE,  op2(R, E),  null },
-/*29*/	{ "sub",   true,  LONG,  op2(R, E),  null },
-/*2a*/	{ "sub",   true,  BYTE,  op2(E, R),  null },
-/*2b*/	{ "sub",   true,  LONG,  op2(E, R),  null },
-/*2c*/	{ "sub",   false, BYTE,  op2(I, A),  null },
-/*2d*/	{ "sub",   false, LONG,  op2(Is, A), null },
-/*2e*/	{ "",      false, NONE,  0,	     null },
-/*2f*/	{ "das",   false, NONE,  0,	     null },
-
-/*30*/	{ "xor",   true,  BYTE,  op2(R, E),  null },
-/*31*/	{ "xor",   true,  LONG,  op2(R, E),  null },
-/*32*/	{ "xor",   true,  BYTE,  op2(E, R),  null },
-/*33*/	{ "xor",   true,  LONG,  op2(E, R),  null },
-/*34*/	{ "xor",   false, BYTE,  op2(I, A),  null },
-/*35*/	{ "xor",   false, LONG,  op2(I, A),  null },
-/*36*/	{ "",      false, NONE,  0,	     null },
-/*37*/	{ "aaa",   false, NONE,  0,	     null },
-
-/*38*/	{ "cmp",   true,  BYTE,  op2(R, E),  null },
-/*39*/	{ "cmp",   true,  LONG,  op2(R, E),  null },
-/*3a*/	{ "cmp",   true,  BYTE,  op2(E, R),  null },
-/*3b*/	{ "cmp",   true,  LONG,  op2(E, R),  null },
-/*3c*/	{ "cmp",   false, BYTE,  op2(I, A),  null },
-/*3d*/	{ "cmp",   false, LONG,  op2(Is, A), null },
-/*3e*/	{ "",      false, NONE,  0,	     null },
-/*3f*/	{ "aas",   false, NONE,  0,	     null },
-
-/*40*/	{ "inc",   false, LONG,  op1(Ri),    null },
-/*41*/	{ "inc",   false, LONG,  op1(Ri),    null },
-/*42*/	{ "inc",   false, LONG,  op1(Ri),    null },
-/*43*/	{ "inc",   false, LONG,  op1(Ri),    null },
-/*44*/	{ "inc",   false, LONG,  op1(Ri),    null },
-/*45*/	{ "inc",   false, LONG,  op1(Ri),    null },
-/*46*/	{ "inc",   false, LONG,  op1(Ri),    null },
-/*47*/	{ "inc",   false, LONG,  op1(Ri),    null },
-
-/*48*/	{ "dec",   false, LONG,  op1(Ri),    null },
-/*49*/	{ "dec",   false, LONG,  op1(Ri),    null },
-/*4a*/	{ "dec",   false, LONG,  op1(Ri),    null },
-/*4b*/	{ "dec",   false, LONG,  op1(Ri),    null },
-/*4c*/	{ "dec",   false, LONG,  op1(Ri),    null },
-/*4d*/	{ "dec",   false, LONG,  op1(Ri),    null },
-/*4e*/	{ "dec",   false, LONG,  op1(Ri),    null },
-/*4f*/	{ "dec",   false, LONG,  op1(Ri),    null },
-
-/*50*/	{ "push",  false, LONG,  op1(Ri),    null },
-/*51*/	{ "push",  false, LONG,  op1(Ri),    null },
-/*52*/	{ "push",  false, LONG,  op1(Ri),    null },
-/*53*/	{ "push",  false, LONG,  op1(Ri),    null },
-/*54*/	{ "push",  false, LONG,  op1(Ri),    null },
-/*55*/	{ "push",  false, LONG,  op1(Ri),    null },
-/*56*/	{ "push",  false, LONG,  op1(Ri),    null },
-/*57*/	{ "push",  false, LONG,  op1(Ri),    null },
-
-/*58*/	{ "pop",   false, LONG,  op1(Ri),    null },
-/*59*/	{ "pop",   false, LONG,  op1(Ri),    null },
-/*5a*/	{ "pop",   false, LONG,  op1(Ri),    null },
-/*5b*/	{ "pop",   false, LONG,  op1(Ri),    null },
-/*5c*/	{ "pop",   false, LONG,  op1(Ri),    null },
-/*5d*/	{ "pop",   false, LONG,  op1(Ri),    null },
-/*5e*/	{ "pop",   false, LONG,  op1(Ri),    null },
-/*5f*/	{ "pop",   false, LONG,  op1(Ri),    null },
-
-/*60*/	{ "pusha", false, LONG,  0,	     null },
-/*61*/	{ "popa",  false, LONG,  0,	     null },
-/*62*/  { "bound", true,  LONG,  op2(E, R),  null },
-/*63*/	{ "arpl",  true,  NONE,  op2(Rw,Ew), null },
-
-/*64*/	{ "",      false, NONE,  0,	     null },
-/*65*/	{ "",      false, NONE,  0,	     null },
-/*66*/	{ "",      false, NONE,  0,	     null },
-/*67*/	{ "",      false, NONE,  0,	     null },
-
-/*68*/	{ "push",  false, LONG,  op1(I),     null },
-/*69*/  { "imul",  true,  LONG,  op3(I,E,R), null },
-/*6a*/	{ "push",  false, LONG,  op1(Ibs),   null },
-/*6b*/  { "imul",  true,  LONG,  op3(Ibs,E,R),null },
-/*6c*/	{ "ins",   false, BYTE,  op2(DX, DI), null },
-/*6d*/	{ "ins",   false, LONG,  op2(DX, DI), null },
-/*6e*/	{ "outs",  false, BYTE,  op2(SI, DX), null },
-/*6f*/	{ "outs",  false, LONG,  op2(SI, DX), null },
-
-/*70*/	{ "jo",    false, NONE,  op1(Db),     null },
-/*71*/	{ "jno",   false, NONE,  op1(Db),     null },
-/*72*/	{ "jb",    false, NONE,  op1(Db),     null },
-/*73*/	{ "jnb",   false, NONE,  op1(Db),     null },
-/*74*/	{ "jz",    false, NONE,  op1(Db),     null },
-/*75*/	{ "jnz",   false, NONE,  op1(Db),     null },
-/*76*/	{ "jbe",   false, NONE,  op1(Db),     null },
-/*77*/	{ "jnbe",  false, NONE,  op1(Db),     null },
-
-/*78*/	{ "js",    false, NONE,  op1(Db),     null },
-/*79*/	{ "jns",   false, NONE,  op1(Db),     null },
-/*7a*/	{ "jp",    false, NONE,  op1(Db),     null },
-/*7b*/	{ "jnp",   false, NONE,  op1(Db),     null },
-/*7c*/	{ "jl",    false, NONE,  op1(Db),     null },
-/*7d*/	{ "jnl",   false, NONE,  op1(Db),     null },
-/*7e*/	{ "jle",   false, NONE,  op1(Db),     null },
-/*7f*/	{ "jnle",  false, NONE,  op1(Db),     null },
-
-/*80*/  { "",	   true,  BYTE,  op2(I, E),   i_extrat:&db_Grp1[0] },
-/*81*/  { "",	   true,  LONG,  op2(I, E),   i_extrat:&db_Grp1[0] },
-/*82*/  { "",	   true,  BYTE,  op2(I, E),   i_extrat:&db_Grp1[0] },
-/*83*/  { "",	   true,  LONG,  op2(Ibs,E),  i_extrat:&db_Grp1[0] },
-/*84*/	{ "test",  true,  BYTE,  op2(R, E),   null },
-/*85*/	{ "test",  true,  LONG,  op2(R, E),   null },
-/*86*/	{ "xchg",  true,  BYTE,  op2(R, E),   null },
-/*87*/	{ "xchg",  true,  LONG,  op2(R, E),   null },
-
-/*88*/	{ "mov",   true,  BYTE,  op2(R, E),   null },
-/*89*/	{ "mov",   true,  LONG,  op2(R, E),   null },
-/*8a*/	{ "mov",   true,  BYTE,  op2(E, R),   null },
-/*8b*/	{ "mov",   true,  LONG,  op2(E, R),   null },
-/*8c*/  { "mov",   true,  NONE,  op2(S, Ew),  null },
-/*8d*/	{ "lea",   true,  LONG,  op2(E, R),   null },
-/*8e*/	{ "mov",   true,  NONE,  op2(Ew, S),  null },
-/*8f*/	{ "pop",   true,  LONG,  op1(E),      null },
-
-/*90*/	{ "nop",   false, NONE,  0,	      null },
-/*91*/	{ "xchg",  false, LONG,  op2(A, Ri),  null },
-/*92*/	{ "xchg",  false, LONG,  op2(A, Ri),  null },
-/*93*/	{ "xchg",  false, LONG,  op2(A, Ri),  null },
-/*94*/	{ "xchg",  false, LONG,  op2(A, Ri),  null },
-/*95*/	{ "xchg",  false, LONG,  op2(A, Ri),  null },
-/*96*/	{ "xchg",  false, LONG,  op2(A, Ri),  null },
-/*97*/	{ "xchg",  false, LONG,  op2(A, Ri),  null },
-
-/*98*/	{ "cbw",   false, SDEP,  0,	      i_extras:"cwde" },	/* cbw/cwde */
-/*99*/	{ "cwd",   false, SDEP,  0,	      i_extras:"cdq" },	/* cwd/cdq */
-/*9a*/	{ "lcall", false, NONE,  op1(OS),     null },
-/*9b*/	{ "wait",  false, NONE,  0,	      null },
-/*9c*/	{ "pushf", false, LONG,  0,	      null },
-/*9d*/	{ "popf",  false, LONG,  0,	      null },
-/*9e*/	{ "sahf",  false, NONE,  0,	      null },
-/*9f*/	{ "lahf",  false, NONE,  0,	      null },
-
-/*a0*/	{ "mov",   false, BYTE,  op2(O, A),   null },
-/*a1*/	{ "mov",   false, LONG,  op2(O, A),   null },
-/*a2*/	{ "mov",   false, BYTE,  op2(A, O),   null },
-/*a3*/	{ "mov",   false, LONG,  op2(A, O),   null },
-/*a4*/	{ "movs",  false, BYTE,  op2(SI,DI),  null },
-/*a5*/	{ "movs",  false, LONG,  op2(SI,DI),  null },
-/*a6*/	{ "cmps",  false, BYTE,  op2(SI,DI),  null },
-/*a7*/	{ "cmps",  false, LONG,  op2(SI,DI),  null },
-
-/*a8*/	{ "test",  false, BYTE,  op2(I, A),   null },
-/*a9*/	{ "test",  false, LONG,  op2(I, A),   null },
-/*aa*/	{ "stos",  false, BYTE,  op1(DI),     null },
-/*ab*/	{ "stos",  false, LONG,  op1(DI),     null },
-/*ac*/	{ "lods",  false, BYTE,  op1(SI),     null },
-/*ad*/	{ "lods",  false, LONG,  op1(SI),     null },
-/*ae*/	{ "scas",  false, BYTE,  op1(SI),     null },
-/*af*/	{ "scas",  false, LONG,  op1(SI),     null },
-
-/*b0*/	{ "mov",   false, BYTE,  op2(I, Ri),  null },
-/*b1*/	{ "mov",   false, BYTE,  op2(I, Ri),  null },
-/*b2*/	{ "mov",   false, BYTE,  op2(I, Ri),  null },
-/*b3*/	{ "mov",   false, BYTE,  op2(I, Ri),  null },
-/*b4*/	{ "mov",   false, BYTE,  op2(I, Ri),  null },
-/*b5*/	{ "mov",   false, BYTE,  op2(I, Ri),  null },
-/*b6*/	{ "mov",   false, BYTE,  op2(I, Ri),  null },
-/*b7*/	{ "mov",   false, BYTE,  op2(I, Ri),  null },
-
-/*b8*/	{ "mov",   false, LONG,  op2(I, Ri),  null },
-/*b9*/	{ "mov",   false, LONG,  op2(I, Ri),  null },
-/*ba*/	{ "mov",   false, LONG,  op2(I, Ri),  null },
-/*bb*/	{ "mov",   false, LONG,  op2(I, Ri),  null },
-/*bc*/	{ "mov",   false, LONG,  op2(I, Ri),  null },
-/*bd*/	{ "mov",   false, LONG,  op2(I, Ri),  null },
-/*be*/	{ "mov",   false, LONG,  op2(I, Ri),  null },
-/*bf*/	{ "mov",   false, LONG,  op2(I, Ri),  null },
-
-/*c0*/	{ "",	   true,  BYTE,  op2(Ib, E),  i_extrat:&db_Grp2[0] },
-/*c1*/	{ "",	   true,  LONG,  op2(Ib, E),  i_extrat:&db_Grp2[0] },
-/*c2*/	{ "ret",   false, NONE,  op1(Iw),     null },
-/*c3*/	{ "ret",   false, NONE,  0,	      null },
-/*c4*/	{ "les",   true,  LONG,  op2(E, R),   null },
-/*c5*/	{ "lds",   true,  LONG,  op2(E, R),   null },
-/*c6*/	{ "mov",   true,  BYTE,  op2(I, E),   null },
-/*c7*/	{ "mov",   true,  LONG,  op2(I, E),   null },
-
-/*c8*/	{ "enter", false, NONE,  op2(Iw, Ib), null },
-/*c9*/	{ "leave", false, NONE,  0,           null },
-/*ca*/	{ "lret",  false, NONE,  op1(Iw),     null },
-/*cb*/	{ "lret",  false, NONE,  0,	      null },
-/*cc*/	{ "int",   false, NONE,  op1(o3),     null },
-/*cd*/	{ "int",   false, NONE,  op1(Ib),     null },
-/*ce*/	{ "into",  false, NONE,  0,	      null },
-/*cf*/	{ "iret",  false, NONE,  0,	      null },
-
-/*d0*/	{ "",	   true,  BYTE,  op2(o1, E),  i_extrat:&db_Grp2[0] },
-/*d1*/	{ "",	   true,  LONG,  op2(o1, E),  i_extrat:&db_Grp2[0] },
-/*d2*/	{ "",	   true,  BYTE,  op2(CL, E),  i_extrat:&db_Grp2[0] },
-/*d3*/	{ "",	   true,  LONG,  op2(CL, E),  i_extrat:&db_Grp2[0] },
-/*d4*/	{ "aam",   false, NONE,  op1(Iba),    null },
-/*d5*/	{ "aad",   false, NONE,  op1(Iba),    null },
-/*d6*/	{ ".byte\t0xd6", false, NONE, 0,      null },
-/*d7*/	{ "xlat",  false, BYTE,  op1(BX),     null },
-
-/*d8*/  { "",      true,  NONE,  0,	      i_extraf:&db_Esc8[0] },
-/*d9*/  { "",      true,  NONE,  0,	      i_extraf:&db_Esc9[0] },
-/*da*/  { "",      true,  NONE,  0,	      i_extraf:&db_Esca[0] },
-/*db*/  { "",      true,  NONE,  0,	      i_extraf:&db_Escb[0] },
-/*dc*/  { "",      true,  NONE,  0,	      i_extraf:&db_Escc[0] },
-/*dd*/  { "",      true,  NONE,  0,	      i_extraf:&db_Escd[0] },
-/*de*/  { "",      true,  NONE,  0,	      i_extraf:&db_Esce[0] },
-/*df*/  { "",      true,  NONE,  0,	      i_extraf:&db_Escf[0] },
-
-/*e0*/	{ "loopne",false, NONE,  op1(Db),     null },
-/*e1*/	{ "loope", false, NONE,  op1(Db),     null },
-/*e2*/	{ "loop",  false, NONE,  op1(Db),     null },
-/*e3*/	{ "jcxz",  false, SDEP,  op1(Db),     i_extras:"jecxz" },
-/*e4*/	{ "in",    false, BYTE,  op2(Ib, A),  null },
-/*e5*/	{ "in",    false, LONG,  op2(Ib, A) , null },
-/*e6*/	{ "out",   false, BYTE,  op2(A, Ib),  null },
-/*e7*/	{ "out",   false, LONG,  op2(A, Ib) , null },
-
-/*e8*/	{ "call",  false, NONE,  op1(Dl),     null },
-/*e9*/	{ "jmp",   false, NONE,  op1(Dl),     null },
-/*ea*/	{ "ljmp",  false, NONE,  op1(OS),     null },
-/*eb*/	{ "jmp",   false, NONE,  op1(Db),     null },
-/*ec*/	{ "in",    false, BYTE,  op2(DX, A),  null },
-/*ed*/	{ "in",    false, LONG,  op2(DX, A) , null },
-/*ee*/	{ "out",   false, BYTE,  op2(A, DX),  null },
-/*ef*/	{ "out",   false, LONG,  op2(A, DX) , null },
-
-/*f0*/	{ "",      false, NONE,  0,	     null },
-/*f1*/	{ ".byte\t0xf1", false, NONE, 0,     null },
-/*f2*/	{ "",      false, NONE,  0,	     null },
-/*f3*/	{ "",      false, NONE,  0,	     null },
-/*f4*/	{ "hlt",   false, NONE,  0,	     null },
-/*f5*/	{ "cmc",   false, NONE,  0,	     null },
-/*f6*/	{ "",      true,  BYTE,  0,	     i_extrai:&db_Grp3[0] },
-/*f7*/	{ "",	   true,  LONG,  0,	     i_extrai:&db_Grp3[0] },
-
-/*f8*/	{ "clc",   false, NONE,  0,	     null },
-/*f9*/	{ "stc",   false, NONE,  0,	     null },
-/*fa*/	{ "cli",   false, NONE,  0,	     null },
-/*fb*/	{ "sti",   false, NONE,  0,	     null },
-/*fc*/	{ "cld",   false, NONE,  0,	     null },
-/*fd*/	{ "std",   false, NONE,  0,	     null },
-/*fe*/	{ "",	   true,  NONE,  0,	     i_extrai:&db_Grp4[0] },
-/*ff*/	{ "",	   true,  NONE,  0,	     i_extrai:&db_Grp5[0] },
-];
-
-static instT db_bad_inst =
-	{ "???",   false, NONE,  0,	      null };
-
-int f_mod(int b)	{ return b>>6; }
-int f_reg(int b)	{ return (b>>3) & 0x7; }
-int f_rm(int b)		{ return b & 0x7; }
-
-int sib_ss(int b)	{ return b>>6; }
-int sib_index(int b)	{ return (b>>3) & 0x7; }
-int sib_base(int b)	{ return b & 0x7; }
-
-struct i_addr {
-    int		is_reg;	/* if reg, reg number is in 'disp' */
-    int		disp;
-    string	base;
-    string	index;
-    int		ss;
-};
-
-static string db_index_reg_16[8] = [
-	"%bx,%si",
-	"%bx,%di",
-	"%bp,%si",
-	"%bp,%di",
-	"%si",
-	"%di",
-	"%bp",
-	"%bx"
-];
-
-static string db_reg[3][8] = [
-	[ "%al",  "%cl",  "%dl",  "%bl",  "%ah",  "%ch",  "%dh",  "%bh" ],
-	[ "%ax",  "%cx",  "%dx",  "%bx",  "%sp",  "%bp",  "%si",  "%di" ],
-	[ "%eax", "%ecx", "%edx", "%ebx", "%esp", "%ebp", "%esi", "%edi" ]
-];
-
-static string db_seg_reg[8] = [
-	"%es", "%cs", "%ss", "%ds", "%fs", "%gs", "", ""
-];
-
-/*
- * lengths for size attributes
- */
-static int db_lengths[] = [
-	1,	/* BYTE */
-	2,	/* WORD */
-	4,	/* LONG */
-	8,	/* QUAD */
-	4,	/* SNGL */
-	8,	/* DBLR */
-	10,	/* EXTR */
-];
-
-
-/*
-#define	get_value_inc(result, loc, size, is_signed) \
-	result = db_get_value((loc), (size), (is_signed)); \
-	(loc) += (size);
-*/
-
-ulong
-readUnsigned(ubyte[] bytes)
+import std.stdio;
+version (LDC)
+    import std.compat;
+
+private enum
 {
-    uint bit = 0;
-    ulong value = 0;
-
-    foreach (b; bytes) {
-	value |= b << bit;
-	bit += 8;
-    }
-    return value;
+    BYTE	= 0,		// byte sized operands
+    WORD	= 1,		// word sized operands
+    LONG	= 2,		// double word sized operands
+    QWORD	= 3,		// quad word sized operands
+    MMX		= 4,		// mmx operands
+    XMM		= 5,		// xmm operands
+    FLOAT	= 6,		// single-precision floating point
+    DOUBLE	= 7,		// double-precision floating point
+    LDOUBLE	= 8,		// long double-precision floating point
+    PREFIX	= 9,		// set instruction size based on prefix
+    NONE	= 10,		// don't add size suffix
+    SIZE	= 15,		// mask size bits
+    VALID32	= 1<<4,		// instruction is valid in 32bit mode
+    VALID64	= 1<<5,		// instruction is valid in 64bit mode
+    MODRM	= 1<<6,		// instruction has modrm byte
+    REGONLY	= 1<<7,		// instruction matches only modrm.mod == 3
+    MEMONLY	= 1<<8,		// instruction matches only modrm.mod != 3
+    PREFIX66	= 1<<9,		// mandatory 66 prefix
+    PREFIXF2	= 1<<10,	// mandatory F2 prefix
+    PREFIXF3	= 1<<11,	// mandatory F3 prefix
+    MODRMMASK	= 077 << 12,	// mask for matching modrm rm and reg fields
+    MODRMMASKSHIFT = 12,	// mask for matching modrm rm and reg fields
+    MODRMMATCH	= 077 << 18,	// value for matching modrm rm and reg fields
+    MODRMMATCHSHIFT = 18,	// value for matching modrm rm and reg fields
 }
 
-long
-readSigned(ubyte[] bytes)
+class Disassembler
 {
-    uint bit = 0;
-    long value = 0;
-
-    foreach (b; bytes) {
-	value |= b << bit;
-	bit += 8;
-    }
-    if (bytes[bytes.length - 1] & 0x80)
-	value |= -(1 << bit);
-    return value;
-}
-
-
-
-/**
- * Disassemble instruction at 'loc'. Return address of start of next
- * instruction.
- */
-static string
-db_disasm(MachineState state, ref ulong loc,
-	  string delegate(ulong) lookupAddress)
-{
-    string	res = "";
-    int		inst;
-    int		size;
-    bool	short_addr;
-    string	seg;
-    instT*	ip;
-    string	i_name;
-    int		i_size;
-    int		i_mode;
-    int		regmodrm = 0;
-    bool	first;
-    int		displ;
-    int		prefix;
-    int		rep;
-    int		imm;
-    int		imm2;
-    int		len;
-    i_addr	address;
-
-    int get_value_inc(uint size, bool is_signed)
+    void setOption(string opt)
     {
-	ubyte[] mem = state.readMemory(loc, size);
-	loc += size;
-	return is_signed ? readSigned(mem) : readUnsigned(mem);
+	if (opt == "intel")
+	    attMode_ = false;
+	if (opt == "att")
+	    attMode_ = true;
+	if (opt == "x86_64")
+	    mode_ = 64;
     }
 
-    /*
-     * Read address at location and return updated location.
+    string disassemble(ref ulong loc, char delegate(ulong) readByte)
+    {
+	DecodeState ds;
+	Instruction ip[];
+	ulong iloc = loc;
+
+	bool morePrefixes = true;
+	while (morePrefixes) {
+	    char b = readByte(loc);
+
+	    if (mode_ == 64 && (b & 0xf0) == 0x40) {
+		/*
+		 * This is a REX prefix in 64bit mode.
+		 */
+		ds.rex_ = b;
+		loc++;
+		continue;
+	    }
+
+	    switch (readByte(loc)) {
+	    case 0xf0:
+		ds.lockPrefix_ = true;
+		loc++;
+		break;
+
+	    case 0xf2:
+		ds.repnePrefix_ = true;
+		loc++;
+		break;
+
+	    case 0xf3:
+		ds.repePrefix_ = true;
+		loc++;
+		break;
+
+	    case 0x2e:
+		ds.seg_ = "cs";
+		loc++;
+		break;
+
+	    case 0x36:
+		ds.seg_ = "ss";
+		loc++;
+		break;
+
+	    case 0x3e:
+		ds.seg_ = "ds";
+		loc++;
+		break;
+
+	    case 0x26:
+		ds.seg_ = "es";
+		loc++;
+		break;
+
+	    case 0x64:
+		ds.seg_ = "fs";
+		loc++;
+		break;
+
+	    case 0x65:
+		ds.seg_ = "gs";
+		loc++;
+		break;
+
+	    case 0x67:
+		ds.addressSizePrefix_ = true;
+		loc++;
+		break;
+
+	    case 0x66:
+		ds.operandSizePrefix_ = true;
+		loc++;
+		break;
+
+	    default:
+		morePrefixes = false;
+	    }
+	}
+	if (ds.seg_.length > 0 && attMode_)
+	    ds.seg_ = "%" ~ ds.seg_;
+
+	ds.readByte_ = readByte;
+	ds.attMode_ = attMode_;
+	ds.mode_ = mode_;
+
+	static if (false) {
+	    char op = readByte(loc++);
+	    if (op == 0x0f) {
+		char fop = readByte(loc++);
+		//writefln("opcode is 0f %02x", readByte(loc + 1));
+		ip = table0f_[fop];
+	    } else {
+		//writefln("opcode is %02x", op);
+		ip = table_[op];
+	    }
+	    foreach (i; ip) {
+		if (mode_ == 32) {
+		    if (!(i.flags_ & VALID32))
+			continue;
+		} else {
+		    if (!(i.flags_ & VALID64))
+			continue;
+		}
+		ds.loc_ = loc;
+		//writefln("matching with \"%s\", assembler is \"%s\"", i.match_, i.assembler_);
+		if (i.decode_(&ds)) {
+		    //writefln("matched with \"%s\", assembler is \"%s\"", i.match_, i.assembler_);
+		    string prefixString = "";
+		    if (ds.lockPrefix_)
+			prefixString ~= "lock ";
+		    if (ds.repnePrefix_)
+			prefixString ~= "repne ";
+		    if (ds.repePrefix_)
+			prefixString ~= "repe ";
+		    string res = prefixString ~ i.display(&ds);
+		    loc = ds.loc_;
+		    return res;
+		}
+	    }
+	    if (op == 0x0f)
+		loc = loc + 2;
+	    else
+		loc = loc + 1;
+	} else {
+	    Instruction insn;
+	    ds.loc_ = loc;
+	    if (table_.lookup(&ds, insn)) {
+		string prefixString = "";
+		if (ds.lockPrefix_)
+		    prefixString ~= "lock ";
+		if (ds.repnePrefix_)
+		    prefixString ~= "repne ";
+		if (ds.repePrefix_)
+		    prefixString ~= "repe ";
+		string res = prefixString ~ insn.display(&ds);
+		loc = ds.loc_;
+		return res;
+	    }
+	}
+
+	string s = ".byte\t";
+	for (ulong i = iloc; i < loc; i++) {
+	    if (i > iloc)
+		s ~= ",";
+	    s ~= format("%#x", readByte(i));
+	}
+	return s;
+    }
+
+private:
+    static this()
+    {
+	table_ = new InstructionTable;
+
+	alias addInstruction ins;
+	alias VALID32 V_;
+	alias VALID64 _V;
+	alias NONE N;
+	alias BYTE B;
+	alias WORD W;
+	alias LONG L;
+	alias QWORD Q;
+	alias FLOAT F;
+	alias DOUBLE D;
+	alias LDOUBLE LD;
+	alias PREFIX P;
+	const int VV = VALID32|VALID64;
+
+	ins(VV|B, "00 /r",		"ADD Eb,Gb");
+	ins(VV|P, "01 /r",		"ADD Ev,Gv");
+	ins(VV|B, "02 /r",		"ADD Gb,Eb");
+	ins(VV|P, "03 /r",		"ADD Gv,Ev");
+	ins(VV|B, "04",			"ADD AL,Ib");
+	ins(VV|P, "05",			"ADD rAX,Iz");
+	ins(V_|N, "06",			"PUSH ES");
+	ins(V_|N, "07",			"POP ES");
+
+	ins(VV|B, "08 /r",		"OR Eb,Gb");
+	ins(VV|P, "09 /r",		"OR Ev,Gv");
+	ins(VV|B, "0A /r",		"OR Gb,Eb");
+	ins(VV|P, "0B /r",		"OR Gv,Ev");
+	ins(VV|B, "0C",			"OR AL,Ib");
+	ins(VV|P, "0D",			"OR rAX,Iz");
+	ins(V_|N, "0E",			"PUSH CS");
+	// 2 byte table escape
+
+	ins(VV|B, "10 /r",		"ADC Eb,Gb");
+	ins(VV|P, "11 /r",		"ADC Ev,Gv");
+	ins(VV|B, "12 /r",		"ADC Gb,Eb");
+	ins(VV|P, "13 /r",		"ADC Gv,Ev");
+	ins(VV|B, "14",			"ADC AL,Ib");
+	ins(VV|P, "15",			"ADC rAX,Iz");
+	ins(V_|N, "16",			"PUSH SS");
+	ins(V_|N, "17",			"POP SS");
+
+	ins(VV|B, "18 /r",		"SBB Eb,Gb");
+	ins(VV|P, "19 /r",		"SBB Ev,Gv");
+	ins(VV|B, "1A /r",		"SBB Gb,Eb");
+	ins(VV|P, "1B /r",		"SBB Gv,Ev");
+	ins(VV|B, "1C",			"SBB AL,Ib");
+	ins(VV|P, "1D",			"SBB rAX,Iz");
+	ins(V_|N, "1E",			"PUSH DS");
+	ins(V_|N, "1F",			"POP DS");
+
+	ins(VV|B, "20 /r",		"AND Eb,Gb");
+	ins(VV|P, "21 /r",		"AND Ev,Gv");
+	ins(VV|B, "22 /r",		"AND Gb,Eb");
+	ins(VV|P, "23 /r",		"AND Gv,Ev");
+	ins(VV|B, "24",			"AND AL,Ib");
+	ins(VV|P, "25",			"AND rAX,Iz");
+	// prefix SEG=ES 
+	ins(V_|N, "27",			"DAA");
+
+	ins(VV|B, "28 /r",		"SUB Eb,Gb");
+	ins(VV|P, "29 /r",		"SUB Ev,Gv");
+	ins(VV|B, "2A /r",		"SUB Gb,Eb");
+	ins(VV|P, "2B /r",		"SUB Gv,Ev");
+	ins(VV|B, "2C",			"SUB AL,Ib");
+	ins(VV|P, "2D",			"SUB rAX,Iz");
+	// prefix SEG=CS 
+	ins(V_|N, "2F",			"DAS");
+
+	ins(VV|B, "30 /r",		"XOR Eb,Gb");
+	ins(VV|P, "31 /r",		"XOR Ev,Gv");
+	ins(VV|B, "32 /r",		"XOR Gb,Eb");
+	ins(VV|P, "33 /r",		"XOR Gv,Ev");
+	ins(VV|B, "34",			"XOR AL,Ib");
+	ins(VV|P, "35",			"XOR rAX,Iz");
+	// prefix SEG=SS 
+	ins(V_|N, "37",			"AAA");
+
+	ins(VV|B, "38 /r",		"CMP Eb,Gb");
+	ins(VV|P, "39 /r",		"CMP Ev,Gv");
+	ins(VV|B, "3A /r",		"CMP Gb,Eb");
+	ins(VV|P, "3B /r",		"CMP Gv,Ev");
+	ins(VV|B, "3C",			"CMP AL,Ib");
+	ins(VV|P, "3D",			"CMP rAX,Iz");
+	// prefix SEG=DS 
+	ins(V_|N, "3F",			"AAS");
+
+	ins(V_|P, "40",			"INC eAX");
+	ins(V_|P, "41",			"INC eCX");
+	ins(V_|P, "42",			"INC eDX");
+	ins(V_|P, "43",			"INC eBX");
+	ins(V_|P, "44",			"INC eSP");
+	ins(V_|P, "45",			"INC eBP");
+	ins(V_|P, "46",			"INC eSI");
+	ins(V_|P, "47",			"INC eDI");
+
+	ins(V_|P, "48",			"DEC eAX");
+	ins(V_|P, "49",			"DEC eCX");
+	ins(V_|P, "4A",			"DEC eDX");
+	ins(V_|P, "4B",			"DEC eBX");
+	ins(V_|P, "4C",			"DEC eSP");
+	ins(V_|P, "4D",			"DEC eBP");
+	ins(V_|P, "4E",			"DEC eSI");
+	ins(V_|P, "4F",			"DEC eDI");
+
+	ins(V_|P, "50",			"PUSH rAX");
+	ins(V_|P, "51",			"PUSH rCX");
+	ins(V_|P, "52",			"PUSH rDX");
+	ins(V_|P, "53",			"PUSH rBX");
+	ins(V_|P, "54",			"PUSH rSP");
+	ins(V_|P, "55",			"PUSH rBP");
+	ins(V_|P, "56",			"PUSH rSI");
+	ins(V_|P, "57",			"PUSH rDI");
+
+	ins(_V|Q, "50",			"PUSH rAX");
+	ins(_V|Q, "51",			"PUSH rCX");
+	ins(_V|Q, "52",			"PUSH rDX");
+	ins(_V|Q, "53",			"PUSH rBX");
+	ins(_V|Q, "54",			"PUSH rSP");
+	ins(_V|Q, "55",			"PUSH rBP");
+	ins(_V|Q, "56",			"PUSH rSI");
+	ins(_V|Q, "57",			"PUSH rDI");
+
+	ins(V_|P, "58",			"POP rAX");
+	ins(V_|P, "59",			"POP rCX");
+	ins(V_|P, "5A",			"POP rDX");
+	ins(V_|P, "5B",			"POP rBX");
+	ins(V_|P, "5C",			"POP rSP");
+	ins(V_|P, "5D",			"POP rBP");
+	ins(V_|P, "5E",			"POP rSI");
+	ins(V_|P, "5F",			"POP rDI");
+
+	ins(_V|Q, "58",			"POP rAX");
+	ins(_V|Q, "59",			"POP rCX");
+	ins(_V|Q, "5A",			"POP rDX");
+	ins(_V|Q, "5B",			"POP rBX");
+	ins(_V|Q, "5C",			"POP rSP");
+	ins(_V|Q, "5D",			"POP rBP");
+	ins(_V|Q, "5E",			"POP rSI");
+	ins(_V|Q, "5F",			"POP rDI");
+
+	ins(V_|P, "60",			"PUSHA");
+	ins(V_|P, "61",			"POPA");
+	ins(V_|P, "62 /r",		"BOUND Gv,Ma");
+	ins(V_|N, "63 /r",		"ARPL Ew,Gw");
+	ins(_V|P, "63 /r",		"MOVSXD Gv,Ev");
+	// prefix SEG=FS
+	// prefix SEG=GS
+	// prefix Operand Size
+	// prefix Address Size
+
+	ins(V_|P, "68",			"PUSH Iz");
+	ins(_V|Q, "68",			"PUSH Iz");
+	ins(VV|P, "69 /r",		"IMUL Gv,Ev,Iz");
+	ins(V_|P, "6A",			"PUSH Ib");
+	ins(_V|Q, "6A",			"PUSH Ib");
+	ins(VV|P, "6B /r",		"IMUL Gv,Ev,Ib");
+	ins(VV|B, "6C",			"INS Yb,DX");
+	ins(VV|P, "6D",			"INS Yz,DX");
+	ins(VV|B, "6E",			"OUTS DX,Xb");
+	ins(VV|P, "6F",			"OUTS DX,Xz");
+
+	ins(VV|N, "70",			"JO Jb");
+	ins(VV|N, "71",			"JNO Jb");
+	ins(VV|N, "72",			"JB Jb");
+	ins(VV|N, "73",			"JNB Jb");
+	ins(VV|N, "74",			"JZ Jb");
+	ins(VV|N, "75",			"JNZ Jb");
+	ins(VV|N, "76",			"JBE Jb");
+	ins(VV|N, "77",			"JNBE Jb");
+
+	ins(VV|N, "78",			"JS Jb");
+	ins(VV|N, "79",			"JNS Jb");
+	ins(VV|N, "7A",			"JP Jb");
+	ins(VV|N, "7B",			"JNP Jb");
+	ins(VV|N, "7C",			"JL Jb");
+	ins(VV|N, "7D",			"JNL Jb");
+	ins(VV|N, "7E",			"JLE Jb");
+	ins(VV|N, "7F",			"JNLE Jb");
+
+	ins(VV|B, "80 /0",		"ADD Eb,Ib");
+	ins(VV|B, "80 /1",		"OR Eb,Ib");
+	ins(VV|B, "80 /2",		"ADC Eb,Ib");
+	ins(VV|B, "80 /3",		"SBB Eb,Ib");
+	ins(VV|B, "80 /4",		"AND Eb,Ib");
+	ins(VV|B, "80 /5",		"SUB Eb,Ib");
+	ins(VV|B, "80 /6",		"XOR Eb,Ib");
+	ins(VV|B, "80 /7",		"CMP Eb,Ib");
+	ins(VV|P, "81 /0",		"ADD Ev,Iz");
+	ins(VV|P, "81 /1",		"OR Ev,Iz");
+	ins(VV|P, "81 /2",		"ADC Ev,Iz");
+	ins(VV|P, "81 /3",		"SBB Ev,Iz");
+	ins(VV|P, "81 /4",		"AND Ev,Iz");
+	ins(VV|P, "81 /5",		"SUB Ev,Iz");
+	ins(VV|P, "81 /6",		"XOR Ev,Iz");
+	ins(VV|P, "81 /7",		"CMP Ev,Iz");
+	// 82 same as 80 in 32 bit mode?
+	ins(VV|P, "83 /0",		"ADD Ev,Ib");
+	ins(VV|P, "83 /1",		"OR Ev,Ib");
+	ins(VV|P, "83 /2",		"ADC Ev,Ib");
+	ins(VV|P, "83 /3",		"SBB Ev,Ib");
+	ins(VV|P, "83 /4",		"AND Ev,Ib");
+	ins(VV|P, "83 /5",		"SUB Ev,Ib");
+	ins(VV|P, "83 /6",		"XOR Ev,Ib");
+	ins(VV|P, "83 /7",		"CMP Ev,Ib");
+	ins(VV|B, "84 /r",		"TEST Eb,Gb");
+	ins(VV|P, "85 /r",		"TEST Ev,Gv");
+	ins(VV|B, "86 /r",		"XCHG Eb,Gb");
+	ins(VV|P, "87 /r",		"XCHG Ev,Gv");
+
+	ins(VV|B, "88 /r",		"MOV Eb,Gb");
+	ins(VV|P, "89 /r",		"MOV Ev,Gv");
+	ins(VV|B, "8A /r",		"MOV Gb,Eb");
+	ins(VV|P, "8B /r",		"MOV Gv,Ev");
+	ins(VV|N, "8C /r",		"MOV Ew,Sw");
+	ins(VV|P, "8D /r",		"LEA Gv,Mn");
+	ins(VV|N, "8E /r",		"MOV Sw,Ew");
+	ins(V_|P, "8F /0",		"POP Ev");
+	ins(_V|Q, "8F /0",		"POP Ev");
+
+	ins(VV|N, "F3 90",		"PAUSE");
+	ins(VV|N, "90",			"NOP");
+	ins(VV|P, "91",			"XCHG rCX,rAXnorex");
+	ins(VV|P, "92",			"XCHG rDX,rAXnorex");
+	ins(VV|P, "93",			"XCHG rBX,rAXnorex");
+	ins(VV|P, "94",			"XCHG rSP,rAXnorex");
+	ins(VV|P, "95",			"XCHG rBP,rAXnorex");
+	ins(VV|P, "96",			"XCHG rSI,rAXnorex");
+	ins(VV|P, "97",			"XCHG rDI,rAXnorex");
+
+	ins(VV|P, "98",			"CBW/CWDE/CDQE");
+	ins(VV|P, "99",			"CWD/CDQ/CQO");
+	ins(V_|N, "9A",			"LCALL Ap");
+	//ins(VV|N, "9B D9 /7",		"FSTCW Mb");
+	//ins(VV|N, "9B D9 /6",		"FSTENV Mb");
+	//ins(VV|N, "9B DB E2",		"FCLEX");
+	//ins(VV|N, "9B DB E3",		"FINIT");
+	//ins(VV|N, "9B DD /6",		"FSAVE Mb");
+	//ins(VV|N, "9B DD /7",		"FSTSW Mb");
+	//ins(VV|N, "9B DF E0",		"FSTSW AX");
+	ins(VV|N, "9B",			"WAIT");
+	ins(V_|P, "9C",			"PUSHF");
+	ins(_V|Q, "9C",			"PUSHF");
+	ins(V_|P, "9D",			"POPF");
+	ins(_V|Q, "9D",			"POPF");
+	ins(VV|N, "9E",			"SAHF");
+	ins(VV|N, "9F",			"LAHF");
+
+	ins(VV|B, "A0",			"MOV AL,Ob");
+	ins(VV|P, "A1",			"MOV rAX,Ov");
+	ins(VV|B, "A2",			"MOV Ob,AL");
+	ins(VV|P, "A3",			"MOV Ov,rAX");
+	ins(VV|B, "A4",			"MOVS Yb,Xb");
+	ins(VV|P, "A5",			"MOVS Yv,Xv");
+	ins(VV|B, "A6",			"CMPS Yb,Xb");
+	ins(VV|P, "A7",			"CMPS Yv,Xv");
+
+	ins(VV|B, "A8",			"TEST AL,Ib");
+	ins(VV|P, "A9",			"TEST rAX,Iz");
+	ins(VV|B, "AA",			"STOS Yb");
+	ins(VV|P, "AB",			"STOS Yv");
+	ins(VV|B, "AC",			"LODS Xb");
+	ins(VV|P, "AD",			"LODS Xv");
+	ins(VV|B, "AE",			"SCAS Xb");
+	ins(VV|P, "AF",			"SCAS Xv");
+
+	ins(VV|B, "B0",			"MOV AL,Ib");
+	ins(VV|B, "B1",			"MOV CL,Ib");
+	ins(VV|B, "B2",			"MOV DL,Ib");
+	ins(VV|B, "B3",			"MOV BL,Ib");
+	ins(VV|B, "B4",			"MOV AH,Ib");
+	ins(VV|B, "B5",			"MOV CH,Ib");
+	ins(VV|B, "B6",			"MOV DH,Ib");
+	ins(VV|B, "B7",			"MOV BH,Ib");
+
+	ins(VV|P, "B8",			"MOV rAX,Iv");
+	ins(VV|P, "B9",			"MOV rCX,Iv");
+	ins(VV|P, "BA",			"MOV rDX,Iv");
+	ins(VV|P, "BB",			"MOV rBX,Iv");
+	ins(VV|P, "BC",			"MOV rSP,Iv");
+	ins(VV|P, "BD",			"MOV rBP,Iv");
+	ins(VV|P, "BE",			"MOV rSI,Iv");
+	ins(VV|P, "BF",			"MOV rDI,Iv");
+
+	ins(VV|B, "C0 /0",		"ROL Eb,Ib");
+	ins(VV|B, "C0 /1",		"ROR Eb,Ib");
+	ins(VV|B, "C0 /2",		"RCL Eb,Ib");
+	ins(VV|B, "C0 /3",		"RCR Eb,Ib");
+	ins(VV|B, "C0 /4",		"SHL Eb,Ib");
+	ins(VV|B, "C0 /5",		"SHR Eb,Ib");
+	ins(VV|B, "C0 /7",		"SAR Eb,Ib");
+	ins(VV|P, "C1 /0",		"ROL Ev,Ib");
+	ins(VV|P, "C1 /1",		"ROR Ev,Ib");
+	ins(VV|P, "C1 /2",		"RCL Ev,Ib");
+	ins(VV|P, "C1 /3",		"RCR Ev,Ib");
+	ins(VV|P, "C1 /4",		"SHL Ev,Ib");
+	ins(VV|P, "C1 /5",		"SHR Ev,Ib");
+	ins(VV|P, "C1 /7",		"SAR Ev,Ib");
+	ins(VV|N, "C2",			"RET Iw");
+	ins(VV|N, "C3",			"RET");
+	ins(V_|P, "C4 /r",		"LES Gz,Md"); // XXX Mp
+	ins(V_|P, "C5 /r",		"LDS Gz,Md"); // XXX Mp
+	ins(VV|B, "C6 /0",		"MOV Eb,Ib");
+	ins(VV|P, "C7 /0",		"MOV Ev,Iz");
+
+	ins(VV|N, "C8",			"ENTER Kw,Kb");
+	ins(VV|N, "C9",			"LEAVE");
+	ins(VV|N, "CA",			"LRET Iw");
+	ins(VV|N, "CB",			"LRET");
+	ins(VV|N, "CC",			"INT 3");
+	ins(VV|N, "CD",			"INT Kb");
+	ins(V_|N, "CE",			"INTO");
+	ins(VV|N, "CF",			"IRET");
+
+	ins(VV|B, "D0 /0",		"ROL Eb,1");
+	ins(VV|B, "D0 /1",		"ROR Eb,1");
+	ins(VV|B, "D0 /2",		"RCL Eb,1");
+	ins(VV|B, "D0 /3",		"RCR Eb,1");
+	ins(VV|B, "D0 /4",		"SHL Eb,1");
+	ins(VV|B, "D0 /5",		"SHR Eb,1");
+	ins(VV|B, "D0 /7",		"SAR Eb,1");
+	ins(VV|P, "D1 /0",		"ROL Ev,1");
+	ins(VV|P, "D1 /1",		"ROR Ev,1");
+	ins(VV|P, "D1 /2",		"RCL Ev,1");
+	ins(VV|P, "D1 /3",		"RCR Ev,1");
+	ins(VV|P, "D1 /4",		"SHL Ev,1");
+	ins(VV|P, "D1 /5",		"SHR Ev,1");
+	ins(VV|P, "D1 /7",		"SAR Ev,1");
+	ins(VV|B, "D2 /0",		"ROL Eb,CLnorex");
+	ins(VV|B, "D2 /1",		"ROR Eb,CLnorex");
+	ins(VV|B, "D2 /2",		"RCL Eb,CLnorex");
+	ins(VV|B, "D2 /3",		"RCR Eb,CLnorex");
+	ins(VV|B, "D2 /4",		"SHL Eb,CLnorex");
+	ins(VV|B, "D2 /5",		"SHR Eb,CLnorex");
+	ins(VV|B, "D2 /7",		"SAR Eb,CLnorex");
+	ins(VV|P, "D3 /0",		"ROL Ev,CLnorex");
+	ins(VV|P, "D3 /1",		"ROR Ev,CLnorex");
+	ins(VV|P, "D3 /2",		"RCL Ev,CLnorex");
+	ins(VV|P, "D3 /3",		"RCR Ev,CLnorex");
+	ins(VV|P, "D3 /4",		"SHL Ev,CLnorex");
+	ins(VV|P, "D3 /5",		"SHR Ev,CLnorex");
+	ins(VV|P, "D3 /7",		"SAR Ev,CLnorex");
+	ins(V_|N, "D4",			"AAM Kb");
+	ins(V_|N, "D4",			"AAM Kb");
+	ins(V_|N, "D5 0A",		"AAD");
+	ins(V_|N, "D5",			"AAD Kb");
+	// D6 unused
+	ins(VV|B, "D7",			"XLAT");
+
+	ins(VV|N, "D8 /r0",		"FADD ST(0),ST(i)");
+	ins(VV|N, "D8 /r1",		"FMUL ST(0),ST(i)");
+	ins(VV|N, "D8 /r2",		"FCOM ST(0),ST(i)");
+	ins(VV|N, "D8 /r3",		"FCOMP ST(0),ST(i)");
+	ins(VV|N, "D8 /r4",		"FSUB ST(0),ST(i)");
+	ins(VV|N, "D8 /r5",		"FSUBR ST(0),ST(i)");
+	ins(VV|N, "D8 /r6",		"FDIV ST(0),ST(i)");
+	ins(VV|N, "D8 /r7",		"FDIVR ST(0),ST(i)");
+
+	ins(VV|F, "D8 /0",		"FADD Md");
+	ins(VV|F, "D8 /1",		"FMUL Md");
+	ins(VV|F, "D8 /2",		"FCOM Md");
+	ins(VV|F, "D8 /3",		"FCOMP Md");
+	ins(VV|F, "D8 /4",		"FSUB Md");
+	ins(VV|F, "D8 /5",		"FSUBR Md");
+	ins(VV|F, "D8 /6",		"FDIV Md");
+	ins(VV|F, "D8 /7",		"FDIVR Md");
+
+	ins(VV|N, "D9 /r0",		"FLD ST(i)");
+	ins(VV|N, "D9 /r1",		"FXCH ST(i)");
+	ins(VV|N, "D9 /r11",		"FXCH");
+
+	ins(VV|N, "D9 /r20",		"FNOP");
+
+	ins(VV|N, "D9 /r40",		"FCHS");
+	ins(VV|N, "D9 /r41",		"FABS");
+	ins(VV|N, "D9 /r44",		"FTST");
+	ins(VV|N, "D9 /r45",		"FXAM");
+	ins(VV|N, "D9 /r50",		"FLD1");
+	ins(VV|N, "D9 /r51",		"FLDL2T");
+	ins(VV|N, "D9 /r52",		"FLDL2E");
+	ins(VV|N, "D9 /r53",		"FLDPI");
+	ins(VV|N, "D9 /r54",		"FLDLG2");
+	ins(VV|N, "D9 /r55",		"FLDLN2");
+	ins(VV|N, "D9 /r56",		"FLDZ");
+
+	ins(VV|N, "D9 /r60",		"F2XM1");
+	ins(VV|N, "D9 /r61",		"FYL2X");
+	ins(VV|N, "D9 /r62",		"FPTAN");
+	ins(VV|N, "D9 /r63",		"FPATAN");
+	ins(VV|N, "D9 /r64",		"FXTRACT");
+	ins(VV|N, "D9 /r65",		"FPREM1");
+	ins(VV|N, "D9 /r66",		"FDECSTP");
+	ins(VV|N, "D9 /r67",		"FINCSTP");
+	ins(VV|N, "D9 /r70",		"FPREM");
+	ins(VV|N, "D9 /r71",		"FYL2XP1");
+	ins(VV|N, "D9 /r72",		"FSQRT");
+	ins(VV|N, "D9 /r73",		"FSINCOS");
+	ins(VV|N, "D9 /r74",		"FRNDINT");
+	ins(VV|N, "D9 /r75",		"FSCALE");
+	ins(VV|N, "D9 /r76",		"FSIN");
+	ins(VV|N, "D9 /r77",		"FCOS");
+
+	ins(VV|F, "D9 /0",		"FLD Md");
+	ins(VV|F, "D9 /2",		"FST Md");
+	ins(VV|F, "D9 /3",		"FSTP Md");
+	ins(VV|N, "D9 /4",		"FLDENV Mb");
+	ins(VV|N, "D9 /5",		"FLDCW Mw");
+	ins(VV|N, "D9 /6",		"FNSTENV Mb");
+	ins(VV|N, "D9 /7",		"FNSTCW Mb");
+
+	ins(VV|N, "DA /r0",		"FCMOVB ST(0),ST(i)");
+	ins(VV|N, "DA /r1",		"FCMOVE ST(0),ST(i)");
+	ins(VV|N, "DA /r2",		"FCMOVBE ST(0),ST(i)");
+	ins(VV|N, "DA /r3",		"FCMOVU ST(0),ST(i)");
+	ins(VV|N, "DA /r51",		"FUCOMPP");
+	ins(VV|L, "DA /0",		"FIADD Md");
+	ins(VV|L, "DA /1",		"FIMUL Md");
+	ins(VV|L, "DA /2",		"FICOM Md");
+	ins(VV|L, "DA /3",		"FICOMP Md");
+	ins(VV|L, "DA /4",		"FISUB Md");
+	ins(VV|L, "DA /5",		"FISUBR Md");
+	ins(VV|L, "DA /6",		"FIDIV Md");
+	ins(VV|L, "DA /7",		"FIDIVR Md");
+
+	ins(VV|N, "DB /r0",		"FCMOVNB ST(0),ST(i)");
+	ins(VV|N, "DB /r1",		"FCMOVNE ST(0),ST(i)");
+	ins(VV|N, "DB /r2",		"FCMOVNBE ST(0),ST(i)");
+	ins(VV|N, "DB /r3",		"FCMOVNU ST(0),ST(i)");
+	ins(VV|N, "DB /r42",		"FNCLEX");
+	ins(VV|N, "DB /r43",		"FNINIT");
+	ins(VV|N, "DB /r5",		"FUCOMI ST(0),ST(i)");
+	ins(VV|N, "DB /r6",		"FCOMI ST(0),ST(i)");
+	ins(VV|L, "DB /0",		"FILD Md");
+	ins(VV|L, "DB /1",		"FISTTP Md");
+	ins(VV|L, "DB /2",		"FIST Md");
+	ins(VV|L, "DB /3",		"FISTP Md");
+	ins(VV|LD, "DB /5",		"FLD Md");
+	ins(VV|LD, "DB /7",		"FSTP Md");
+
+	ins(VV|N, "DC /r0",		"FADD ST(i),ST(0)");
+	ins(VV|N, "DC /r1",		"FMUL ST(i),ST(0)");
+	ins(VV|N, "DC /r2",		"FCOM ST(i),ST(0)");
+	ins(VV|N, "DC /r3",		"FCOMP ST(i),ST(0)");
+	ins(VV|N, "DC /r4",		"FSUBR ST(i),ST(0)");
+	ins(VV|N, "DC /r5",		"FSUB ST(i),ST(0)");
+	ins(VV|N, "DC /r6",		"FDIVR ST(i),ST(0)");
+	ins(VV|N, "DC /r7",		"FDIV ST(i),ST(0)");
+	ins(VV|D, "DC /0",		"FADD Mdq");
+	ins(VV|D, "DC /1",		"FMUL Mdq");
+	ins(VV|D, "DC /2",		"FCOM Mdq");
+	ins(VV|D, "DC /3",		"FCOMP Mdq");
+	ins(VV|D, "DC /4",		"FSUB Mdq");
+	ins(VV|D, "DC /5",		"FSUBR Mdq");
+	ins(VV|D, "DC /6",		"FDIV Mdq");
+	ins(VV|D, "DC /7",		"FDIVR Mdq");
+
+	ins(VV|N, "DD /r0",		"FFREE ST(i)");
+	ins(VV|N, "DD /r2",		"FST ST(i)");
+	ins(VV|N, "DD /r3",		"FSTP ST(i)");
+	ins(VV|N, "DD /r4",		"FUCOM ST(i)");
+	ins(VV|N, "DD /r41",		"FUCOM");
+	ins(VV|N, "DD /r5",		"FUCOMP ST(i)");
+	ins(VV|N, "DD /r51",		"FUCOMP");
+	ins(VV|N, "DD /6",		"FNSAVE Mb");
+	ins(VV|N, "DD /7",		"FNSTSW Mb");
+
+	ins(VV|D, "DD /0",		"FLD Mdq");
+	ins(VV|Q, "DD /1",		"FISTTP Mdq");
+	ins(VV|D, "DD /2",		"FST Mdq");
+	ins(VV|D, "DD /3",		"FSTP Mdq");
+	ins(VV|N, "DD /4",		"FRSTOR Mb");
+	ins(VV|N, "DD /6",		"FNSAVE Mb");
+	ins(VV|N, "DD /7",		"FNSTSW Mb");
+
+	ins(VV|N, "DE /r0",		"FADDP ST(i),ST(0)");
+	ins(VV|N, "DE /r01",		"FADDP");
+	ins(VV|N, "DE /r1",		"FMULP ST(i),ST(0)");
+	ins(VV|N, "DE /r11",		"FMULP");
+	ins(VV|N, "DE /r31",		"FCOMPP");
+	ins(VV|N, "DE /r4",		"FSUBRP ST(i),ST(0)");
+	ins(VV|N, "DE /r41",		"FSUBRP");
+	ins(VV|N, "DE /r5",		"FSUBP ST(i),ST(0)");
+	ins(VV|N, "DE /r51",		"FSUBP");
+	ins(VV|N, "DE /r6",		"FDIVRP ST(i),ST(0)");
+	ins(VV|N, "DE /r61",		"FDIVRP");
+	ins(VV|N, "DE /r7",		"FDIVP ST(i),ST(0)");
+	ins(VV|N, "DE /r71",		"FDIVP");
+	ins(VV|W, "DE /0",		"FIADD Mw");
+	ins(VV|Q, "DE /1",		"FIMUL Mdq");
+	ins(VV|W, "DE /2",		"FICOM Mw");
+	ins(VV|W, "DE /3",		"FICOMP Mw");
+	ins(VV|W, "DE /4",		"FISUB Mw");
+	ins(VV|W, "DE /5",		"FISUBR Mw");
+	ins(VV|Q, "DE /7",		"FIDIVR Mdq");
+	ins(VV|Q, "DE /6",		"FIDIV Mdq");
+
+	ins(VV|N, "DF /r40",		"FNSTSW AX");
+	ins(VV|N, "DF /r5",		"FUCOMIP ST(0),ST(i)");
+	ins(VV|N, "DF /r6",		"FCOMIP ST(0),ST(i)");
+	ins(VV|D, "DF /6",		"FBSTP Mb"); // m80
+	ins(VV|W, "DF /0",		"FILD Mw");
+	ins(VV|W, "DF /1",		"FISTTP Mw");
+	ins(VV|W, "DF /2",		"FIST Mw");
+	ins(VV|W, "DF /3",		"FISTP Mw");
+	ins(VV|D, "DF /4",		"FBLD Mb"); // m80
+	ins(VV|Q, "DF /5",		"FILD Mdq");
+	ins(VV|Q, "DF /7",		"FISTP Mdq");
+
+	ins(VV|N, "E0",			"LOOPNE Jb");
+	ins(VV|N, "E1",			"LOOPZ Jb");
+	ins(VV|N, "E2",			"LOOP Jb");
+	ins(VV|P, "E3",			"JCXZ/JECXZ/JRCXZ Jb");
+	ins(VV|B, "E4",			"IN AL,Kb");
+	ins(VV|P, "E5",			"IN eAX,Kb");
+	ins(VV|B, "E6",			"OUT Kb,AL");
+	ins(VV|P, "E7",			"OUT eAX,Kb");
+
+	ins(VV|N, "E8",			"CALL Jz");
+	ins(VV|N, "E9",			"JMP Jz");
+	ins(V_|N, "EA",			"LJMP Ap");
+	ins(VV|N, "EB",			"JMP Jb");
+	ins(VV|B, "EC",			"IN AL,DX");
+	ins(VV|P, "ED",			"IN eAX,DX");
+	ins(VV|B, "EE",			"OUT DX,AL");
+	ins(VV|P, "EF",			"OUT DX,eAX");
+
+	// lock prefix
+	// F1 unused
+	// repne prefix
+	// repe prefix
+	ins(VV|N, "F4",			"HLT");
+	ins(VV|N, "F5",			"CMC");
+	ins(VV|B, "F6 /0",		"TEST Mb,Ib");
+	ins(VV|B, "F6 /2",		"NOT Eb");
+	ins(VV|B, "F6 /3",		"NEG Eb");
+	ins(VV|B, "F6 /4",		"MUL AL,Eb");
+	ins(VV|B, "F6 /5",		"IMUL AL,Eb");
+	ins(VV|B, "F6 /6",		"DIV Eb");
+	ins(VV|B, "F6 /7",		"IDIV Eb");
+	ins(VV|P, "F7 /0",		"TEST Mv,Iz");
+	ins(VV|P, "F7 /2",		"NOT Ev");
+	ins(VV|P, "F7 /3",		"NEG Ev");
+	ins(VV|P, "F7 /4",		"MUL rAXnorex,Ev");
+	ins(VV|P, "F7 /5",		"IMUL rAXnorex,Ev");
+	ins(VV|P, "F7 /6",		"DIV rAXnorex,Ev");
+	ins(VV|P, "F7 /7",		"IDIV rAXnorex,Ev");
+
+	ins(VV|N, "F8",			"CLC");
+	ins(VV|N, "F9",			"STC");
+	ins(VV|N, "FA",			"CLI");
+	ins(VV|N, "FB",			"STI");
+	ins(VV|N, "FC",			"CLD");
+	ins(VV|N, "FD",			"STD");
+	ins(VV|B, "FE /0",		"INC Eb");
+	ins(VV|B, "FE /1",		"DEC Eb");
+	ins(VV|P, "FF /0",		"INC Ev");
+	ins(VV|P, "FF /1",		"DEC Ev");
+	ins(VV|P, "FF /2",		"CALL Hv");
+	ins(VV|P, "FF /3",		"LCALL Hb"); // XXX Ep
+	ins(VV|P, "FF /4",		"JMP Hv");
+	ins(VV|P, "FF /5",		"LJMP Hb"); // XXX Ep
+	ins(V_|P, "FF /6",		"PUSH Ev");
+	ins(_V|Q, "FF /6",		"PUSH Ev");
+
+	ins(VV|N, "0F 00 /0",		"SLDT Ew");
+	ins(VV|N, "0F 00 /1",		"STR Ew");
+	ins(VV|N, "0F 00 /2",		"LLDT Ew");
+	ins(VV|N, "0F 00 /3",		"LTR Ew");
+	ins(VV|N, "0F 00 /4",		"VERR Ew");
+	ins(VV|N, "0F 00 /5",		"VERW Ew");
+
+	ins(VV|N, "0F 01 C1",		"VMCALL");
+	ins(VV|N, "0F 01 C2",		"VMLAUNCH");
+	ins(VV|N, "0F 01 C3",		"VMRESUME");
+	ins(VV|N, "0F 01 C4",		"VMXOFF");
+	ins(VV|N, "0F 01 C8",		"MONITOR");
+	ins(VV|N, "0F 01 C9",		"MWAIT");
+	ins(VV|N, "0F 01 D0",		"XGETBV");
+	ins(VV|N, "0F 01 D1",		"XSETBV");
+	ins(_V|N, "0F 01 F8",		"SWAPGS");
+	ins(VV|N, "0F 01 F9",		"RDTSCP");
+	ins(VV|N, "0F 01 /m0",		"SGDT Mb");
+	ins(VV|N, "0F 01 /m1",		"SIDT Mb");
+	ins(VV|N, "0F 01 /m2",		"LGDT Mb");
+	ins(VV|N, "0F 01 /m3",		"LIDT Mb");
+	ins(VV|N, "0F 01 /4",		"SMSW Ew");
+	ins(VV|N, "0F 01 /6",		"LMSW Ew");
+	ins(VV|N, "0F 01 /m7",		"INVLPG Mb");
+	ins(VV|N, "0F 02 /r",		"LAR Gv,Ew");
+	ins(VV|N, "0F 03 /r",		"LSL Gv,Ew");
+	ins(VV|N, "0F 05",		"SYSCALL");
+	ins(VV|N, "0F 06",		"CLTS");
+	ins(VV|N, "0F 07",		"SYSRET");
+
+	ins(VV|N, "0F 08",		"INVD");
+	ins(VV|N, "0F 09",		"WBINVD");
+	ins(VV|N, "0F 0D /r",		"NOP Ev");
+
+	ins(VV|N, "0F 10 /r",		"MOVUPS Vps,Wps");
+	ins(VV|N, "66 0F 10 /r",	"MOVUPD Vpd,Wpd");
+	ins(VV|N, "F2 0F 10 /r",	"MOVSD Vsd,Wsd");
+	ins(VV|N, "F3 0F 10 /r",	"MOVSS Vss,Wss");
+	ins(VV|N, "0F 11 /r",		"MOVUPS Wps,Vps");
+	ins(VV|N, "66 0F 11 /r",	"MOVUPD Wpd,Vpd");
+	ins(VV|N, "F2 0F 11 /r",	"MOVSD Wsd,Vsd");
+	ins(VV|N, "F3 0F 11 /r",	"MOVSS Wss,Vss");
+	ins(VV|N, "0F 12 /m",		"MOVLPS Vq,Mq");
+	ins(VV|N, "0F 12 /r",		"MOVHLPS Vq,Uq");
+	ins(VV|N, "66 0F 12 /m",	"MOVLPD Vq,Mq");
+	ins(VV|N, "F2 0F 12 /r",	"MOVDDUP Vq,Wq");
+	ins(VV|N, "F3 0F 12 /r",	"MOVSLDUP Vq,Wq");
+	ins(VV|N, "0F 13 /m",		"MOVLPS Mq,Vq");
+	ins(VV|N, "66 0F 13 /m",	"MOVLPD Mq,Vq");
+	ins(VV|N, "0F 14 /r",		"UNPCKLPS Mq,Vq");
+	ins(VV|N, "66 0F 14 /r",	"UNPCKLPD Mq,Vq");
+	ins(VV|N, "0F 15 /r",		"UNPCKHPS Mq,Vq");
+	ins(VV|N, "66 0F 15 /r",	"UNPCKHPD Mq,Vq");
+	ins(VV|N, "0F 16 /m",		"MOVHPS Vq,Mq");
+	ins(VV|N, "0F 16 /r",		"MOVLHPS Vq,Uq");
+	ins(VV|N, "66 0F 16 /m",	"MOVHPD Vq,Mq");
+	ins(VV|N, "F3 0F 16 /r",	"MOVSHDUP Vq,Wq");
+	ins(VV|N, "0F 17 /m",		"MOVHPS Mq,Vq");
+	ins(VV|N, "66 0F 17 /m",	"MOVHPD Mq,Vq");
+
+	ins(VV|N, "0F 18 /0",		"PREFETCHNTA Mb");
+	ins(VV|N, "0F 18 /1",		"PREFETCHT0 Mb");
+	ins(VV|N, "0F 18 /2",		"PREFETCHT1 Mb");
+	ins(VV|N, "0F 18 /3",		"PREFETCHT2 Mb");
+	ins(VV|N, "0F 1F /r",		"NOP Ev");
+
+	ins(VV|L, "0F 20 /r",		"MOV Rd,Cd");
+	ins(VV|L, "0F 21 /r",		"MOV Rd,Dd");
+	ins(VV|L, "0F 22 /r",		"MOV Cd,Rd");
+	ins(VV|L, "0F 23 /r",		"MOV Dd,Rd");
+
+	ins(VV|N, "0F 28 /r",		"MOVAPS Vps,Wps");
+	ins(VV|N, "66 0F 28 /r",	"MOVAPD Vpd,Wpd");
+	ins(VV|N, "0F 29 /r",		"MOVAPS Wps,Vps");
+	ins(VV|N, "66 0F 29 /r",	"MOVAPD Wps,Vpd");
+	ins(VV|N, "0F 2A /r",		"CVTPI2PS Vps,Qpi");
+	ins(VV|N, "66 0F 2A /r",	"CVTPI2PD Vpd,Qpi");
+	ins(VV|N, "F2 0F 2A /r",	"CVTSI2SD Vsd,Ed");
+	ins(VV|N, "F3 0F 2A /r",	"CVTSI2SS Vps,Ed");
+	ins(VV|N, "0F 2B /r",		"MOVNTPS Mps,Vps");
+	ins(VV|N, "66 0F 2B /r",	"MOVNTPS Mps,Vps");
+	ins(VV|N, "0F 2C /r",		"CVTTPS2PI Ppi,Wps");
+	ins(VV|N, "66 0F 2C /r",	"CVTTPD2PI Ppi,Wpd");
+	ins(VV|N, "F3 0F 2C /r",	"CVTTSS2SI Gd,Wss");
+	ins(VV|N, "F2 0F 2C /r",	"CVTTSD2SI Gd,Wsd");
+	ins(VV|N, "0F 2D /r",		"CVTPS2PI Ppi,Wps");
+	ins(VV|N, "66 0F 2D /r",	"CVTPD2PI Ppi,Wpd");
+	ins(VV|N, "F2 0F 2D /r",	"CVTSD2SI Gd,Wsd");
+	ins(VV|N, "F2 0F 2D /r",	"CVTSS2SI Gd,Wss");
+	ins(VV|N, "0F 2E /r",		"UCOMISS Vss,Wss");
+	ins(VV|N, "66 0F 2E /r",	"UCOMISD Vsd,Wsd");
+	ins(VV|N, "0F 2F /r",		"COMISS Vss,Wss");
+	ins(VV|N, "66 0F 2F /r",	"COMISD Vsd,Wsd");
+
+	ins(VV|N, "0F 30",		"WRMSR");
+	ins(VV|N, "0F 31",		"RDTSC");
+	ins(VV|N, "0F 32",		"RDMSR");
+	ins(VV|N, "0F 33",		"RDPMC");
+	ins(VV|N, "0F 34",		"SYSENTER");
+	ins(VV|N, "0F 35",		"SYSEXIT");
+	ins(VV|N, "0F 37",		"GETSEC");
+
+	ins(VV|N, "0F 40 /r",		"CMOVO Gv,Ev");
+	ins(VV|N, "0F 41 /r",		"CMOVNO Gv,Ev");
+	ins(VV|N, "0F 42 /r",		"CMOVB Gv,Ev");
+	ins(VV|N, "0F 43 /r",		"CMOVNB Gv,Ev");
+	ins(VV|N, "0F 44 /r",		"CMOVZ Gv,Ev");
+	ins(VV|N, "0F 45 /r",		"CMOVNZ Gv,Ev");
+	ins(VV|N, "0F 46 /r",		"CMOVBE Gv,Ev");
+	ins(VV|N, "0F 47 /r",		"CMOVNBE Gv,Ev");
+
+	ins(VV|N, "0F 48 /r",		"CMOVS Gv,Ev");
+	ins(VV|N, "0F 49 /r",		"CMOVNS Gv,Ev");
+	ins(VV|N, "0F 4A /r",		"CMOVP Gv,Ev");
+	ins(VV|N, "0F 4B /r",		"CMOVNP Gv,Ev");
+	ins(VV|N, "0F 4C /r",		"CMOVL Gv,Ev");
+	ins(VV|N, "0F 4D /r",		"CMOVNL Gv,Ev");
+	ins(VV|N, "0F 4E /r",		"CMOVLE Gv,Ev");
+	ins(VV|N, "0F 4F /r",		"CMOVNLE Gv,Ev");
+
+	ins(VV|P, "0F 50 /r",		"MOVMSKPS Gd,Ups");
+	ins(VV|P, "66 0F 50 /r",	"MOVMSKPD Gd,Upd");
+	ins(VV|P, "0F 51 /r",		"SQRTPS Vps,Wps");
+	ins(VV|P, "66 0F 51 /r",	"SQRTPD Vpd,Wpd");
+	ins(VV|P, "F3 0F 51 /r",	"SQRTSS Vss,Wss");
+	ins(VV|P, "F2 0F 51 /r",	"SQRTSD Vsd,Wsd");
+	ins(VV|P, "0F 52 /r",		"RSQRTPS Vps,Wps");
+	ins(VV|P, "F3 0F 52 /r",	"RSQRTSS Vss,Wss");
+	ins(VV|P, "0F 53 /r",		"RCPPS Vps,Wps");
+	ins(VV|P, "F3 0F 53 /r",	"RCPSS Vss,Wss");
+	ins(VV|N, "0F 54 /r",		"ANDPS Vps,Wps");
+	ins(VV|N, "66 0F 54 /r",	"ANDPD Vpd,Wpd");
+	ins(VV|N, "0F 55 /r",		"ANDNPS Vps,Wps");
+	ins(VV|N, "66 0F 55 /r",	"ANDNPD Vpd,Wpd");
+	ins(VV|N, "0F 56 /r",		"ORPS Vps,Wps");
+	ins(VV|N, "66 0F 56 /r",	"ORPD Vpd,Wpd");
+	ins(VV|N, "0F 57 /r",		"XORPS Vps,Wps");
+	ins(VV|N, "66 0F 57 /r",	"XORPD Vpd,Wpd");
+
+	ins(VV|N, "0F 58 /r",		"ADDPS Vps,Wps");
+	ins(VV|N, "66 0F 58 /r",	"ADDPD Vpd,Wpd");
+	ins(VV|N, "F3 0F 58 /r",	"ADDSS Vss,Wss");
+	ins(VV|N, "F2 0F 58 /r",	"ADDSD Vsd,Wsd");
+	ins(VV|N, "0F 59 /r",		"MULPS Vps,Wps");
+	ins(VV|N, "66 0F 59 /r",	"MULPD Vpd,Wpd");
+	ins(VV|N, "F3 0F 59 /r",	"MULSS Vss,Wss");
+	ins(VV|N, "F2 0F 59 /r",	"MULSD Vsd,Wsd");
+	ins(VV|N, "0F 5A /r",		"CVTPS2PD Vpd,Wps");
+	ins(VV|N, "66 0F 5A /r",	"CVTPD2PS Vps,Wpd");
+	ins(VV|N, "F3 0F 5A /r",	"CVTSS2SD Vsd,Wss");
+	ins(VV|N, "F2 0F 5A /r",	"CVTSD2SS Vss,Wsd");
+	ins(VV|N, "0F 5B /r",		"CVTDQ2PS Vps,Wdq");
+	ins(VV|N, "66 0F 5B /r",	"CVTPS2DQ Vdq,Wps");
+	ins(VV|N, "F3 0F 5B /r",	"CVTTPS2DQ Vdq,Wps");
+	ins(VV|N, "0F 5C /r",		"SUBPS Vps,Wps");
+	ins(VV|N, "66 0F 5C /r",	"SUBPD Vpd,Wpd");
+	ins(VV|N, "F3 0F 5C /r",	"SUBSS Vss,Wss");
+	ins(VV|N, "F2 0F 5C /r",	"SUBSD Vsd,Wsd");
+	ins(VV|N, "0F 5D /r",		"MINPS Vps,Wps");
+	ins(VV|N, "66 0F 5D /r",	"MINPD Vpd,Wpd");
+	ins(VV|N, "F3 0F 5D /r",	"MINSS Vss,Wss");
+	ins(VV|N, "F2 0F 5D /r",	"MINSD Vsd,Wsd");
+	ins(VV|N, "0F 5E /r",		"DIVPS Vps,Wps");
+	ins(VV|N, "66 0F 5E /r",	"DIVPD Vpd,Wpd");
+	ins(VV|N, "F3 0F 5E /r",	"DIVSS Vss,Wss");
+	ins(VV|N, "F2 0F 5E /r",	"DIVSD Vsd,Wsd");
+	ins(VV|N, "0F 5F /r",		"MAXPS Vps,Wps");
+	ins(VV|N, "66 0F 5F /r",	"MAXPD Vpd,Wpd");
+	ins(VV|N, "F3 0F 5F /r",	"MAXSS Vss,Wss");
+	ins(VV|N, "F2 0F 5F /r",	"MAXSD Vsd,Wsd");
+
+	ins(VV|N, "0F 60 /r",		"PUNPCKLBW Pq,Qd");
+	ins(VV|N, "66 0F 60 /r",	"PUNPCKLBW Vdq,Wdq");
+	ins(VV|N, "0F 61 /r",		"PUNPCKLWD Pq,Qd");
+	ins(VV|N, "66 0F 61 /r",	"PUNPCKLWD Vdq,Wdq");
+	ins(VV|N, "0F 62 /r",		"PUNPCKLDQ Pq,Qd");
+	ins(VV|N, "66 0F 62 /r",	"PUNPCKLDQ Vdq,Wdq");
+	ins(VV|N, "0F 63 /r",		"PACKSSWB Pq,Qd");
+	ins(VV|N, "66 0F 63 /r",	"PACKSSWB Vdq,Wdq");
+	ins(VV|N, "0F 64 /r",		"PCMPGTB Pq,Qd");
+	ins(VV|N, "66 0F 64 /r",	"PCMPGTB Vdq,Wdq");
+	ins(VV|N, "0F 65 /r",		"PCMPGTW Pq,Qd");
+	ins(VV|N, "66 0F 65 /r",	"PCMPGTW Vdq,Wdq");
+	ins(VV|N, "0F 66 /r",		"PCMPGTD Pq,Qd");
+	ins(VV|N, "66 0F 66 /r",	"PCMPGTD Vdq,Wdq");
+	ins(VV|N, "0F 67 /r",		"PACKUSWB Pq,Qd");
+	ins(VV|N, "66 0F 67 /r",	"PACKUSWB Vdq,Wdq");
+
+	ins(VV|N, "0F 68 /r",		"PUNPCKHBW Pq,Qd");
+	ins(VV|N, "66 0F 68 /r",	"PUNPCKHBW Vdq,Wdq");
+	ins(VV|N, "0F 69 /r",		"PUNPCKHWD Pq,Qd");
+	ins(VV|N, "66 0F 69 /r",	"PUNPCKHWD Vdq,Wdq");
+	ins(VV|N, "0F 6A /r",		"PUNPCKHDQ Pq,Qd");
+	ins(VV|N, "66 0F 6A /r",	"PUNPCKHDQ Vdq,Wdq");
+	ins(VV|N, "0F 6B /r",		"PACKSSDW Pq,Qd");
+	ins(VV|N, "66 0F 6B /r",	"PACKSSDW Vdq,Wdq");
+	ins(VV|N, "66 0F 6C /r",	"PUNPCKLQDQ Vdq,Wdq");
+	ins(VV|N, "66 0F 6D /r",	"PUNPCKHQDQ Vdq,Wdq");
+	ins(VV|N, "0F 6E /r",		"MOVD Pd,Ed");
+	ins(VV|N, "66 0F 6E /r",	"MOVD Vdq,Ed");
+	ins(VV|N, "0F 6F /r",		"MOVQ Pq,Qq");
+	ins(VV|N, "66 0F 6F /r",	"MOVDQA Vdq,Wdq");
+	ins(VV|N, "F3 0F 6F /r",	"MOVDQU Vdq,Wdq");
+
+	ins(VV|N, "0F 70 /r",		"PSHUFW Pq,Qq,Ib");
+	ins(VV|N, "66 0F 70 /r",	"PSHUFD Vdq,Wdq,Ib");
+	ins(VV|N, "F3 0F 70 /r",	"PSHUFHW Vdq,Wdq,Ib");
+	ins(VV|N, "F2 0F 70 /r",	"PSHUFLW Vdq,Wdq,Ib");
+	ins(VV|N, "0F 71 /2",		"PSRLW Nq,Ib");
+	ins(VV|N, "66 0F 71 /2",	"PSRLW Udq,Ib");
+	ins(VV|N, "0F 71 /4",		"PSRAW Nq,Ib");
+	ins(VV|N, "66 0F 71 /4",	"PSRAW Udq,Ib");
+	ins(VV|N, "0F 71 /6",		"PSLLW Nq,Ib");
+	ins(VV|N, "66 0F 71 /6",	"PSLLW Udq,Ib");
+	ins(VV|N, "0F 72 /2",		"PSRLD Nq,Ib");
+	ins(VV|N, "66 0F 72 /2",	"PSRLD Udq,Ib");
+	ins(VV|N, "0F 72 /4",		"PSRAD Nq,Ib");
+	ins(VV|N, "66 0F 72 /4",	"PSRAD Udq,Ib");
+	ins(VV|N, "0F 72 /6",		"PSLLD Nq,Ib");
+	ins(VV|N, "66 0F 72 /6",	"PSLLD Udq,Ib");
+	ins(VV|N, "0F 73 /2",		"PSRLQ Nq,Ib");
+	ins(VV|N, "66 0F 73 /2",	"PSRLQ Udq,Ib");
+	ins(VV|N, "66 0F 73 /3",	"PSRLDQ Udq,Ib");
+	ins(VV|N, "0F 73 /4",		"PSRAQ Nq,Ib");
+	ins(VV|N, "66 0F 73 /4",	"PSRAQ Udq,Ib");
+	ins(VV|N, "0F 73 /6",		"PSLLQ Nq,Ib");
+	ins(VV|N, "66 0F 73 /6",	"PSLLQ Udq,Ib");
+	ins(VV|N, "66 0F 73 /7",	"PSLLDQ Udq,Ib");
+
+	ins(VV|N, "0F 74 /r",		"PCMPEQB Pq,Qd");
+	ins(VV|N, "66 0F 74 /r",	"PCMPEQB Vdq,Wdq");
+	ins(VV|N, "0F 75 /r",		"PCMPEQW Pq,Qd");
+	ins(VV|N, "66 0F 75 /r",	"PCMPEQW Vdq,Wdq");
+	ins(VV|N, "0F 76 /r",		"PCMPEQD Pq,Qd");
+	ins(VV|N, "66 0F 76 /r",	"PCMPEQD Vdq,Wdq");
+	ins(VV|N, "0F 77",		"EMMS");
+
+	ins(VV|N, "0F 78 /r",		"VMREAD Ed,Gd");
+	ins(VV|N, "0F 79 /r",		"VMREAD Gd,Ed");
+	ins(VV|N, "0F 7C /r",		"HADDPS Vps,Wps");
+	ins(VV|N, "66 0F 7C /r",	"HADDPS Vpd,Wpd");
+	ins(VV|N, "0F 7D /r",		"HSUBPS Vps,Wps");
+	ins(VV|N, "66 0F 7D /r",	"HSUBPS Vpd,Wpd");
+	ins(VV|N, "0F 7E /r",		"MOVD Ed,Pd");
+	ins(VV|N, "66 0F 7E /r",	"MOVD Ed,Vdq");
+	ins(VV|N, "F3 0F 7E /r",	"MOVQ Vq,Wq");
+	ins(VV|N, "0F 7F /r",		"MOVQ Qq,Pq");
+	ins(VV|N, "66 0F 7F /r",	"MOVDQA Wdq,Vdq");
+	ins(VV|N, "F3 0F 7F /r",	"MOVDQU Wdq,Vdq");
+
+	ins(VV|N, "0F 80",		"JO Jz");
+	ins(VV|N, "0F 81",		"JNO Jz");
+	ins(VV|N, "0F 82",		"JB Jz");
+	ins(VV|N, "0F 83",		"JNB Jz");
+	ins(VV|N, "0F 84",		"JZ Jz");
+	ins(VV|N, "0F 85",		"JNZ Jz");
+	ins(VV|N, "0F 86",		"JBE Jz");
+	ins(VV|N, "0F 87",		"JNBE Jz");
+
+	ins(VV|N, "0F 88",		"JS Jz");
+	ins(VV|N, "0F 89",		"JNS Jz");
+	ins(VV|N, "0F 8A",		"JP Jz");
+	ins(VV|N, "0F 8B",		"JNP Jz");
+	ins(VV|N, "0F 8C",		"JL Jz");
+	ins(VV|N, "0F 8D",		"JNL Jz");
+	ins(VV|N, "0F 8E",		"JLE Jz");
+	ins(VV|N, "0F 8F",		"JNLE Jz");
+
+	ins(VV|N, "0F 90 /r",		"SETO Eb");
+	ins(VV|N, "0F 91 /r",		"SETNO Eb");
+	ins(VV|N, "0F 92 /r",		"SETB Eb");
+	ins(VV|N, "0F 93 /r",		"SETNB Eb");
+	ins(VV|N, "0F 94 /r",		"SETZ Eb");
+	ins(VV|N, "0F 95 /r",		"SETNZ Eb");
+	ins(VV|N, "0F 96 /r",		"SETBE Eb");
+	ins(VV|N, "0F 97 /r",		"SETNBE Eb");
+
+	ins(VV|N, "0F 98 /r",		"SETS Eb");
+	ins(VV|N, "0F 99 /r",		"SETNS Eb");
+	ins(VV|N, "0F 9A /r",		"SETP Eb");
+	ins(VV|N, "0F 9B /r",		"SETNP Eb");
+	ins(VV|N, "0F 9C /r",		"SETL Eb");
+	ins(VV|N, "0F 9D /r",		"SETNL Eb");
+	ins(VV|N, "0F 9E /r",		"SETLE Eb");
+	ins(VV|N, "0F 9F /r",		"SETNLE Eb");
+
+	ins(VV|N, "0F A0",		"PUSH FS");
+	ins(VV|N, "0F A1",		"POP FS");
+	ins(VV|N, "0F A2",		"CPUID");
+	ins(VV|P, "0F A3 /r",		"BT Ev,Gv");
+	ins(VV|P, "0F A4 /r",		"SHLD Ev,Gv,Ib");
+	ins(VV|P, "0F A5 /r",		"SHLD Ev,Gv,CLnorex");
+	ins(VV|N, "F3 0F A6 C8",	"XSHA1");
+	ins(VV|N, "F3 0F A6 D0",	"XSHA256");
+	ins(VV|N, "0F A7 C0",		"XSTORE");
+	ins(VV|N, "F3 0F A7 C8",	"XCRYPTECB");
+	ins(VV|N, "F3 0F A7 D0",	"XCRYPTCBC");
+	ins(VV|N, "F3 0F A7 D8",	"XCRYPTCTR");
+	ins(VV|N, "F3 0F A7 E0",	"XCRYPTCFB");
+	ins(VV|N, "F3 0F A7 E8",	"XCRYPTOFB");
+
+
+	ins(VV|N, "0F A8",		"PUSH GS");
+	ins(VV|N, "0F A9",		"POP GS");
+	ins(VV|N, "0F AA",		"RSM");
+	ins(VV|P, "0F AB /r",		"BTS Ev,Gv");
+	ins(VV|P, "0F AC /r",		"SHRD Ev,Gv,Ib");
+	ins(VV|P, "0F AD /r",		"SHRD Ev,Gv,CLnorex");
+	ins(VV|L, "0F AE /0",		"FXSAVE Mb");
+	ins(VV|L, "0F AE /1",		"FXRSTOR Mb");
+	ins(VV|L, "0F AE /2",		"LDMXCSR Md");
+	ins(VV|L, "0F AE /3",		"STMXCSR Md");
+	ins(VV|N, "0F AE /4",		"XSAVE Mb");
+	ins(VV|N, "0F AE E8",		"LFENCE");
+	ins(VV|N, "0F AE /5",		"XRSTOR Mb");
+	ins(VV|N, "0F AE F0",		"MFENCE");
+	ins(VV|N, "0F AE F8",		"SFENCE");
+	ins(VV|N, "0F AE /7",		"CLFLUSH Mb");
+	ins(VV|P, "0F AF /r",		"IMUL Gv,Ev");
+
+	ins(VV|B, "0F B0 /r",		"CMPXCHG Eb,Gb");
+	ins(VV|P, "0F B1 /r",		"CMPXCHG Ev,Gv");
+	ins(VV|P, "0F B2 /r",		"LSS Gv,Mb"); // XXX Mp
+	ins(VV|P, "0F B3 /r",		"BTR Ev,Gv");
+	ins(VV|P, "0F B4 /r",		"LFS Gv,Mb"); // XXX Mp
+	ins(VV|P, "0F B5 /r",		"LGS Gv,Mb"); // XXX Mp
+	ins(VV|P, "0F B6 /r",		"MOVZX Gv,Eb");
+	ins(VV|P, "0F B7 /r",		"MOVZX Gv,Ew");
+
+	ins(VV|P, "0F B8",		"JMPE");
+	ins(VV|P, "F3 0F B8 /r",	"POPCNT Gv,Ev");
+	ins(VV|P, "0F BA /4",		"BT Ev,Ib");
+	ins(VV|P, "0F BA /5",		"BTS Ev,Ib");
+	ins(VV|P, "0F BA /6",		"BTR Ev,Ib");
+	ins(VV|P, "0F BA /7",		"BTC Ev,Ib");
+	ins(VV|P, "0F BB /r",		"BTC Ev,Gv");
+	ins(VV|P, "0F BC /r",		"BSF Gv,Ev");
+	ins(VV|P, "0F BD /r",		"BSR Gv,Ev");
+	ins(VV|P, "0F BE /r",		"MOVSX Gv,Eb");
+	ins(VV|P, "0F BF /r",		"MOVSX Gv,Ew");
+
+	ins(VV|B, "0F C0 /r",		"XADD Eb,Gb");
+	ins(VV|P, "0F C1 /r",		"XADD Ev,Gv");
+	ins(VV|N, "0F C2 /r",		"CMPPS Vps,Wps,Ib");
+	ins(VV|N, "66 0F C2 /r",	"CMPPD Vpd,Wpd,Ib");
+	ins(VV|N, "F3 0F C2 /r",	"CMPSS Vss,Wss,Ib");
+	ins(VV|N, "F2 0F C2 /r",	"CMPSD Vsd,Wsd,Ib");
+	ins(V_|N, "0F C3 /r",		"MOVNTI Md,Gd");
+	ins(_V|N, "0F C3 /r",		"MOVNTI Mq,Gq");
+	ins(VV|N, "0F C4 /r",		"PINSRW Pq,Gd,Ib");
+	ins(VV|N, "0F C5 /r",		"PEXTRW Gd,Nq,Ib");
+	ins(VV|N, "66 0F C5 /r",	"PEXTRW Gd,Udq,Ib");
+	ins(VV|N, "0F C6 /r",		"SHUFPS Vps,Wps,Ib");
+	ins(VV|N, "66 0F C6 /r",	"SHUFPD Vpd,Wpd,Ib");
+	ins(V_|N, "0F C7 /1",		"CMPXCH8B Mq");
+	ins(_V|N, "0F C7 /1",		"CMPXCH16B Mq");
+	ins(VV|N, "0F C7 /6",		"VMPTRLD Mq");
+	ins(VV|N, "66 0F C7 /6",	"VMCLEAR Mq");
+	ins(VV|N, "F3 0F C7 /6",	"VMXON Mq");
+	ins(VV|N, "0F C7 /7",		"VMPTRST Mq");
+
+	ins(VV|P, "0F C8",		"BSWAP rAX");
+	ins(VV|P, "0F C9",		"BSWAP rCX");
+	ins(VV|P, "0F CA",		"BSWAP rDX");
+	ins(VV|P, "0F CB",		"BSWAP rBX");
+	ins(VV|P, "0F CC",		"BSWAP rSP");
+	ins(VV|P, "0F CD",		"BSWAP rBP");
+	ins(VV|P, "0F CE",		"BSWAP rSI");
+	ins(VV|P, "0F CF",		"BSWAP rDI");
+
+	ins(VV|N, "F2 0F D0 /r",	"ADDSUBPS Vps,Wps");
+	ins(VV|N, "66 0F D0 /r",	"ADDSUBPD Vpd,Wpd");
+	ins(VV|N, "0F D1 /r",		"PSRLW Pq,Qq");
+	ins(VV|N, "66 0F D1 /r",	"PSRLW Vdq,Wdq");
+	ins(VV|N, "0F D2 /r",		"PSRLD Pq,Qq");
+	ins(VV|N, "66 0F D2 /r",	"PSRLD Vdq,Wdq");
+	ins(VV|N, "0F D3 /r",		"PSRLQ Pq,Qq");
+	ins(VV|N, "66 0F D3 /r",	"PSRLQ Vdq,Wdq");
+	ins(VV|N, "0F D4 /r",		"PADDQ Pq,Qq");
+	ins(VV|N, "66 0F D4 /r",	"PADDQ Vdq,Wdq");
+	ins(VV|N, "0F D5 /r",		"PMULW Pq,Qq");
+	ins(VV|N, "66 0F D5 /r",	"PMULW Vdq,Wdq");
+	ins(VV|N, "66 0F D6 /r",	"MOVQ Wq,Vq");
+	ins(VV|N, "F3 0F D6 /r",	"MOVQ2DQ Vdq,Nq");
+	ins(VV|N, "F2 0F D6 /r",	"MOVDQ2Q Pq,Uq");
+	ins(VV|N, "0F D7 /r",		"PMOVMSKB Gd,Nq");
+	ins(VV|N, "66 0F D7 /r",	"PMOVMSKB Gd,Udq");
+
+	ins(VV|N, "0F D8 /r",		"PSUBUSB Pq,Qq");
+	ins(VV|N, "66 0F D8 /r",	"PSUBUSB Vdq,Wdq");
+	ins(VV|N, "0F D9 /r",		"PSUBUSW Pq,Qq");
+	ins(VV|N, "66 0F D9 /r",	"PSUBUSW Vdq,Wdq");
+	ins(VV|N, "0F DA /r",		"PMINUB Pq,Qq");
+	ins(VV|N, "66 0F DA /r",	"PMINUB Vdq,Wdq");
+	ins(VV|N, "0F DB /r",		"PAND Pq,Qq");
+	ins(VV|N, "66 0F DB /r",	"PAND Vdq,Wdq");
+	ins(VV|N, "0F DC /r",		"PADDUSB Pq,Qq");
+	ins(VV|N, "66 0F DC /r",	"PADDUSB Vdq,Wdq");
+	ins(VV|N, "0F DD /r",		"PADDUSW Pq,Qq");
+	ins(VV|N, "66 0F DD /r",	"PADDUSW Vdq,Wdq");
+	ins(VV|N, "0F DE /r",		"PMAXUB Pq,Qq");
+	ins(VV|N, "66 0F DE /r",	"PMAXUB Vdq,Wdq");
+	ins(VV|N, "0F DF /r",		"PANDN Pq,Qq");
+	ins(VV|N, "66 0F DF /r",	"PANDN Vdq,Wdq");
+
+	ins(VV|N, "0F E0 /r",		"PAVGB Pq,Qq");
+	ins(VV|N, "66 0F E0 /r",	"PAVGB Vdq,Wdq");
+	ins(VV|N, "0F E1 /r",		"PSRAW Pq,Qq");
+	ins(VV|N, "66 0F E1 /r",	"PSRAW Vdq,Wdq");
+	ins(VV|N, "0F E2 /r",		"PSRAD Pq,Qq");
+	ins(VV|N, "66 0F E2 /r",	"PSRAD Vdq,Wdq");
+	ins(VV|N, "0F E3 /r",		"PAVGW Pq,Qq");
+	ins(VV|N, "66 0F E3 /r",	"PAVGW Vdq,Wdq");
+	ins(VV|N, "0F E4 /r",		"PMULHUW Pq,Qq");
+	ins(VV|N, "66 0F E4 /r",	"PMULHUW Vdq,Wdq");
+	ins(VV|N, "0F D5 /r",		"PMULHW Pq,Qq");
+	ins(VV|N, "66 0F E5 /r",	"PMULHW Vdq,Wdq");
+	ins(VV|N, "F2 0F E6 /r",	"CVTPD2DQ Vdq,Wpd");
+	ins(VV|N, "66 0F E6 /r",	"CVTTPD2DQ Vdq,Wpd");
+	ins(VV|N, "F3 0F E6 /r",	"CVTDQ2PD Vpd,Wdq");
+	ins(VV|N, "0F E7 /r",		"MOVNTQ Mq,Pq");
+	ins(VV|N, "66 0F E7 /r",	"MOVNTDQ Mdq,Vdq");
+
+	ins(VV|N, "0F E8 /r",		"PSUBSB Pq,Qq");
+	ins(VV|N, "66 0F E8 /r",	"PSUBSB Vdq,Wdq");
+	ins(VV|N, "0F E9 /r",		"PSUBSW Pq,Qq");
+	ins(VV|N, "66 0F E9 /r",	"PSUBSW Vdq,Wdq");
+	ins(VV|N, "0F EA /r",		"PMINSW Pq,Qq");
+	ins(VV|N, "66 0F EA /r",	"PMINSW Vdq,Wdq");
+	ins(VV|N, "0F EB /r",		"POR Pq,Qq");
+	ins(VV|N, "66 0F EB /r",	"POR Vdq,Wdq");
+	ins(VV|N, "0F EC /r",		"PADDSB Pq,Qq");
+	ins(VV|N, "66 0F EC /r",	"PADDSB Vdq,Wdq");
+	ins(VV|N, "0F ED /r",		"PADDSW Pq,Qq");
+	ins(VV|N, "66 0F ED /r",	"PADDSW Vdq,Wdq");
+	ins(VV|N, "0F EE /r",		"PMAXSW Pq,Qq");
+	ins(VV|N, "66 0F EE /r",	"PMAXSW Vdq,Wdq");
+	ins(VV|N, "0F EF /r",		"PXOR Pq,Qq");
+	ins(VV|N, "66 0F EF /r",	"PXOR Vdq,Wdq");
+
+	ins(VV|N, "F2 0F F0 /r",	"LDDQU Vdq,Mdq");
+	ins(VV|N, "0F F1 /r",		"PSLLW Pq,Qq");
+	ins(VV|N, "66 0F F1 /r",	"PSLLW Vdq,Wdq");
+	ins(VV|N, "0F F2 /r",		"PSLLD Pq,Qq");
+	ins(VV|N, "66 0F F2 /r",	"PSLLD Vdq,Wdq");
+	ins(VV|N, "0F F3 /r",		"PSLLQ Pq,Qq");
+	ins(VV|N, "66 0F F3 /r",	"PSLLQ Vdq,Wdq");
+	ins(VV|N, "0F F4 /r",		"PMULUDQ Pq,Qq");
+	ins(VV|N, "66 0F F4 /r",	"PMULUDQ Vdq,Wdq");
+	ins(VV|N, "0F F5 /r",		"PMADDWD Pq,Qq");
+	ins(VV|N, "66 0F F5 /r",	"PMADDWD Vdq,Wdq");
+	ins(VV|N, "0F F6 /r",		"PSADBW Pq,Qq");
+	ins(VV|N, "66 0F F6 /r",	"PSADBW Vdq,Wdq");
+	ins(VV|N, "0F F7 /r",		"MASKMOVQ Pq,Nq");
+	ins(VV|N, "66 0F F7 /r",	"MASKMOVDQU Vdq,Udq");
+
+	ins(VV|N, "0F F8 /r",		"PSUBB Pq,Qq");
+	ins(VV|N, "66 0F F8 /r",	"PSUBB Vdq,Wdq");
+	ins(VV|N, "0F F9 /r",		"PSUBW Pq,Qq");
+	ins(VV|N, "66 0F F9 /r",	"PSUBW Vdq,Wdq");
+	ins(VV|N, "0F FA /r",		"PSUBD Pq,Qq");
+	ins(VV|N, "66 0F FA /r",	"PSUBD Vdq,Wdq");
+	ins(VV|N, "0F FB /r",		"PSUBQ Pq,Qq");
+	ins(VV|N, "66 0F FB /r",	"PSUBQ Vdq,Wdq");
+	ins(VV|N, "0F FC /r",		"PADDB Pq,Qq");
+	ins(VV|N, "66 0F FC /r",	"PADDB Vdq,Wdq");
+	ins(VV|N, "0F FD /r",		"PADDW Pq,Qq");
+	ins(VV|N, "66 0F FD /r",	"PADDW Vdq,Wdq");
+	ins(VV|N, "0F FE /r",		"PADDD Pq,Qq");
+	ins(VV|N, "66 0F FE /r",	"PADDD Vdq,Wdq");
+
+	ins(VV|N, "0F 38 00 /r",	"PSHUFB Pq,Qq");
+	ins(VV|N, "66 0F 38 00 /r",	"PSHUFB Vdq,Wdq");
+	ins(VV|N, "0F 38 01 /r",	"PHADDW Pq,Qq");
+	ins(VV|N, "66 0F 38 01 /r",	"PHADDW Vdq,Wdq");
+	ins(VV|N, "0F 38 02 /r",	"PHADDD Pq,Qq");
+	ins(VV|N, "66 0F 38 02 /r",	"PHADDD Vdq,Wdq");
+	ins(VV|N, "0F 38 03 /r",	"PHADDSW Pq,Qq");
+	ins(VV|N, "66 0F 38 03 /r",	"PHADDSW Vdq,Wdq");
+	ins(VV|N, "0F 38 04 /r",	"PMADDUBSW Pq,Qq");
+	ins(VV|N, "66 0F 38 04 /r",	"PMADDUBSW Vdq,Wdq");
+	ins(VV|N, "0F 38 05 /r",	"PHSUBW Pq,Qq");
+	ins(VV|N, "66 0F 38 06 /r",	"PHSUBW Vdq,Wdq");
+	ins(VV|N, "0F 38 06 /r",	"PHSUBD Pq,Qq");
+	ins(VV|N, "66 0F 38 06 /r",	"PHSUBD Vdq,Wdq");
+	ins(VV|N, "0F 38 07 /r",	"PHSUBSW Pq,Qq");
+	ins(VV|N, "66 0F 38 07 /r",	"PHSUBSW Vdq,Wdq");
+
+	ins(VV|N, "0F 38 08 /r",	"PSIGNB Pq,Qq");
+	ins(VV|N, "66 0F 38 08 /r",	"PSIGNB Vdq,Wdq");
+	ins(VV|N, "0F 38 09 /r",	"PSIGNW Pq,Qq");
+	ins(VV|N, "66 0F 38 09 /r",	"PSIGNW Vdq,Wdq");
+	ins(VV|N, "0F 38 0A /r",	"PSIGND Pq,Qq");
+	ins(VV|N, "66 0F 38 0A /r",	"PSIGND Vdq,Wdq");
+	ins(VV|N, "0F 38 0B /r",	"PMULHRSW Pq,Qq");
+	ins(VV|N, "66 0F 38 0B /r",	"PMULHRSW Vdq,Wdq");
+
+	ins(VV|N, "66 0F 38 10 /r",	"PBLENDVB Vdq,Wdq");
+	ins(VV|N, "66 0F 38 14 /r",	"BLENDVPS Vdq,Wdq");
+	ins(VV|N, "66 0F 38 15 /r",	"BLENDVPD Vdq,Wdq");
+	ins(VV|N, "66 0F 38 17 /r",	"PTEST Vdq,Wdq");
+
+	ins(VV|N, "0F 38 1C /r",	"PABSB Vdq,Wdq");
+	ins(VV|N, "66 0F 38 1C /r",	"PABSB Vdq,Wdq");
+	ins(VV|N, "0F 38 1D /r",	"PABSW Vdq,Wdq");
+	ins(VV|N, "66 0F 38 1D /r",	"PABSW Vdq,Wdq");
+	ins(VV|N, "0F 38 1E /r",	"PABSD Vdq,Wdq");
+	ins(VV|N, "66 0F 38 1E /r",	"PABSD Vdq,Wdq");
+
+	ins(VV|N, "66 0F 38 20 /r",	"PMOVSXBW Vdq,Wdq");
+	ins(VV|N, "66 0F 38 21 /r",	"PMOVSXBD Vdq,Wdq");
+	ins(VV|N, "66 0F 38 22 /r",	"PMOVSXBQ Vdq,Wdq");
+	ins(VV|N, "66 0F 38 23 /r",	"PMOVSXWD Vdq,Wdq");
+	ins(VV|N, "66 0F 38 24 /r",	"PMOVSXWQ Vdq,Wdq");
+	ins(VV|N, "66 0F 38 25 /r",	"PMOVSXDQ Vdq,Wdq");
+
+	ins(VV|N, "66 0F 38 28 /r",	"PMULDQ Vdq,Wdq");
+	ins(VV|N, "66 0F 38 29 /r",	"PCMPEQQ Vdq,Wdq");
+	ins(VV|N, "66 0F 38 2A /r",	"MOVNTDQA Vdq,Wdq");
+	ins(VV|N, "66 0F 38 2B /r",	"PACKUSDW Vdq,Wdq");
+
+	ins(VV|N, "66 0F 38 30 /r",	"PMOVZXBW Vdq,Wdq");
+	ins(VV|N, "66 0F 38 31 /r",	"PMOVZXBD Vdq,Wdq");
+	ins(VV|N, "66 0F 38 32 /r",	"PMOVZXBQ Vdq,Wdq");
+	ins(VV|N, "66 0F 38 33 /r",	"PMOVZXWD Vdq,Wdq");
+	ins(VV|N, "66 0F 38 34 /r",	"PMOVZXWQ Vdq,Wdq");
+	ins(VV|N, "66 0F 38 35 /r",	"PMOVZXDQ Vdq,Wdq");
+	ins(VV|N, "66 0F 38 37 /r",	"PCMPGTQ Vdq,Wdq");
+
+	ins(VV|N, "66 0F 38 38 /r",	"PMINSB Vdq,Wdq");
+	ins(VV|N, "66 0F 38 39 /r",	"PMINSD Vdq,Wdq");
+	ins(VV|N, "66 0F 38 3A /r",	"PMINUW Vdq,Wdq");
+	ins(VV|N, "66 0F 38 3B /r",	"PMINUD Vdq,Wdq");
+	ins(VV|N, "66 0F 38 3C /r",	"PMAXSB Vdq,Wdq");
+	ins(VV|N, "66 0F 38 3D /r",	"PMAXSD Vdq,Wdq");
+	ins(VV|N, "66 0F 38 3E /r",	"PMAXUW Vdq,Wdq");
+	ins(VV|N, "66 0F 38 3F /r",	"PMAXUD Vdq,Wdq");
+
+	ins(VV|N, "66 0F 38 40 /r",	"PMULLD Vdq,Wdq");
+	ins(VV|N, "66 0F 38 41 /r",	"PHMINPOSUW Vdq,Wdq");
+
+	ins(VV|N, "66 0F 38 80 /r",	"NVEPT Gd,Mdq");
+	ins(VV|N, "66 0F 38 81 /r",	"NVVPID Gd,Mdq");
+
+	ins(VV|P, "0F 38 F0 /r",	"MOVBE Gv,Mw");
+	ins(VV|B, "F2 0F 38 F0 /r",	"CRC32 Gd,Eb");
+	ins(VV|P, "0F 38 F1 /r",	"MOVBE Mv,Gw");
+	ins(VV|B, "F2 0F 38 F1 /r",	"CRC32 Gd,Ev");
+
+	ins(VV|N, "66 0F 3A 08 /r",	"ROUNDPS Vdq,Wdq,Ib");
+	ins(VV|N, "66 0F 3A 09 /r",	"ROUNDPD Vdq,Wdq,Ib");
+	ins(VV|N, "66 0F 3A 0A /r",	"ROUNDSS Vss,Wss,Ib");
+	ins(VV|N, "66 0F 3A 0B /r",	"ROUNDSD Vsd,Wsd,Ib");
+	ins(VV|N, "66 0F 3A 0C /r",	"BLENDPS Vdq,Wdq,Ib");
+	ins(VV|N, "66 0F 3A 0D /r",	"BLENDPD Vdq,Wdq,Ib");
+	ins(VV|N, "66 0F 3A 0E /r",	"PBLENDW Vdq,Wdq,Ib");
+	ins(VV|N, "0F 3A 0E /r",	"PALIGNR Pq,Qq,Ib");
+	ins(VV|N, "66 0F 3A 0F /r",	"PALIGNR Vdq,Wdq,Ib");
+
+	ins(VV|N, "66 0F 3A 14 /r",	"PEXTRB Ed,Vdq,Ib");
+	ins(VV|N, "66 0F 3A 15 /r",	"PEXTRW Ed,Vdq,Ib");
+	ins(VV|N, "66 0F 3A 16 /r",	"PEXTRD Ed,Vdq,Ib");
+	ins(VV|N, "66 0F 3A 17 /r",	"EXTRACTPS Ed,Vdq,Ib");
+
+	ins(VV|N, "66 0F 3A 20 /r",	"PINSRB Vdq,Ed,Ib");
+	ins(VV|N, "66 0F 3A 21 /r",	"INSERTPS Vdq,Wdq,Ib");
+	ins(VV|N, "66 0F 3A 22 /r",	"PINSRD Vdq,Ed,Ib");
+
+	ins(VV|N, "66 0F 3A 40 /r",	"DPPS Vdq,Wdq,Ib");
+	ins(VV|N, "66 0F 3A 41 /r",	"DPPD Vdq,Wdq,Ib");
+	ins(VV|N, "66 0F 3A 42 /r",	"MPSADBW Vdq,Wdq,Ib");
+
+	ins(VV|N, "66 0F 3A 60 /r",	"PCMPESTRM Vdq,Wdq,Ib");
+	ins(VV|N, "66 0F 3A 61 /r",	"PCMPESTRI Vdq,Wdq,Ib");
+	ins(VV|N, "66 0F 3A 62 /r",	"PCMPISTRM Vdq,Wdq,Ib");
+	ins(VV|N, "66 0F 3A 63 /r",	"PCMPISTRI Vdq,Wdq,Ib");
+    }
+
+    static void addInstruction(Instruction i)
+    {
+	table_.add(i, 0);
+	static if (false) {
+	    //writefln("registering %s -> %s", i.match_, i.assembler_);
+	    Instruction[][256]* tab;
+	    char op;
+	    if (i.opcodes_[0] == 0x0f) {
+		tab = &table0f_;
+		op = i.opcodes_[1];
+	    } else {
+		tab = &table_;
+		op = i.opcodes_[0];
+	    }
+	    // make sure that mandatory prefix instructions are checked first
+	    if (i.prefix_) {
+		Instruction[] il = (*tab)[op];
+		(*tab)[op] = i ~ il;
+	    } else {
+		(*tab)[op] ~= i;
+	    }
+	}
+    }
+
+    static void addInstruction(int flags, string m, string a)
+    {
+	int fromhex(char c)
+	{
+	    if (c >= '0' && c <= '9')
+		return c - '0';
+	    else
+		return c - 'A' + 10;
+	}
+	string extractOpcodes(string s)
+	{
+	    int i, j;
+	    i = j = 0;
+	    while (i < s.length && ishex(s[i]) && ishex(s[i+1])) {
+		i += 2;
+		j = i;
+		if (i < s.length && s[i] == ' ') i++;
+	    }
+	    return s[0..j];
+	}
+
+	flags |= decode(m);
+	string s = extractOpcodes(m);
+	if (flags & (PREFIX66|PREFIXF2|PREFIXF3))
+	    s = s[3..$];
+	char[] opcodes;
+	while (s.length > 0) {
+	    if (s[0] == ' ') {
+		s = s[1..$];
+	    } else {
+		opcodes ~= (fromhex(s[0]) << 4) | fromhex(s[1]);
+		s = s[2..$];
+	    }
+	}
+
+	string opcode = a;
+	string[] operands;
+	int i = find(a, ' ');
+	if (i > 0) {
+	    opcode = a[0..i];
+	    operands = split(a[i + 1..$], ",");
+	}
+	opcode = tolower(opcode);
+
+	addInstruction(Instruction(flags, opcodes, opcode, operands));
+    }
+
+    /**
+     * True if c is valid hex (uppercase only)
      */
-    ulong db_read_address(bool short_addr, int regmodrm, out i_addr addr)
+    static bool ishex(char c)
     {
-	int	mod, rm, sib, index, disp;
+	return (c >= '0' && c <= '9')
+	    || (c >= 'A' && c <= 'F');
+    }
 
-	mod = f_mod(regmodrm);
-	rm  = f_rm(regmodrm);
-
-	if (mod == 3) {
-	    addr.is_reg = true;
-	    addr.disp = rm;
-	    return (loc);
+    /**
+     * Examine the match string and return a set of flags to match with
+     */
+    static int decode(string s)
+    {
+	/**
+	 * True if s[0..p.length] == p
+	 */
+	bool startsWith(string p, string s)
+	{
+	    return s.length >= p.length && s[0..p.length] == p;
 	}
-	addr.is_reg = false;
-	addr.index = null;
 
-	if (short_addr) {
-	    addr.index = null;
-	    addr.ss = 0;
+	/**
+	 * True if c is valid octal
+	 */
+	bool isoctal(char c)
+	{
+	    return (c >= '0' && c <= '7');
+	}
+
+	int flags = 0;
+
+	if (startsWith("66", s)) {
+	    flags |= PREFIX66;
+	    s = s[2..$];
+	} else if (startsWith("F2", s)) {
+	    flags |= PREFIXF2;
+	    s = s[2..$];
+	} else if (startsWith("F3", s)) {
+	    flags |= PREFIXF3;
+	    s = s[2..$];
+	}
+	while (s.length > 0) {
+	    if (s[0] == ' ') {
+		s = s[1..$];
+	    } else if (s.length >= 2 && ishex(s[0]) && ishex(s[1])) {
+		s = s[2..$];
+	    } else if (s.length >= 3 && s[0..2] == "/m" && isoctal(s[2])) {
+		/*
+		 * Match a modrm byte with mod!=3 and reg==s[2].
+		 */
+		flags |= (MODRM | MEMONLY);
+		flags |= 070 << MODRMMASKSHIFT;
+		flags |= (s[2] - '0') << (MODRMMATCHSHIFT + 3);
+		s = s[3..$];
+	    } else if (s.length >= 3 && s[0..2] == "/r" && isoctal(s[2])) {
+		/*
+		 * Match a modrm byte with mod==3 and reg==s[2]. If s[3] is
+		 * also octal, additionally check rm==s[3].
+		 */
+		flags |= (MODRM | REGONLY);
+		flags |= 070 << MODRMMASKSHIFT;
+		flags |= (s[2] - '0') << (MODRMMATCHSHIFT + 3);
+		if (s.length >= 4 && isoctal(s[3])) {
+		    flags |= 007 << MODRMMASKSHIFT;
+		    flags |= (s[3] - '0') << MODRMMATCHSHIFT;
+		    s = s[4..$];
+		} else {
+		    s = s[3..$];
+		}
+	    } else if (s.length >= 2 && s[0] == '/' && isoctal(s[1])) {
+		/*
+		 * Match a modrm byte with reg==s[2].
+		 */
+		flags |= MODRM;
+		flags |= 070 << MODRMMASKSHIFT;
+		flags |= (s[1] - '0') << (MODRMMATCHSHIFT + 3);
+		s = s[2..$];
+	    } else if (startsWith("/r", s)) {
+		flags |= MODRM;
+		s = s[2..$];
+	    } else if (startsWith("/m", s)) {
+		flags |= (MODRM | MEMONLY);
+		s = s[2..$];
+	    } else {
+		return 0;
+	    }
+	}
+	return flags;
+    }
+
+    static InstructionTable table_;
+    bool attMode_ = true;
+    int mode_ = 32;
+}
+
+private:
+
+class InstructionTable
+{
+    InstructionTable[] subTables_;
+    Instruction[] insns_;
+    bool modrm_ = false;
+
+    void add(Instruction i, int off)
+    {
+	if (off == i.opcodes_.length) {
+	    if (insns_.length == 0) {
+		if (i.flags_ & MODRM)
+		    modrm_ = true;
+	    } else {
+		if (modrm_)
+		    assert(i.flags_ & MODRM);
+	    }
+	    if (i.flags_ & (PREFIX66|PREFIXF2|PREFIXF3)) {
+		Instruction[] t = i ~ insns_;
+		insns_ = t;
+	    } else
+		insns_ ~= i;
+	} else {
+	    char b = i.opcodes_[off];
+	    if (b >= subTables_.length)
+		subTables_.length = b + 1;
+	    if (!subTables_[b])
+		subTables_[b] = new InstructionTable;
+	    subTables_[b].add(i, off + 1);
+	}
+    }
+
+    bool lookup(DecodeState* ds, out Instruction insn)
+    {
+	if (subTables_.length) {
+	    char b = ds.nextByte;
+	    if (b < subTables_.length && subTables_[b]) {
+		if (subTables_[b].lookup(ds, insn))
+		    return true;
+	    }
+	    ds.loc_--;
+	}
+	if (modrm_) {
+	    ds.modrm_ = ds.nextByte;
+	    ds.decodeModrm;
+	}
+	foreach (i; insns_) {
+	    if (ds.mode_ == 32) {
+		if (!(i.flags_ & VALID32))
+		    continue;
+	    } else {
+		if (!(i.flags_ & VALID64))
+		    continue;
+	    }
+	    if (i.flags_ & REGONLY) {
+		if (ds.mod != 3)
+		    continue;
+	    }
+	    if (i.flags_ & MEMONLY) {
+		if (ds.mod == 3)
+		    continue;
+	    }
+	    if (i.flags_ & MODRMMASK) {
+		int mask = (i.flags_ & MODRMMASK) >> MODRMMASKSHIFT;
+		int match = (i.flags_ & MODRMMATCH) >> MODRMMATCHSHIFT;
+		if ((ds.modrm_ & mask) != match)
+		    continue;
+	    }
+	    if (i.flags_ & PREFIX66) {
+		if (!ds.operandSizePrefix_)
+		    continue;
+		ds.operandSizePrefix_ = false;
+	    }
+	    if (i.flags_ & PREFIXF2) {
+		if (!ds.repnePrefix_)
+		    continue;
+		ds.repnePrefix_ = false;
+	    }
+	    if (i.flags_ & PREFIXF3) {
+		if (!ds.repePrefix_)
+		    continue;
+		ds.repePrefix_ = false;
+	    }
+	    ds.size_ = i.flags_ & SIZE;
+	    if (ds.size_ == PREFIX)
+		ds.size_ = ds.operandSize;
+	    insn = i;
+	    return true;
+	}
+	return false;
+    }
+}
+
+struct Instruction
+{
+    int flags_;
+    char[] opcodes_;
+    string opcode_;
+    string[] operands_;
+
+    string display(DecodeState* ds)
+    {
+	return ds.displayInstruction(opcode_, ds.displayOperands(operands_));
+    }
+}
+
+struct Operand
+{
+    int type;
+    string value;
+}
+
+struct DecodeState
+{
+    static string regNames[][16] = [
+	// BYTE
+	["al","cl","dl","bl","ah","ch","dh","bh",
+	 "r8b","r9b","r10b","r11b","r12b","r13b","r14b","r15b"],
+	// WORD
+	["ax","cx","dx","bx","sp","bp","si","di",
+	 "r8w","r9w","r10w","r11w","r12w","r13w","r14w","r15w"],
+	// LONG
+	["eax","ecx","edx","ebx","esp","ebp","esi","edi",
+	 "r8d","r9d","r10d","r11d","r12d","r13d","r14d","r15d"],
+	// QWORD
+	["rax","rcx","rdx","rbx","rsp","rbp","rsi","rdi",
+	 "r8","r9","r10","r11","r12","r13","r14","r15"],
+	// MMX
+	["mm0","mm1","mm2","mm3","mm4","mm5","mm6","mm7",
+	 null,null,null,null,null,null,null,null],
+	// XMM
+	["xmm0","xmm1","xmm2","xmm3", "xmm4","xmm5","xmm6","xmm7",
+	 "xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"],
+	// FLOAT
+	["st(0)","st(1)","st(2)","st(3)","st(4)","st(5)","st(6)","st(7)",
+	 null,null,null,null,null,null,null,null],
+	// DOUBLE
+	["st(0)","st(1)","st(2)","st(3)","st(4)","st(5)","st(6)","st(7)",
+	 null,null,null,null,null,null,null,null],
+	// LDOUBLE
+	["st(0)","st(1)","st(2)","st(3)","st(4)","st(5)","st(6)","st(7)",
+	 null,null,null,null,null,null,null,null],
+	];
+    static string regbNames[] =
+	["al","cl","dl","bl","spl","bpl","sil","dil",
+	 "r8b","r9b","r10b","r11b","r12b","r13b","r14b","r15b"];
+    static string[] segNames = ["es","cs","ss","ds","fs","gs"];
+
+    char nextByte()
+    {
+	char c = readByte_(loc_);
+	loc_++;
+	return c;
+    }
+    ushort nextWord()
+    {
+	ushort v = readByte_(loc_) | (readByte_(loc_ + 1) << 8);
+	loc_ += 2;
+	return v;
+    }
+    uint nextDWord()
+    {
+	uint v = readByte_(loc_) | (readByte_(loc_ + 1) << 8)
+	    | (readByte_(loc_ + 2) << 16) | (readByte_(loc_ + 3) << 24);
+	loc_ += 4;
+	return v;
+    }
+    ulong nextQWord()
+    {
+	ulong v;
+	int bit = 0;
+	for (int i = 0; i < 8; i++) {
+	    v |= cast(ulong) readByte_(loc_ + i) << bit;
+	    bit += 8;
+	}
+	loc_ += 8;
+	return v;
+    }
+    int operandSize()
+    {
+	if (mode_ == 64 && rexW)
+	    return QWORD;
+	if (operandSizePrefix_)
+	    return WORD;
+	else
+	    return LONG;
+    }
+    int addressSize()
+    {
+	if (mode_ == 32)
+	    if (addressSizePrefix_)
+		return WORD;
+	    else
+		return LONG;
+	else
+	    if (addressSizePrefix_)
+		return LONG;
+	    else
+		return QWORD;
+    }
+    void decodeModrm()
+    {
+	disp_ = 0;
+	havedisp_ = false;
+	baseReg_ = -1;
+	indexReg_ = -1;
+	scale_ = 0;
+	if (mod == 3)
+	    return;
+	if (mode_ == 32 && addressSizePrefix_) {
+	    int baseReg16[] = [3,3,5,5,6,7,5,3];
+	    int indexReg16[] = [6,7,6,7,-1,-1,-1,-1];
 	    switch (mod) {
 	    case 0:
 		if (rm == 6) {
-		    disp = get_value_inc(2, false);
-		    addr.disp = disp;
-		    addr.base = null;
-		}
-		else {
-		    addr.disp = 0;
-		    addr.base = db_index_reg_16[rm];
+		    disp_ = nextWord;
+		    havedisp_ = true;
+		} else {
+		    baseReg_ = baseReg16[rm];
+		    indexReg_ = indexReg16[rm];
 		}
 		break;
-	    case 1:
-		disp = get_value_inc(1, true);
-		disp &= 0xFFFF;
-		addr.disp = disp;
-		addr.base = db_index_reg_16[rm];
-		break;
-	    case 2:
-		disp = get_value_inc(2, false);
-		addr.disp = disp;
-		addr.base = db_index_reg_16[rm];
-		break;
-	    }
-	}
-	else {
-	    if (mod != 3 && rm == 4) {
-		sib = get_value_inc(1, false);
-		rm = sib_base(sib);
-		index = sib_index(sib);
-		if (index != 4)
-		    addr.index = db_reg[LONG][index];
-		addr.ss = sib_ss(sib);
-	    }
 
+	    case 1:
+		/*
+		 * Sign extend to 16 bits.
+		 */
+		baseReg_ = baseReg16[rm];
+		indexReg_ = indexReg16[rm];
+		disp_ = nextByte;
+		havedisp_ = true;
+		if (disp_ & 0x80)
+		    disp_ |= 0xff00;
+		break;
+
+	    case 2:
+		baseReg_ = baseReg16[rm];
+		indexReg_ = indexReg16[rm];
+		disp_ = nextWord;
+		havedisp_ = true;
+		break;
+	    }
+	} else {
+	    /*
+	     * Note: mod != 3 at this point.
+	     */
+	    if (rm == 4) {
+		char sib = nextByte;
+		baseReg_ = (sib & 7);
+		if (baseReg_ == 5 && mod == 0) {
+		    disp_ = nextDWord;
+		    if (mode_ == 64 && disp_ & 0x80000000
+			&& !addressSizePrefix_)
+			disp_ |= 0xffffffff00000000L;
+		    baseReg_ = -1;
+		} else {
+		    baseReg_ += rexB;
+		}
+		indexReg_ = ((sib >> 3) & 7) + rexX;
+		if (indexReg_ == 4)
+		    indexReg_ = -1;
+		scale_ = 1 << (sib >> 6);
+	    }
 	    switch (mod) {
 	    case 0:
+		if (rm != 4 && rm != 5)
+		    baseReg_ = rm + rexB;
 		if (rm == 5) {
-		    addr.disp = get_value_inc(4, false);
-		    addr.base = null;
-		}
-		else {
-		    addr.disp = 0;
-		    addr.base = db_reg[LONG][rm];
+		    if (mode_ == 64)
+			baseReg_ = 16;
+		    disp_ = nextDWord;
+		    havedisp_ = true;
 		}
 		break;
 
 	    case 1:
-		disp = get_value_inc(1, true);
-		addr.disp = disp;
-		addr.base = db_reg[LONG][rm];
+		if (rm != 4)
+		    baseReg_ = rm + rexB;
+		/*
+		 * Sign extend to 32 bits.
+		 */
+		disp_ = nextByte;
+		havedisp_ = true;
+		if (disp_ & 0x80)
+		    if (mode_ == 32)
+			disp_ |= 0xffffff00;
+		    else
+			disp_ |= 0xffffffffffffff00L;
 		break;
 
 	    case 2:
-		disp = get_value_inc(4, false);
-		addr.disp = disp;
-		addr.base = db_reg[LONG][rm];
+		if (rm != 4)
+		    baseReg_ = rm + rexB;
+		disp_ = nextDWord;
+		havedisp_ = true;
+		if (mode_ == 64 && disp_ & 0x80000000)
+		    disp_ |= 0xffffffff00000000L;
 		break;
 	    }
 	}
-	return (loc);
     }
-
-    string db_print_address(string seg, int size, i_addr* addrp)
+    int mod()
     {
-	string res = "";
-
-	if (addrp.is_reg) {
-	    return db_reg[size][addrp.disp];
-	}
-
-	if (seg) {
-	    res = seg ~ ":";
-	}
-
-	res ~= lookupAddress(addrp.disp);
-	if (addrp.base || addrp.index) {
-	    res ~= "(";
-	    if (addrp.base)
-		res ~= std.string.format("%s", addrp.base);
-	    if (addrp.index)
-		res ~= std.string.format(",%s,%d", addrp.index, 1<<addrp.ss);
-	    res ~= ")";
-	}
-	return res;
+	return modrm_ >> 6;
     }
-    /*
-     * Disassemble floating-point ("escape") instruction
-     */
-    string db_disasm_esc(int inst, bool short_addr, int size, string seg)
+    int rm()
     {
-	string	res = "";
-	int		regmodrm;
-	finstT*	fp;
-	int		mod;
-	i_addr	address;
-	string	name;
-
-	regmodrm = get_value_inc(1, false);
-	fp = &db_Esc_inst[inst - 0xd8][f_reg(regmodrm)];
-	mod = f_mod(regmodrm);
-	if (mod != 3) {
-	    if (*fp.f_name == '\0') {
-		res ~= std.string.format("<bad instruction>");
-		return (res);
-	    }
-	    /*
-	     * Normal address modes.
-	     */
-	    loc = db_read_address(short_addr, regmodrm, address);
-	    res ~= std.string.format("%s", fp.f_name);
-	    switch(fp.f_size) {
-	    case SNGL:
-		res ~= std.string.format("s");
-		break;
-	    case DBLR:
-		res ~= std.string.format("l");
-		break;
-	    case EXTR:
-		res ~= std.string.format("t");
-		break;
-	    case WORD:
-		res ~= std.string.format("s");
-		break;
-	    case LONG:
-		res ~= std.string.format("l");
-		break;
-	    case QUAD:
-		res ~= std.string.format("q");
-		break;
-	    default:
-		break;
-	    }
-	    res ~= std.string.format("\t");
-	    res ~= db_print_address(seg, BYTE, &address);
-	}
-	else {
-	    /*
-	     * 'reg-reg' - special formats
-	     */
-	    switch (fp.f_rrmode) {
-	    case op2(ST,STI):
-		name = (fp.f_rrname) ? fp.f_rrname : fp.f_name;
-		res ~= std.string.format("%s\t%%st,%%st(%d)",name,f_rm(regmodrm));
-		break;
-	    case op2(STI,ST):
-		name = (fp.f_rrname) ? fp.f_rrname : fp.f_name;
-		res ~= std.string.format("%s\t%%st(%d),%%st",name, f_rm(regmodrm));
-		break;
-	    case op1(STI):
-		name = (fp.f_rrname) ? fp.f_rrname : fp.f_name;
-		res ~= std.string.format("%s\t%%st(%d)",name, f_rm(regmodrm));
-		break;
-	    case op1(X):
-		name = fp.f_rrnames[f_rm(regmodrm)];
-		if (*name == '\0')
-		    goto bad;
-		res ~= std.string.format("%s", name);
-		break;
-	    case op1(XA):
-		name = fp.f_rrnames[f_rm(regmodrm)];
-		if (*name == '\0')
-		    goto bad;
-		res ~= std.string.format("%s\t%%ax", name);
-		break;
-	    default:
-	    bad:
-		res ~= std.string.format("<bad instruction>");
-		break;
-	    }
-	}
-
-	return (res);
+	return modrm_ & 7;
     }
-    inst = get_value_inc(1, false);
-    short_addr = false;
-    size = LONG;
-    seg = null;
-
-    /*
-     * Get prefixes
-     */
-    rep = false;
-    prefix = true;
-    do {
-	switch (inst) {
-	case 0x66:		/* data16 */
-	    size = WORD;
-	    break;
-	case 0x67:
-	    short_addr = true;
-	    break;
-	case 0x26:
-	    seg = "%es";
-	    break;
-	case 0x36:
-	    seg = "%ss";
-	    break;
-	case 0x2e:
-	    seg = "%cs";
-	    break;
-	case 0x3e:
-	    seg = "%ds";
-	    break;
-	case 0x64:
-	    seg = "%fs";
-	    break;
-	case 0x65:
-	    seg = "%gs";
-	    break;
-	case 0xf0:
-	    res ~= std.string.format("lock ");
-	    break;
-	case 0xf2:
-	    res ~= std.string.format("repne ");
-	    break;
-	case 0xf3:
-	    rep = true;
-	    break;
+    int reg()
+    {
+	return (modrm_ >> 3) & 7;
+    }
+    void reg(int r)
+    {
+	modrm_ = (r & 7) << 3;
+    }
+    int rexR()
+    {
+	if (mode_ == 64 && rex_)
+	    return rex_ & 4 ? 8 : 0;
+	return 0;
+    }
+    int rexX()
+    {
+	if (mode_ == 64 && rex_)
+	    return rex_ & 2 ? 8 : 0;
+	return 0;
+    }
+    int rexB()
+    {
+	if (mode_ == 64 && rex_)
+	    return rex_ & 1 ? 8 : 0;
+	return 0;
+    }
+    bool rexW()
+    {
+	if (mode_ == 64 && rex_)
+	    return rex_ & 8 ? true : false;
+	return false;
+    }
+    int typeWidth(int rt)
+    {
+	switch (rt) {
+	case BYTE:
+	    return 8;
+	case WORD:
+	    return 16;
+	case LONG:
+	    return 32;
+	case QWORD:
 	default:
-	    prefix = false;
-	    break;
-	}
-	if (prefix) {
-	    inst = get_value_inc(1, false);
-	}
-	if (rep == true) {
-	    if (inst == 0x90) {
-		res ~= std.string.format("pause\n");
-		return (res);
-	    }
-	    res ~= std.string.format("repe ");	/* XXX repe VS rep */
-	    rep = false;
-	}
-    } while (prefix);
-
-    if (inst >= 0xd8 && inst <= 0xdf) {
-	res = db_disasm_esc(inst, short_addr, size, seg);
-	return (res);
-    }
-
-    if (inst == 0x0f) {
-	inst = get_value_inc(1, false);
-	ip = db_inst_0f[inst>>4];
-	if (ip == null) {
-	    ip = &db_bad_inst;
-	}
-	else {
-	    ip = &ip[inst&0xf];
+	    return 64;
 	}
     }
-    else
-	ip = &db_inst_table[inst];
-
-    if (ip.i_has_modrm) {
-	regmodrm = get_value_inc(1, false);
-	loc = db_read_address(short_addr, regmodrm, address);
-    }
-
-    i_name = ip.i_name;
-    i_size = ip.i_size;
-    i_mode = ip.i_mode;
-
-    if (ip.i_extrat == &db_Grp1[0] || ip.i_extrat == &db_Grp2[0] ||
-	ip.i_extrat == &db_Grp6[0] || ip.i_extrat == &db_Grp7[0] ||
-	ip.i_extrat == &db_Grp8[0] || ip.i_extrat == &db_Grp9[0] ||
-	ip.i_extrat == &db_Grp15[0]) {
-	i_name = ip.i_extrat[f_reg(regmodrm)];
-    }
-    else if (ip.i_extrai == &db_Grp3[0]) {
-	ip = ip.i_extrai;
-	ip = &ip[f_reg(regmodrm)];
-	i_name = ip.i_name;
-	i_mode = ip.i_mode;
-    }
-    else if (ip.i_extrai == &db_Grp4[0] || ip.i_extrai == &db_Grp5[0]) {
-	ip = ip.i_extrai;
-	ip = &ip[f_reg(regmodrm)];
-	i_name = ip.i_name;
-	i_mode = ip.i_mode;
-	i_size = ip.i_size;
-    }
-
-    /* Special cases that don't fit well in the tables. */
-    if (ip.i_extrat == &db_Grp7[0] && f_mod(regmodrm) == 3) {
-	switch (regmodrm) {
-	case 0xc8:
-	    i_name = "monitor";
-	    i_size = NONE;
-	    i_mode = 0;			
-	    break;
-	case 0xc9:
-	    i_name = "mwait";
-	    i_size = NONE;
-	    i_mode = 0;
-	    break;
-	}
-    }
-    if (ip.i_extrat == &db_Grp15[0] && f_mod(regmodrm) == 3) {
-	i_name = db_Grp15b[f_reg(regmodrm)];
-	i_size = NONE;
-	i_mode = 0;
-    }
-
-    if (i_size == SDEP) {
-	if (size == WORD)
-	    res ~= std.string.format("%s", i_name);
-	else
-	    res ~= std.string.format("%s", ip.i_extras);
-    }
-    else {
-	res ~= std.string.format("%s", i_name);
-	if (i_size != NONE) {
-	    if (i_size == BYTE) {
-		res ~= std.string.format("b");
-		size = BYTE;
-	    }
-	    else if (i_size == WORD) {
-		res ~= std.string.format("w");
-		size = WORD;
-	    }
-	    else if (size == WORD)
-		res ~= std.string.format("w");
-	    else
-		res ~= std.string.format("l");
-	}
-    }
-    res ~= std.string.format("\t");
-    for (first = true;
-	 i_mode != 0;
-	 i_mode >>= 8, first = false)
+    string regName(int rt, int regno)
     {
-	if (!first)
-	    res ~= std.string.format(",");
-
-	switch (i_mode & 0xFF) {
-
-	case E:
-	    res ~= db_print_address(seg, size, &address);
-	    break;
-
-	case Eind:
-	    res ~= std.string.format("*");
-	    res ~= db_print_address(seg, size, &address);
-	    break;
-
-	case El:
-	    res ~= db_print_address(seg, LONG, &address);
-	    break;
-
-	case Ew:
-	    res ~= db_print_address(seg, WORD, &address);
-	    break;
-
-	case Eb:
-	    res ~= db_print_address(seg, BYTE, &address);
-	    break;
-
-	case R:
-	    res ~= std.string.format("%s", db_reg[size][f_reg(regmodrm)]);
-	    break;
-
-	case Rw:
-	    res ~= std.string.format("%s", db_reg[WORD][f_reg(regmodrm)]);
-	    break;
-
-	case Ri:
-	    res ~= std.string.format("%s", db_reg[size][f_rm(inst)]);
-	    break;
-
-	case Ril:
-	    res ~= std.string.format("%s", db_reg[LONG][f_rm(inst)]);
-	    break;
-
-	case S:
-	    res ~= std.string.format("%s", db_seg_reg[f_reg(regmodrm)]);
-	    break;
-
-	case Si:
-	    res ~= std.string.format("%s", db_seg_reg[f_reg(inst)]);
-	    break;
-
-	case A:
-	    res ~= std.string.format("%s", db_reg[size][0]);	/* acc */
-	    break;
-
-	case BX:
-	    if (seg)
-		res ~= std.string.format("%s:", seg);
-	    res ~= std.string.format("(%s)", short_addr ? "%bx" : "%ebx");
-	    break;
-
-	case CL:
-	    res ~= std.string.format("%%cl");
-	    break;
-
-	case DX:
-	    res ~= std.string.format("%%dx");
-	    break;
-
-	case SI:
-	    if (seg)
-		res ~= std.string.format("%s:", seg);
-	    res ~= std.string.format("(%s)", short_addr ? "%si" : "%esi");
-	    break;
-
-	case DI:
-	    res ~= std.string.format("%%es:(%s)", short_addr ? "%di" : "%edi");
-	    break;
-
-	case CR:
-	    res ~= std.string.format("%%cr%d", f_reg(regmodrm));
-	    break;
-
-	case DR:
-	    res ~= std.string.format("%%dr%d", f_reg(regmodrm));
-	    break;
-
-	case TR:
-	    res ~= std.string.format("%%tr%d", f_reg(regmodrm));
-	    break;
-
-	case I:
-	    len = db_lengths[size];
-	    imm = get_value_inc(len, false);
-	    res ~= std.string.format("$%#r", imm);
-	    break;
-
-	case Is:
-	    len = db_lengths[size];
-	    imm = get_value_inc(len, false);
-	    res ~= std.string.format("$%+#r", imm);
-	    break;
-
-	case Ib:
-	    imm = get_value_inc(1, false);
-	    res ~= std.string.format("$%#r", imm);
-	    break;
-
-	case Iba:
-	    imm = get_value_inc(1, false);
-	    if (imm != 0x0a)
-		res ~= std.string.format("$%#r", imm);
-	    break;
-
-	case Ibs:
-	    imm = get_value_inc(1, true);
-	    if (size == WORD)
-		imm &= 0xFFFF;
-	    res ~= std.string.format("$%+#r", imm);
-	    break;
-
-	case Iw:
-	    imm = get_value_inc(2, false);
-	    res ~= std.string.format("$%#r", imm);
-	    break;
-
-	case O:
-	    len = (short_addr ? 2 : 4);
-	    displ = get_value_inc(len, false);
-	    if (seg)
-		res ~= std.string.format("%s:%+#r",seg, displ);
+	if (regno == 16) {
+	    if (rt == LONG)
+		return "eip";
 	    else
-		res ~= lookupAddress(displ);
-	    break;
-
-	case Db:
-	    displ = get_value_inc(1, true);
-	    displ += loc;
-	    if (size == WORD)
-		displ &= 0xFFFF;
-	    res ~= lookupAddress(displ);
-	    break;
-
-	case Dl:
-	    len = db_lengths[size];
-	    displ = get_value_inc(len, false);
-	    displ += loc;
-	    if (size == WORD)
-		displ &= 0xFFFF;
-	    res ~= lookupAddress(displ);
-	    break;
-
-	case o1:
-	    res ~= std.string.format("$1");
-	    break;
-
-	case o3:
-	    res ~= std.string.format("$3");
-	    break;
-
-	case OS:
-	    len = db_lengths[size];
-	    imm = get_value_inc(len, false);	/* offset */
-	    imm2 = get_value_inc(2, false);	/* segment */
-	    res ~= std.string.format("$%#r,%#r", imm2, imm);
-	    break;
+		return "rip";
+	}
+	if (mode_ == 64 && rex_ && rt == BYTE)
+	    return regbNames[regno];
+	return regNames[rt][regno];
+    }
+    long fetchImmediate(int rt)
+    {
+	switch (rt) {
+	case BYTE:
+	    return nextByte();
+	case WORD:
+	    return nextWord();
+	case LONG:
+	    return nextDWord();
+	case QWORD:
+	    return nextQWord();
+	default:
+	    assert(false);
 	}
     }
-    return (res);
+    Operand displayImmediate(int rt, long val)
+    {
+	int iwidth = typeWidth(rt);
+	int width = typeWidth(size_);
+	if (iwidth < 64 && (val & (1L << (iwidth - 1))))
+	    val |= -(1L << iwidth);
+	if (width < 64)
+	    val &= (1L << width) - 1;
+	string s;
+	s = std.string.format("%#x", val);
+	if (attMode_)
+	    s = "$" ~ s;
+	return Operand(rt, s);
+    }
+    Operand displayUnsignedImmediate(int rt, long val)
+    {
+	string s;
+	s = std.string.format("%#x", val);
+	if (attMode_)
+	    s = "$" ~ s;
+	return Operand(rt, s);
+    }
+    Operand displayRelative(int rt, long val)
+    {
+	int width = typeWidth(rt);
+	if (val & (1L << (width - 1)))
+	    val |= -(1L << width);
+	return displayAddress(rt, loc_ + val);
+    }
+    Operand displayFarcall(int rt, ulong addr, uint callseg)
+    {
+	string s;
+	if (attMode_)
+	    s = std.string.format("$%#x,%#x", callseg, addr);
+	else
+	    s = std.string.format("%#x:%#x", callseg, addr);
+	return Operand(rt, s);
+    }
+    Operand displaySegment(int segno)
+    {
+	if (segno >= segNames.length)
+	    return Operand(NONE, "???");
+	string s = segNames[segno];
+	if (attMode_)
+	    s = "%" ~ s;
+	return Operand(NONE, s);
+    }
+    Operand displayControl(int crno)
+    {
+	if (attMode_)
+	    return Operand(NONE, std.string.format("%%cr%d", crno));
+	else
+	    return Operand(NONE, std.string.format("cr%d", crno));
+    }
+    Operand displayDebug(int drno)
+    {
+	if (attMode_)
+	    return Operand(NONE, std.string.format("%%dr%d", drno));
+	else
+	    return Operand(NONE, std.string.format("dr%d", drno));
+    }
+    Operand displayRegister(int rt, int regno)
+    {
+	if (attMode_)
+	    return Operand(rt, "%" ~ regName(rt, regno));
+	else
+	    return Operand(rt, regName(rt, regno));
+    }
+    Operand displayIndirect(int rt, int segno, int regno)
+    {
+	string res;
+	if (attMode_)
+	    if (segno >= 0)
+		res =  std.string.format("%%%s:(%%%s)",
+					 segNames[segno],
+					 regName(rt, regno));
+	    else
+		res =  std.string.format("(%%%s)",
+					 regName(rt, regno));
+	else
+	    if (segno >= 0)
+		res =  std.string.format("%s:[%s]",
+					 segNames[segno],
+					 regName(rt, regno));
+	    else
+		res =  std.string.format("[%s]",
+					 regName(rt, regno));
+	return Operand(rt, res);
+    }
+    Operand displayReg(int rt)
+    {
+	return displayRegister(rt, reg + rexR);
+    }
+    Operand displayRM(int rt, bool indirect)
+    {
+	if (indirect) {
+	    Operand op = displayRM(rt, false);
+	    if (attMode_)
+		op.value = "*" ~ op.value;
+	    return op;
+	}
+
+	string basePlusIndexAtt()
+	{
+	    string res;
+
+	    res ~= _displayAddress(rt, disp_);
+
+	    int mode = addressSize;
+
+	    if (indexReg_ >= 0) {
+		string br = "";
+		if (baseReg_ >= 0)
+		    br = "%" ~ regName(mode, baseReg_);
+		if (scale_ > 0)
+		    res ~= std.string.format("(%s,%%%s,%d)",
+					     br,
+					     regName(mode, indexReg_),
+					     scale_);
+		else
+		    res ~= std.string.format("(%s,%%%s)",
+					     br,
+					     regName(mode, indexReg_));
+	    } else if (baseReg_ >= 0) {
+		res ~= std.string.format("(%%%s)",
+					 regName(mode, baseReg_));
+	    }
+	    return res;
+	}
+
+	string basePlusIndexIntel()
+	{
+	    string s;
+
+	    if (havedisp_ && disp_) {
+		if (disp_ > -50 && disp_ < 50)
+		    s = std.string.format("%d", disp_);
+		else
+		    s = _displayAddress(rt, disp_);
+		if (baseReg_ < 0 && indexReg_ < 0)
+		    return s;
+		s = "+" ~ s;
+	    }
+
+	    int mode = addressSize;
+
+	    if (indexReg_ >= 0) {
+		if (scale_ && scale_ != 1)
+		    return std.string.format("[%s+%s*%d%s]",
+					     regName(mode, baseReg_),
+					     regName(mode, indexReg_),
+					     scale_, s);
+		else
+		    return std.string.format("[%s+%s%s]",
+					     regName(mode, baseReg_),
+					     regName(mode, indexReg_), s);
+	    } else if (baseReg_ >= 0) {
+		return std.string.format("[%s%s]",
+					 regName(mode, baseReg_), s);
+	    }
+	}
+
+	if (mod == 3) {
+	    return displayRegister(rt, rm + rexB);
+	} else {
+	    string res;
+
+	    if (!attMode_) {
+		switch (rt) {
+		case BYTE:
+		    res = "byte ptr ";
+		    break;
+		case WORD:
+		    res = "word ptr ";
+		    break;
+		case LONG:
+		case FLOAT:
+		    res = "dword ptr ";
+		    break;
+		case QWORD:
+		case MMX:
+		case DOUBLE:
+		    res = "qword ptr ";
+		    break;
+		case LDOUBLE:
+		    res = "xword ptr ";
+		    break;
+		case XMM:
+		    res = "xmmword ptr ";
+		    break;
+		default:
+		}
+	    }
+	    if (seg_.length > 0)
+		res ~= seg_ ~ ":";
+	    if (attMode_)
+		res ~= basePlusIndexAtt;
+	    else
+		res ~= basePlusIndexIntel;
+
+	    return Operand(rt, res);
+	}
+    }
+    string _displayAddress(int rt, ulong addr)
+    {
+	if (mode_ == 32)
+	    addr &= 0xffffffff;
+	return std.string.format("%#x", addr);
+    }
+    Operand displayAddress(int rt, ulong addr)
+    {
+	string s = _displayAddress(rt, addr);
+	if (seg_.length > 0)
+	    s = seg_ ~ ":" ~ s;
+	return Operand(rt, s);
+    }
+    Operand[] displayOperands(string[] s)
+    {
+	Operand[] operands;
+
+	foreach (operand; s) {
+	    /*
+	     * SDM Vol 2b A.2.1
+	     */
+	    switch (operand) {
+	    case "0":
+		 operands ~= displayImmediate(NONE, 0);
+		 continue;
+	    case "1":
+		 operands ~= displayImmediate(NONE, 1);
+		 continue;
+	    case "3":
+		 operands ~= displayImmediate(NONE, 3);
+		 continue;
+	    case "AL":
+		operands ~= displayRegister(BYTE, 0 + rexB);
+		continue;
+	    case "CL":
+		operands ~= displayRegister(BYTE, 1 + rexB);
+		continue;
+	    case "CLnorex":
+		operands ~= displayRegister(BYTE, 1);
+		continue;
+	    case "DL":
+		operands ~= displayRegister(BYTE, 2 + rexB);
+		continue;
+	    case "BL":
+		operands ~= displayRegister(BYTE, 3 + rexB);
+		continue;
+	    case "AH":
+		operands ~= displayRegister(BYTE, 4 + rexB);
+		continue;
+	    case "CH":
+		operands ~= displayRegister(BYTE, 5 + rexB);
+		continue;
+	    case "DH":
+		operands ~= displayRegister(BYTE, 6 + rexB);
+		continue;
+	    case "BH":
+		operands ~= displayRegister(BYTE, 7 + rexB);
+		continue;
+	    case "AX":
+		operands ~= displayRegister(WORD, 0);
+		continue;
+	    case "DX":
+		operands ~= displayRegister(WORD, 2);
+		continue;
+	    case "eAX":
+		operands ~= displayRegister(operandSizePrefix_ ? WORD : LONG, 0);
+		continue;
+	    case "eCX":
+		operands ~= displayRegister(operandSizePrefix_ ? WORD : LONG, 1);
+		continue;
+	    case "eDX":
+		operands ~= displayRegister(operandSizePrefix_ ? WORD : LONG, 2);
+		continue;
+	    case "eBX":
+		operands ~= displayRegister(operandSizePrefix_ ? WORD : LONG, 3);
+		continue;
+	    case "eSP":
+		operands ~= displayRegister(operandSizePrefix_ ? WORD : LONG, 4);
+		continue;
+	    case "eBP":
+		operands ~= displayRegister(operandSizePrefix_ ? WORD : LONG, 5);
+		continue;
+	    case "eSI":
+		operands ~= displayRegister(operandSizePrefix_ ? WORD : LONG, 6);
+		continue;
+	    case "eDI":
+		operands ~= displayRegister(operandSizePrefix_ ? WORD : LONG, 7);
+		continue;
+	    case "rAXnorex":
+		operands ~= displayRegister(operandSize, 0);
+		continue;
+	    case "rAX":
+		operands ~= displayRegister(size_, 0 + rexB);
+		continue;
+	    case "rCX":
+		operands ~= displayRegister(size_, 1 + rexB);
+		continue;
+	    case "rDX":
+		operands ~= displayRegister(size_, 2 + rexB);
+		continue;
+	    case "rBX":
+		operands ~= displayRegister(size_, 3 + rexB);
+		continue;
+	    case "rSP":
+		operands ~= displayRegister(size_, 4 + rexB);
+		continue;
+	    case "rBP":
+		operands ~= displayRegister(size_, 5 + rexB);
+		continue;
+	    case "rSI":
+		operands ~= displayRegister(size_, 6 + rexB);
+		continue;
+	    case "rDI":
+		operands ~= displayRegister(size_, 7 + rexB);
+		continue;
+	    case "ES":
+		operands ~= displaySegment(0);
+		continue;
+	    case "CS":
+		operands ~= displaySegment(1);
+		continue;
+	    case "SS":
+		operands ~= displaySegment(2);
+		continue;
+	    case "DS":
+		operands ~= displaySegment(3);
+		continue;
+	    case "FS":
+		operands ~= displaySegment(4);
+		continue;
+	    case "GS":
+		operands ~= displaySegment(5);
+		continue;
+	    case "ST(0)":
+		operands ~= displayRegister(LDOUBLE, 0);
+		continue;
+	    case "ST(i)":
+		operands ~= displayRegister(LDOUBLE, rm);
+		continue;
+	    default:
+		break;
+	    }
+
+	    string sizeexp;
+	    if (operand.length < 2)
+		    goto mess;
+	    string opsize = operand[1..$];
+	    int size;
+	    switch (opsize) {
+	    case "a":
+		size = operandSizePrefix_ ? LONG : QWORD;
+		break;
+	    case "b":
+		size = BYTE;
+		break;
+	    case "c":
+		size = operandSizePrefix_ ? BYTE : WORD;
+		break;
+	    case "d":
+		size = LONG;
+		break;
+	    case "dq":
+		size = XMM;
+		break;
+	    case "n":
+		size = NONE;
+		break;
+	    case "p":
+		size = BYTE;	// XXX
+		break;
+	    case "pd":
+		size = XMM;
+		break;
+	    case "pi":
+		size = MMX;
+		break;
+	    case "ps":
+		size = XMM;
+		break;
+	    case "q":
+		size = QWORD;
+		break;
+	    case "s":
+		break;
+	    case "sd":
+		size = XMM;
+		break;
+	    case "ss":
+		size = XMM;
+		break;
+	    case "si":
+		size = LONG;
+		break;
+	    case "v":
+		size = operandSize;
+		break;
+	    case "w":
+		size = WORD;
+		break;
+	    case "z":	    
+		size = operandSizePrefix_ ? WORD : LONG;
+		break;
+	    default:
+		goto mess;
+	    }
+
+	    switch (operand[0]) {
+	    case 'A':
+		assert(opsize == "p");
+		operands ~= displayFarcall(operandSize, fetchImmediate(operandSize), fetchImmediate(WORD));
+		continue;
+	    case 'C':
+		operands ~= displayControl(reg);
+		continue;
+	    case 'D':
+		operands ~= displayDebug(reg);
+		continue;
+	    case 'E':
+		operands ~= displayRM(size, false);
+		continue;
+	    case 'F':
+		operands ~= Operand(NONE, "%eflags");
+		continue;
+	    case 'G':
+		operands ~= displayReg(size);
+		continue;
+	    case 'H':
+		operands ~= displayRM(size, true);
+		continue;
+	    case 'I':
+		operands ~= displayImmediate(size, fetchImmediate(size));
+		continue;
+	    case 'J':
+		operands ~= displayRelative(size, fetchImmediate(size));
+		continue;
+	    case 'K':
+		operands ~= displayUnsignedImmediate(size, fetchImmediate(size));
+		continue;
+	    case 'M':
+		operands ~= displayRM(size, false);
+		continue;
+	    case 'N':
+		operands ~= displayRegister(MMX, rm);
+		continue;
+	    case 'O':
+		operands ~= displayAddress(size, addressSizePrefix_ ? nextWord : nextDWord);
+		continue;
+	    case 'P':
+		operands ~= displayRegister(MMX, reg);
+		continue;
+	    case 'Q':
+		operands ~= displayRM(MMX, false);
+		continue;
+	    case 'R':
+		operands ~= displayRegister(size, rm + rexB);
+		continue;
+	    case 'S':
+		operands ~= displaySegment(reg);
+		continue;
+	    case 'U':
+		operands ~= displayRegister(XMM, rm + rexB);
+		continue;
+	    case 'V':
+		operands ~= displayRegister(XMM, reg + rexR);
+		continue;
+	    case 'W':
+		operands ~= displayRM(XMM, false);
+		continue;
+	    case 'X':
+		 if (mode_ == 64) operands ~= displayIndirect(QWORD, -1, 6);
+		 else if (addressSizePrefix_) operands ~= displayIndirect(WORD, -1, 6);
+		 else operands ~= displayIndirect(LONG, -1, 6);
+		 continue;
+	    case 'Y':
+		 if (mode_ == 64) operands ~= displayIndirect(QWORD, 0, 7);
+		 else if (addressSizePrefix_) operands ~= displayIndirect(WORD, 0, 7);
+		 else operands ~= displayIndirect(LONG, 0, 7);
+		 continue;
+	    }
+
+	mess:
+	    assert(false);
+	    break;
+	}
+
+	return operands;
+    }
+    string displayInstruction(string opcode, Operand[] operands)
+    {
+	if (find(opcode, '/') >= 0) {
+	    string[] ops = split(opcode, "/");
+	    if (size_ >= 1 && size_ <= ops.length)
+		opcode = ops[size_ - 1];
+	} else {
+	    if (attMode_) {
+		if (opcode == "movsx" || opcode == "movzx") {
+		    opcode = opcode[0..4];
+		    if (operands[1].type == BYTE)
+			opcode ~= 'b';
+		    else if (operands[1].type == WORD)
+			opcode ~= 'w';
+		    else
+			assert(false);
+		}
+		if (opcode == "movsxd")
+		    opcode = "movsl";
+		if (size_ == BYTE)
+		    opcode ~= 'b';
+		else if (size_ == WORD)
+		    opcode ~= 'w';
+		else if (size_ == LONG)
+		    opcode ~= 'l';
+		else if (size_ == QWORD)
+		    opcode ~= 'q';
+		else if (size_ == FLOAT)
+		    opcode ~= 's';
+		else if (size_ == DOUBLE)
+		    opcode ~= 'l';
+		else if (size_ == LDOUBLE)
+		    opcode ~= 't';
+	    }
+	}
+	if (operands.length) {
+	    string[] ops;
+	    foreach (op; operands)
+		ops ~= op.value;
+	    if (attMode_ && opcode != "enter")
+		ops = ops.reverse;
+	    return opcode ~ "\t" ~ join(ops, ",");
+	} else
+	    return opcode;
+    }
+
+    char delegate(ulong) readByte_;
+    ulong loc_;
+    bool attMode_;
+    int mode_;
+
+    /*
+     * Prefixes
+     */
+    string seg_ = "";
+    char rex_ = 0;
+    bool lockPrefix_ = false;
+    bool repnePrefix_ = false;
+    bool repePrefix_ = false;
+    bool operandSizePrefix_ = false;
+    bool addressSizePrefix_ = false;
+
+    /*
+     * Results from decoding operands.
+     */
+    int size_;
+    char modrm_;
+    int baseReg_;
+    int indexReg_;
+    int scale_;
+    bool havedisp_;
+    long disp_;
 }
+

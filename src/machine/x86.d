@@ -218,7 +218,14 @@ class X86State: MachineState
 	string disassemble(ref ulong address,
 			   string delegate(ulong) lookupAddress)
 	{
-	    return db_disasm(this, address, lookupAddress);
+	    char readByte(ulong loc) {
+		ubyte[] t = readMemory(loc, 1);
+		return cast(char) t[0];
+	    }
+
+	    Disassembler dis = new Disassembler;
+	    dis.setOption("intel");
+	    return dis.disassemble(address, &readByte);
 	}
     }
 
