@@ -519,6 +519,86 @@ interface Location
     Location fieldLocation(Location fieldLoc);
 }
 
+class RegisterLocation: Location
+{
+    this(uint regno, size_t length)
+    {
+	regno_ = regno;
+	length_ = length;
+    }
+
+    override {
+	size_t length()
+	{
+	    return length_;
+	}
+
+	ubyte[] readValue(MachineState state)
+	{
+	    return state.readGR(regno_);
+	}
+
+	void writeValue(MachineState state, ubyte[] value)
+	{
+	    return state.writeGR(regno_, value);
+	}
+
+	ulong address(MachineState)
+	{
+	    assert(false);
+	    return 0;
+	}
+
+	Location fieldLocation(Location fieldLoc)
+	{
+	    return null;
+	}
+    }
+
+    uint regno_;
+    size_t length_;
+}
+
+class MemoryLocation: Location
+{
+    this(ulong address, size_t length)
+    {
+	address_ = address;
+	length_ = length;
+    }
+
+    override {
+	size_t length()
+	{
+	    return length_;
+	}
+
+	ubyte[] readValue(MachineState state)
+	{
+	    return state.readMemory(address_, length_);
+	}
+
+	void writeValue(MachineState state, ubyte[] value)
+	{
+	    assert(value.length == length_);
+	    return state.writeMemory(address_, value);
+	}
+
+	ulong address(MachineState)
+	{
+	    return address_;
+	}
+
+	Location fieldLocation(Location fieldLoc)
+	{
+	    return null;
+	}
+    }
+
+    ulong address_;
+    size_t length_;
+}
+
 struct Value
 {
     Location loc;
@@ -554,7 +634,13 @@ struct Variable
     }
 }
 
-class Function
+interface Scope
+{
+    string[] contents();
+    bool lookup(string, out Variable);
+}
+
+class Function: Scope
 {
     this(string name)
     {
@@ -626,6 +712,26 @@ class Function
     Variable[] variables()
     {
 	return variables_;
+    }
+
+    override {
+	string[] contents()
+	{
+	    string[] res;
+	    foreach (v; arguments_ ~ variables_)
+		res ~= v.name;
+	    return res;
+	}
+	bool lookup(string name, out Variable var)
+	{
+	    foreach (v; arguments_ ~ variables_) {
+		if (name == v.name) {
+		    var = v;
+		    return true;
+		}
+	    }
+	    return false;
+	}
     }
 
     string name_;

@@ -26,13 +26,14 @@
 
 module machine.machine;
 import target;
+import objfile.debuginfo;
 version(tangobos) import std.compat;
 
 /**
  * A representation of the target machine. Registers are indexed by
  * dwarf register number.
  */
-interface MachineState
+interface MachineState: Scope
 {
     void dumpState();
 

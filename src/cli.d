@@ -865,3 +865,47 @@ class WhereCommand: Command
 	}
     }
 }
+
+class PrintCommand: Command
+{
+    static this()
+    {
+	Debugger.registerCommand(new PrintCommand);
+    }
+
+    override {
+	string name()
+	{
+	    return "print";
+	}
+
+	string description()
+	{
+	    return "evaluate and print expressio";
+	}
+
+	void run(Debugger db, string[] args)
+	{
+	    TargetThread t = db.threads_[0];
+	    MachineState s = t.state;
+	    DebugInfo di;
+
+	    if (args.length != 2) {
+		writefln("usage: print <expr>");
+		return;
+	    }
+
+	    if (db.findDebugInfo(s, di)) {
+		Function func = di.findFunction(s.getGR(s.pcregno));
+		Language lang = di.findLanguage(s.getGR(s.pcregno));
+		Variable var;
+
+		if (func.lookup(args[1], var) || s.lookup(args[1], var)) {
+		    writefln("%s", var.toString(lang, s));
+		    return;
+		}
+	    }
+	    writefln("Can't evaluate %s", args[1]);
+	}
+    }
+}

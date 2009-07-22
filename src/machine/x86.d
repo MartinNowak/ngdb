@@ -26,6 +26,7 @@
 
 module machine.x86;
 import machine.machine;
+import objfile.debuginfo;
 private import machine.x86dis;
 import target;
 
@@ -226,6 +227,26 @@ class X86State: MachineState
 	    Disassembler dis = new Disassembler;
 	    dis.setOption("intel");
 	    return dis.disassemble(address, &readByte);
+	}
+
+	string[] contents()
+	{
+	    return X86RegNames[];
+	}
+
+	bool lookup(string reg, out Variable var)
+	{
+	    foreach (i, s; X86RegNames) {
+		if (s == reg) {
+		    Location loc = new RegisterLocation(i, grWidth(i) / 8);
+		    Type ty = new IntegerType("uint32_t", false,
+					      grWidth(i) / 8);
+		    var.name = reg;
+		    var.value = Value(loc, ty);
+		    return true;
+		}
+	    }
+	    return false;
 	}
     }
 

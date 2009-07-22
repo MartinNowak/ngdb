@@ -1637,9 +1637,9 @@ class DwarfFieldLocation: DWLoc
 	    off = stack.pop;
 
 	    if (baseLoc_.evalLocation(cu_, state, loc)) {
-		if (cast(DwarfMemLoc) loc) {
-		    loc = new DwarfMemLoc(loc.address(state) + off,
-					  fieldLoc_.length);
+		if (cast(MemoryLocation) loc) {
+		    loc = new MemoryLocation(loc.address(state) + off,
+					     fieldLoc_.length);
 		} else {
 		    loc = new DwarfOffsetLoc(loc, off, fieldLoc_.length);
 		}
@@ -1702,86 +1702,6 @@ class DwarfOffsetLoc: Location
 
     Location loc_;
     uint off_;
-    size_t length_;
-}
-
-class DwarfRegLoc: Location
-{
-    this(uint regno, size_t length)
-    {
-	regno_ = regno;
-	length_ = length;
-    }
-
-    override {
-	size_t length()
-	{
-	    return length_;
-	}
-
-	ubyte[] readValue(MachineState state)
-	{
-	    return state.readGR(regno_);
-	}
-
-	void writeValue(MachineState state, ubyte[] value)
-	{
-	    return state.writeGR(regno_, value);
-	}
-
-	ulong address(MachineState)
-	{
-	    assert(false);
-	    return 0;
-	}
-
-	Location fieldLocation(Location fieldLoc)
-	{
-	    return null;
-	}
-    }
-
-    uint regno_;
-    size_t length_;
-}
-
-class DwarfMemLoc: Location
-{
-    this(ulong address, size_t length)
-    {
-	address_ = address;
-	length_ = length;
-    }
-
-    override {
-	size_t length()
-	{
-	    return length_;
-	}
-
-	ubyte[] readValue(MachineState state)
-	{
-	    return state.readMemory(address_, length_);
-	}
-
-	void writeValue(MachineState state, ubyte[] value)
-	{
-	    assert(value.length == length_);
-	    return state.writeMemory(address_, value);
-	}
-
-	ulong address(MachineState)
-	{
-	    return address_;
-	}
-
-	Location fieldLocation(Location fieldLoc)
-	{
-	    return null;
-	}
-    }
-
-    ulong address_;
     size_t length_;
 }
 
@@ -2210,16 +2130,16 @@ struct Expr
 	    if (op >= DW_OP_reg0 && op <= DW_OP_reg31) {
 		p++;
 		uint regno = op - DW_OP_reg0;
-		loc = new DwarfRegLoc(regno, state.grWidth(regno) / 8);
+		loc = new RegisterLocation(regno, state.grWidth(regno) / 8);
 	    } else if (op == DW_OP_regx) {
 		p++;
 		uint regno = parseULEB128(p);
-		loc = new DwarfRegLoc(regno, state.grWidth(regno) / 8);
+		loc = new RegisterLocation(regno, state.grWidth(regno) / 8);
 	    } else {
 		ValueStack stack;
 		Expr e = Expr(is64, p, end);
 		p = e.evalExpr(cu, state, stack);
-		loc = new DwarfMemLoc(stack.pop, is64 ? 8 : 4);
+		loc = new MemoryLocation(stack.pop, is64 ? 8 : 4);
 	    }
 	    if (p == end) {
 		/*
