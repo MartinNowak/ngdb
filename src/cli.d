@@ -349,13 +349,18 @@ class Debugger: TargetListener
 		return s;
 	    }
 	}
+	return lookupAddress(pc);
+    }
+
+    string lookupAddress(ulong addr)
+    {
 	foreach (mod; modules_) {
 	    TargetSymbol sym;
-	    if (mod.lookupSymbol(pc, sym)) {
-		return sym.name ~ "+" ~ .toString(pc - sym.value);
+	    if (mod.lookupSymbol(addr, sym)) {
+		return sym.name ~ "+" ~ .toString(addr - sym.value);
 	    }
 	}
-	return std.string.format("0x%x", pc);
+	return std.string.format("0x%x", addr);
     }
 
     void setStepBreakpoint(TargetThread t)
@@ -768,19 +773,13 @@ class InfoRegistersCommand: Command
 
 	void run(Debugger db, string[] args)
 	{
-
-	    string lookupAddress(ulong addr)
-	    {
-		return std.string.format("0x%x", addr);
-	    }
-
 	    foreach (i, t; db.threads_) {
 		writefln("%d: stopped at 0x%08x", i + 1, t.pc);
 		t.state.dumpState;
 		ulong pc = t.state.getGR(t.state.pcregno);
 		ulong tpc = pc;
-		writefln("0x%08x:\t%s", pc,
-			 t.state.disassemble(tpc, &lookupAddress));
+		writefln("%s:\t%s", db.lookupAddress(pc),
+			 t.state.disassemble(tpc, &db.lookupAddress));
 	    }
 	}
     }
