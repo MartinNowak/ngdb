@@ -1050,6 +1050,9 @@ class DwarfFile: public DebugInfo
 	    CompilationUnit cu;
 	    DIE func;
 	    if (findSubprogram(pc, cu, func)) {
+		if (func.item)
+		    return cast(Function) func.item;
+
 		Function f = new Function(func.name);
 		auto rt = func[DW_AT_type];
 		if (rt)
@@ -1059,6 +1062,7 @@ class DwarfFile: public DebugInfo
 		    f.addArgument(v);
 		foreach (v; findVars(cu, func, DW_TAG_variable))
 		    f.addVariable(v);
+		func.item = f;
 		return f;
 	    }
 	    return null;
@@ -2494,7 +2498,7 @@ class DIE
     AttributeValue attrs[int];
     DIE[] children;
     AddressRange[] addresses; // set of address ranges for this DIE
-    Type type;
+    DebugItem item;
 
     this(CompilationUnit cu, DIE parent, char* base, ref char* diep,
 	 uint abbrevCode, char*[int] abbrevTable,
@@ -2687,7 +2691,7 @@ class DIE
 	     * Set our memoized type so that we can avoid recursion
 	     * when structures reference each other.
 	     */
-	    type = ct;
+	    item = ct;
 	    foreach (elem; children) {
 		if (elem.tag == DW_TAG_member) {
 		    Type type = cu_[elem[DW_AT_type]].toType;
@@ -2709,7 +2713,7 @@ class DIE
 	     * Set our memoized type so that we can avoid recursion
 	     * when structures reference each other.
 	     */
-	    type = at;
+	    item = at;
 	    foreach (elem; children) {
 		if (elem.tag == DW_TAG_subrange_type) {
 		    uint lb, ub, count;
@@ -2740,10 +2744,10 @@ class DIE
 
     Type toType()
     {
-	if (!type)
-	    type = toTypeHard;
+	if (!item)
+	    item = toTypeHard;
 
-	return type;
+	return cast(Type) item;
     }
 
     void print(int indent)

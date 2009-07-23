@@ -52,7 +52,11 @@ struct LineEntry
     int isa;
 }
 
-interface Type
+interface DebugItem
+{
+}
+
+interface Type: DebugItem
 {
     string toString(Language);
     string valueToString(Language, MachineState, Location);
@@ -640,7 +644,7 @@ interface Scope
     bool lookup(string, out Variable);
 }
 
-class Function: Scope
+class Function: DebugItem, Scope
 {
     this(string name)
     {
