@@ -3,7 +3,7 @@
 .PHONY:	clean
 
 if $(not $(defined comp))
-	comp = gdc
+	comp = ldc
 	export
 
 switch $(comp)
