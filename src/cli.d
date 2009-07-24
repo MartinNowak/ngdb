@@ -917,7 +917,10 @@ class PrintCommand: Command
 		Language lang = di.findLanguage(s.getGR(s.pcregno));
 		Variable var;
 
-		if (func.lookup(args[1], var) || s.lookup(args[1], var)) {
+		auto sc = new UnionScope;
+		sc.addScope(func);
+		sc.addScope(s);
+		if (sc.lookup(args[1], var)) {
 		    writefln("%s", var.toString(fmt, lang, s));
 		    return;
 		}

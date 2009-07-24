@@ -650,6 +650,35 @@ interface Scope
     bool lookup(string, out Variable);
 }
 
+class UnionScope: Scope
+{
+    void addScope(Scope sc)
+    {
+	subScopes_ ~= sc;
+    }
+
+    override {
+	string[] contents()
+	{
+	    string[] res;
+	    foreach (sc; subScopes_)
+		res ~= sc.contents;
+	    return res;
+	}
+	bool lookup(string name, out Variable var)
+	{
+	    foreach (sc; subScopes_) {
+		if (sc.lookup(name, var))
+		    return true;
+	    }
+	    return false;
+	}
+    }
+
+private:
+    Scope[] subScopes_;
+}
+
 class Function: DebugItem, Scope
 {
     this(string name)
