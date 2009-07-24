@@ -65,7 +65,7 @@ interface Command
     /**
      * Execute the command
      */
-    void run(Debugger db, string[] args);
+    void run(Debugger db, string format, string[] args);
 }
 
 class CommandTable
@@ -73,10 +73,27 @@ class CommandTable
     void run(Debugger db, string[] args, string prefix)
     {
 	string message;
+	string name = args[0];
+	string format = null;
+	int i;
 
-	Command c = lookup(args[0], message);
+	if ((i = find(name, '/')) >= 0) {
+	    format = name[i+1..$];
+	    switch (format) {
+	    case "d":
+	    case "x":
+	    case "o":
+		break;
+	    default:
+		writefln("Unsupported format string %s", format);
+		return;
+	    }
+	    name = name[0..i];
+	}
+
+	Command c = lookup(name, message);
 	if (c)
-	    c.run(db, args);
+	    c.run(db, format, args);
 	else
 	    writefln("Command %s%s is %s", prefix, args[0], message);
     }
@@ -342,7 +359,7 @@ class Debugger: TargetListener
 
 		Function func = di.findFunction(pc);
 		if (func) {
-		    s = func.toString(di.findLanguage(pc), state);
+		    s = func.toString(null, di.findLanguage(pc), state);
 		}
 
 		s ~= le[0].fullname ~ ":" ~ .toString(le[0].line);
@@ -498,7 +515,7 @@ class QuitCommand: Command
 	    return "Exit the debugger";
 	}
 
-	void run(Debugger db, string[] args)
+	void run(Debugger db, string, string[] args)
 	{
 	    db.quit_ = true;
 	}
@@ -523,7 +540,7 @@ class HelpCommand: Command
 	    return "Print this message";
 	}
 
-	void run(Debugger db, string[] args)
+	void run(Debugger db, string, string[] args)
 	{
 	    foreach (c; db.commands_.list_)
 		writefln("%s: %s", c.name, c.description);
@@ -549,7 +566,7 @@ class InfoCommand: Command
 	    return "Print information";
 	}
 
-	void run(Debugger db, string[] args)
+	void run(Debugger db, string, string[] args)
 	{
 	    args = args[1..args.length];
 
@@ -580,7 +597,7 @@ class RunCommand: Command
 	    return "run the program being debugged";
 	}
 
-	void run(Debugger db, string[] args)
+	void run(Debugger db, string, string[] args)
 	{
 	    if (db.target_) {
 		writefln("Program is already being debugged");
@@ -617,7 +634,7 @@ class StepCommand: Command
 	    return "step the program being debugged";
 	}
 
-	void run(Debugger db, string[] args)
+	void run(Debugger db, string, string[] args)
 	{
 	    // XXX current thread
 	    db.setStepBreakpoint(db.threads_[0]);
@@ -645,7 +662,7 @@ class ContinueCommand: Command
 	    return "continue the program being debugged";
 	}
 
-	void run(Debugger db, string[] args)
+	void run(Debugger db, string, string[] args)
 	{
 	    db.target_.cont();
 	    db.target_.wait();
@@ -671,7 +688,7 @@ class BreakCommand: Command
 	    return "Set a breakpoint";
 	}
 
-	void run(Debugger db, string[] args)
+	void run(Debugger db, string, string[] args)
 	{
 	    if (args.length != 2) {
 		writefln("usage: break <function or line>");
@@ -704,7 +721,7 @@ class InfoBreakCommand: Command
 	    return "List breakpoints";
 	}
 
-	void run(Debugger db, string[] args)
+	void run(Debugger db, string, string[] args)
 	{
 	    foreach (b; db.breakpoints_) {
 		string[] desc = b.describe;
@@ -744,7 +761,7 @@ class InfoThreadCommand: Command
 	    return "List threads";
 	}
 
-	void run(Debugger db, string[] args)
+	void run(Debugger db, string, string[] args)
 	{
 	    foreach (i, t; db.threads_) {
 		writefln("%d: stopped at 0x%08x", i + 1, t.pc);
@@ -771,7 +788,7 @@ class InfoRegistersCommand: Command
 	    return "List registerss";
 	}
 
-	void run(Debugger db, string[] args)
+	void run(Debugger db, string, string[] args)
 	{
 	    foreach (i, t; db.threads_) {
 		writefln("%d: stopped at 0x%08x", i + 1, t.pc);
@@ -803,7 +820,7 @@ class InfoVariablesCommand: Command
 	    return "List variabless";
 	}
 
-	void run(Debugger db, string[] args)
+	void run(Debugger db, string fmt, string[] args)
 	{
 	    TargetThread t = db.threads_[0];
 	    MachineState s = t.state;
@@ -816,7 +833,7 @@ class InfoVariablesCommand: Command
 		Language lang = di.findLanguage(s.getGR(s.pcregno));
 		foreach (v; vars) {
 		    writefln("%s = %s", v.toString(lang),
-			     v.valueToString(lang, s));
+			     v.valueToString(fmt, lang, s));
 		}
 	    }
 	}
@@ -841,7 +858,7 @@ class WhereCommand: Command
 	    return "Stack backtrace";
 	}
 
-	void run(Debugger db, string[] args)
+	void run(Debugger db, string, string[] args)
 	{
 	    TargetThread t = db.threads_[0];
 	    MachineState s = t.state, ns;
@@ -884,7 +901,7 @@ class PrintCommand: Command
 	    return "evaluate and print expressio";
 	}
 
-	void run(Debugger db, string[] args)
+	void run(Debugger db, string fmt, string[] args)
 	{
 	    TargetThread t = db.threads_[0];
 	    MachineState s = t.state;
@@ -901,7 +918,7 @@ class PrintCommand: Command
 		Variable var;
 
 		if (func.lookup(args[1], var) || s.lookup(args[1], var)) {
-		    writefln("%s", var.toString(lang, s));
+		    writefln("%s", var.toString(fmt, lang, s));
 		    return;
 		}
 	    }

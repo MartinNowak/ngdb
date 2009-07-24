@@ -59,7 +59,7 @@ interface DebugItem
 interface Type: DebugItem
 {
     string toString(Language);
-    string valueToString(Language, MachineState, Location);
+    string valueToString(string, Language, MachineState, Location);
     size_t byteWidth();
     bool isCharType();
     bool isIntegerType();
@@ -95,10 +95,16 @@ class IntegerType: Type
 	    return name_;
 	}
 
-	string valueToString(Language, MachineState state, Location loc)
+	string valueToString(string fmt, Language,
+			     MachineState state, Location loc)
 	{
-	    ubyte[] val = loc.readValue(state);
-	    return .toString(readInteger(val));
+	    ulong val = readInteger(loc.readValue(state));
+
+	    if (fmt)
+		fmt = "%#" ~ fmt;
+	    else
+		fmt = "%d";
+	    return format(fmt, val);
 	}
 
 	uint byteWidth()
@@ -138,7 +144,7 @@ class BooleanType: Type
 	    return name_;
 	}
 
-	string valueToString(Language, MachineState state, Location loc)
+	string valueToString(string, Language, MachineState state, Location loc)
 	{
 	    ubyte[] val = loc.readValue(state);
 	    return readInteger(val) ? "true" : "false";
@@ -184,7 +190,7 @@ class PointerType: Type
 		return lang.pointerType("void");
 	}
 
-	string valueToString(Language lang, MachineState state, Location loc)
+	string valueToString(string, Language lang, MachineState state, Location loc)
 	{
 	    string v;
 	    ulong p = readInteger(loc.readValue(state));
@@ -240,7 +246,7 @@ class ReferenceType: Type
 		return lang.referenceType("void");
 	}
 
-	string valueToString(Language, MachineState state, Location loc)
+	string valueToString(string, Language, MachineState state, Location loc)
 	{
 	    string v;
 	    ulong p = readInteger(loc.readValue(state));
@@ -290,9 +296,9 @@ class ModifierType: Type
 	{
 	    return modifier_ ~ " " ~ baseType_.toString(lang);
 	}
-	string valueToString(Language lang, MachineState state, Location loc)
+	string valueToString(string fmt, Language lang, MachineState state, Location loc)
 	{
-	    return baseType_.valueToString(lang, state, loc);
+	    return baseType_.valueToString(fmt, lang, state, loc);
 	}
 	size_t byteWidth()
 	{
@@ -328,9 +334,9 @@ class TypedefType: Type
 	{
 	    return name_;
 	}
-	string valueToString(Language lang, MachineState state, Location loc)
+	string valueToString(string fmt, Language lang, MachineState state, Location loc)
 	{
-	    return baseType_.valueToString(lang, state, loc);
+	    return baseType_.valueToString(fmt, lang, state, loc);
 	}
 	size_t byteWidth()
 	{
@@ -377,7 +383,7 @@ class CompoundType: Type
 	{
 	    return lang.structureType(name_);
 	}
-	string valueToString(Language lang, MachineState state, Location loc)
+	string valueToString(string fmt, Language lang, MachineState state, Location loc)
 	{
 	    if (lang.isStringType(this))
 		return lang.stringConstant(state, this, loc);
@@ -391,7 +397,7 @@ class CompoundType: Type
 		}
 		first = false;
 		v ~= f.name ~ " = ";
-		v ~= f.type.valueToString(lang, state,
+		v ~= f.type.valueToString(fmt, lang, state,
 					  loc.fieldLocation(f.loc));
 	    }
 	    v ~= " }";
@@ -454,7 +460,7 @@ class ArrayType: Type
 	    }
 	    return v;
 	}
-	string valueToString(Language lang, MachineState state, Location loc)
+	string valueToString(string, Language lang, MachineState state, Location loc)
 	{
 	    return toString(lang);
 	}
@@ -495,7 +501,7 @@ class VoidType: Type
 	{
 	    return "void";
 	}
-	string valueToString(Language, MachineState, Location)
+	string valueToString(string, Language, MachineState, Location)
 	{
 	    return "void";
 	}
@@ -608,9 +614,9 @@ struct Value
     Location loc;
     Type type;
 
-    string toString(Language lang, MachineState state)
+    string toString(string fmt, Language lang, MachineState state)
     {
-	return type.valueToString(lang, state, loc);
+	return type.valueToString(fmt, lang, state, loc);
     }
 }
 
@@ -624,17 +630,17 @@ struct Variable
 	return value.type.toString(lang) ~ " " ~ name;
     }
 
-    string toString(Language lang, MachineState state)
+    string toString(string fmt, Language lang, MachineState state)
     {
 	if (state)
-	    return toString(lang) ~ " = " ~ valueToString(lang, state);
+	    return toString(lang) ~ " = " ~ valueToString(fmt, lang, state);
 	else
 	    return toString(lang);
     }
 
-    string valueToString(Language lang, MachineState state)
+    string valueToString(string fmt, Language lang, MachineState state)
     {
-	return value.toString(lang, state);
+	return value.toString(fmt, lang, state);
     }
 }
 
@@ -653,7 +659,7 @@ class Function: DebugItem, Scope
 	containingType_ = null;
     }
 
-    string toString(Language lang, MachineState state)
+    string toString(string fmt, Language lang, MachineState state)
     {
 	string s;
 
@@ -667,7 +673,7 @@ class Function: DebugItem, Scope
 		s ~= std.string.format(", ");
 	    }
 	    first = false;
-	    s ~= std.string.format("%s", a.toString(lang, state));
+	    s ~= std.string.format("%s", a.toString(fmt, lang, state));
 	}
 	s ~= "): ";
 	return s;
