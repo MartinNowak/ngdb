@@ -27,8 +27,10 @@
 module objfile.debuginfo;
 
 version(tangobos) import std.compat;
-import std.string;
+import std.conv;
+import std.ctype;
 import std.stdio;
+import std.string;
 
 import objfile.language;
 import machine.machine;
@@ -61,8 +63,27 @@ interface Type: DebugItem
     string toString(Language);
     string valueToString(string, Language, MachineState, Location);
     size_t byteWidth();
+    Type pointerType(uint);
     bool isCharType();
     bool isIntegerType();
+}
+
+class TypeBase: Type
+{
+    abstract string toString(Language);
+    abstract string valueToString(string, Language, MachineState, Location);
+    abstract size_t byteWidth();
+    Type pointerType(uint width)
+    {
+	if (width in ptrTypes_)
+	    return ptrTypes_[width];
+	return (ptrTypes_[width] = new PointerType(this, width));
+    }
+    abstract bool isCharType();
+    abstract bool isIntegerType();
+
+private:
+    Type[uint] ptrTypes_;
 }
 
 ulong
@@ -79,13 +100,29 @@ readInteger(ubyte[] bytes)
     return value;
 }
 
-class IntegerType: Type
+void
+writeInteger(ulong val, ubyte[] bytes)
+{
+    // XXX endian
+
+    for (int i = 0; i < bytes.length; i++) {
+	bytes[i] = val & 0xff;
+	val >>= 8;
+    }
+}
+
+class IntegerType: TypeBase
 {
     this(string name, bool isSigned, uint byteWidth)
     {
 	name_ = name;
 	isSigned_ = isSigned;
 	byteWidth_ = byteWidth;
+    }
+
+    bool isSigned()
+    {
+	return isSigned_;
     }
 
     override
@@ -98,13 +135,37 @@ class IntegerType: Type
 	string valueToString(string fmt, Language,
 			     MachineState state, Location loc)
 	{
-	    ulong val = readInteger(loc.readValue(state));
-
 	    if (fmt)
 		fmt = "%#" ~ fmt;
 	    else
 		fmt = "%d";
-	    return format(fmt, val);
+
+	    if (isSigned) {
+		long val = readInteger(loc.readValue(state));
+		switch (byteWidth_) {
+		case 1:
+		    return format(fmt, cast(byte) val);
+		case 2:
+		    return format(fmt, cast(short) val);
+		case 4:
+		    return format(fmt, cast(int) val);
+		default:
+		    return format(fmt, val);
+		}
+	    } else {
+		ulong val = readInteger(loc.readValue(state));
+		switch (byteWidth_) {
+		case 1:
+		    return format(fmt, cast(ubyte) val);
+		case 2:
+		    return format(fmt, cast(ushort) val);
+		case 4:
+		    return format(fmt, cast(uint) val);
+		default:
+		    return format(fmt, val);
+		}
+		return format(fmt, val);
+	    }
 	}
 
 	uint byteWidth()
@@ -114,7 +175,7 @@ class IntegerType: Type
 
 	bool isCharType()
 	{
-	    return byteWidth_ == 1;
+	    return false;
 	}
 
 	bool isIntegerType()
@@ -129,7 +190,47 @@ private:
     uint byteWidth_;
 }
 
-class BooleanType: Type
+class CharType: IntegerType
+{
+    this(string name, bool isSigned, uint byteWidth)
+    {
+	super(name, isSigned, byteWidth);
+    }
+
+    override
+    {
+	string valueToString(string fmt, Language lang,
+			     MachineState state, Location loc)
+	{
+	    if (fmt)
+		return super.valueToString(fmt, lang, state, loc);
+
+	    if (isSigned) {
+		long val = readInteger(loc.readValue(state));
+		if (val < 0 || !isprint(val))
+		    return super.valueToString(fmt, lang, state, loc);
+		return lang.charConstant(val);
+	    } else {
+		ulong val = readInteger(loc.readValue(state));
+		if (!isprint(val))
+		    return super.valueToString(fmt, lang, state, loc);
+		return lang.charConstant(val);
+	    }		
+	}
+
+	bool isCharType()
+	{
+	    return true;
+	}
+    }
+
+private:
+    string name_;
+    bool isSigned_;
+    uint byteWidth_;
+}
+
+class BooleanType: TypeBase
 {
     this(string name, uint byteWidth)
     {
@@ -171,11 +272,10 @@ private:
     uint byteWidth_;
 }
 
-class PointerType: Type
+class PointerType: TypeBase
 {
-    this(string name, Type baseType, uint byteWidth)
+    this(Type baseType, uint byteWidth)
     {
-	name_ = name;
 	baseType_ = baseType;
 	byteWidth_ = byteWidth;
     }
@@ -222,12 +322,11 @@ class PointerType: Type
     }
 
 private:
-    string name_;
     Type baseType_;
     uint byteWidth_;
 }
 
-class ReferenceType: Type
+class ReferenceType: TypeBase
 {
     this(string name, Type baseType, uint byteWidth)
     {
@@ -281,7 +380,7 @@ private:
     uint byteWidth_;
 }
 
-class ModifierType: Type
+class ModifierType: TypeBase
 {
     this(string name, string modifier, Type baseType)
     {
@@ -320,7 +419,7 @@ private:
     Type baseType_;
 }
 
-class TypedefType: Type
+class TypedefType: TypeBase
 {
     this(string name, Type baseType)
     {
@@ -357,7 +456,7 @@ private:
     Type baseType_;
 }
 
-class CompoundType: Type
+class CompoundType: TypeBase
 {
     struct field {
 	string name;
@@ -398,7 +497,7 @@ class CompoundType: Type
 		first = false;
 		v ~= f.name ~ " = ";
 		v ~= f.type.valueToString(fmt, lang, state,
-					  loc.fieldLocation(f.loc));
+					  f.loc.fieldLocation(loc, state));
 	    }
 	    v ~= " }";
 	    return v;
@@ -427,18 +526,32 @@ class CompoundType: Type
 	return fields_[i];
     }
 
-private:
-    string kind_;
-    string name_;
-    uint byteWidth_;
-    field[] fields_;
-}
+    Value fieldValue(string fieldName, Location loc, MachineState state)
+    {
+	foreach (f; fields_) {
+	    if (f.name == fieldName)
+		return Value(f.loc.fieldLocation(loc, state), f.type);
+	}
+	throw new Exception(format("Field %s not found", fieldName));
+    }
 
-class ArrayType: Type
+    private:
+	string kind_;
+	string name_;
+	uint byteWidth_;
+	field[] fields_;
+    }
+
+class ArrayType: TypeBase
 {
     this(Type baseType)
     {
 	baseType_ = baseType;
+    }
+
+    Type baseType()
+    {
+	return baseType_;
     }
 
     void addDim(size_t indexBase, size_t count)
@@ -493,7 +606,7 @@ private:
 }
 
 
-class VoidType: Type
+class VoidType: TypeBase
 {
     override
     {
@@ -522,11 +635,37 @@ class VoidType: Type
 
 interface Location
 {
+    /**
+     * Size in bytes of the object
+     */
     size_t length();
+
+    /**
+     * Read the object value
+     */
     ubyte[] readValue(MachineState);
+
+    /**
+     * Write the object value
+     */
     void writeValue(MachineState, ubyte[]);
+
+    /**
+     * Return true if the object has a memory address
+     */
+    bool hasAddress(MachineState);
+
+    /**
+     * Return the memory address of the object
+     */
     ulong address(MachineState);
-    Location fieldLocation(Location fieldLoc);
+
+    /**
+     * Assuming this location represents the address of a field within
+     * a compound type, return a location that can access that field
+     * of the compound object located at base.
+     */
+    Location fieldLocation(Location base, MachineState state);
 }
 
 class RegisterLocation: Location
@@ -553,13 +692,18 @@ class RegisterLocation: Location
 	    return state.writeGR(regno_, value);
 	}
 
+	bool hasAddress(MachineState)
+	{
+	    return false;
+	}
+
 	ulong address(MachineState)
 	{
 	    assert(false);
 	    return 0;
 	}
 
-	Location fieldLocation(Location fieldLoc)
+	Location fieldLocation(Location fieldLoc, MachineState state)
 	{
 	    return null;
 	}
@@ -594,12 +738,17 @@ class MemoryLocation: Location
 	    return state.writeMemory(address_, value);
 	}
 
+	bool hasAddress(MachineState)
+	{
+	    return true;
+	}
+
 	ulong address(MachineState)
 	{
 	    return address_;
 	}
 
-	Location fieldLocation(Location fieldLoc)
+	Location fieldLocation(Location fieldLoc, MachineState state)
 	{
 	    return null;
 	}
@@ -607,6 +756,626 @@ class MemoryLocation: Location
 
     ulong address_;
     size_t length_;
+}
+
+class ConstantLocation: Location
+{
+    this(ubyte[] value)
+    {
+	value_.length = value.length;
+	value_[] = value[];
+    }
+
+    override {
+	size_t length()
+	{
+	    return value_.length;
+	}
+
+	ubyte[] readValue(MachineState state)
+	{
+	    return value_;
+	}
+
+	void writeValue(MachineState state, ubyte[] value)
+	{
+	    assert(value.length == value_.length);
+	    value_[] = value[];
+	}
+
+	bool hasAddress(MachineState)
+	{
+	    return false;
+	}
+
+	ulong address(MachineState)
+	{
+	    assert(false);
+	    return 0;
+	}
+
+	Location fieldLocation(Location fieldLoc, MachineState state)
+	{
+	    return null;
+	}
+    }
+
+    ubyte[] value_;
+}
+
+interface Expr
+{
+    string toString();
+    Value eval(Language lang, Scope sc, MachineState state);
+}
+
+class VariableExpr: Expr
+{
+    this(string name)
+    {
+	name_ = name;
+    }
+    override {
+	string toString()
+	{
+	    return name_;
+	}
+	Value eval(Language lang, Scope sc, MachineState state)
+	{
+	    Variable var;
+	    if (sc.lookup(name_, var))
+		return var.value;
+	    throw new Exception(format("Variable %s not found", name_));
+	}
+    }
+private:
+    string name_;
+}
+
+class NumericExpr: Expr
+{
+    this(string num)
+    {
+	if (num[$-1] == 'U' || num[$-1] == 'u') {
+	    unum_ = toUlong(num[0..$-1]);
+	    isSigned_ = false;
+	} else {
+	    num_ = toLong(num);
+	    isSigned_ = true;
+	}
+    }
+    override {
+	string toString()
+	{
+	    return std.string.toString(num_);
+	}
+	Value eval(Language lang, Scope sc, MachineState state)
+	{
+	    ubyte val[4];
+	    long n = num_;
+
+	    
+	    Type ty;
+	    if (isSigned_) {
+		writeInteger(num_, val);
+		ty = new IntegerType("int", true, 4);
+	    } else {
+		writeInteger(unum_, val);
+		ty = new IntegerType("uint", false, 4);
+	    }
+	    return Value(new ConstantLocation(val), ty);
+	}
+    }
+private:
+    bool isSigned_;
+    union {
+	ulong unum_;
+	long num_;
+    }
+}
+
+class UnaryExpr: Expr
+{
+    this(Expr e)
+    {
+	expr_ = e;
+    }
+    abstract string toString();
+    abstract Value eval(Language lang, Scope sc, MachineState state);
+private:
+    Expr expr_;
+}
+
+class AddressOfExpr: UnaryExpr
+{
+    this(Expr e)
+    {
+	super(e);
+    }
+
+    override {
+	string toString()
+	{
+	    return "&" ~ expr_.toString();
+	}
+	Value eval(Language lang, Scope sc, MachineState state)
+	{
+	    Value expr = expr_.eval(lang, sc, state);
+	    if (expr.loc.hasAddress(state)) {
+		ulong addr = expr.loc.address(state);
+		ubyte[] val;
+		val.length = state.pointerSize;
+		writeInteger(addr, val);
+		return Value(new ConstantLocation(val),
+			     expr.type.pointerType(state.pointerSize));
+	    } else {
+		throw new Exception("Can't take the address of a value which is not in memory");
+	    }
+	}
+    }
+}
+
+class DereferenceExpr: UnaryExpr
+{
+    this(Expr e)
+    {
+	super(e);
+    }
+
+    override {
+	string toString()
+	{
+	    return "*" ~ expr_.toString();
+	}
+	Value eval(Language lang, Scope sc, MachineState state)
+	{
+	    Value expr = expr_.eval(lang, sc, state);
+	    PointerType ptrTy = cast(PointerType) expr.type;
+	    if (!ptrTy)
+		throw new Exception("Attempting to dereference a non-pointer");
+	    return Value(new MemoryLocation(
+			     readInteger(expr.loc.readValue(state)),
+			     ptrTy.baseType.byteWidth),
+			 ptrTy.baseType);
+	}
+    }
+}
+
+template IntegerUnaryExpr(string op, string name)
+{
+    class IntegerUnaryExpr: UnaryExpr
+    {
+	this(Expr e)
+	{
+	    super(e);
+	}
+
+	override {
+	    string toString()
+	    {
+		return op ~ expr_.toString();
+	    }
+	    Value eval(Language lang, Scope sc, MachineState state)
+	    {
+		Value expr = expr_.eval(lang, sc, state);
+		if (!expr.type.isIntegerType)
+		    throw new Exception(
+			format("Attempting to %s a value of type %s",
+			       name,
+			       expr.type.toString(lang)));
+		ubyte[] v = expr.loc.readValue(state);
+		ulong val = readInteger(v);
+		mixin("val = " ~ op ~ "val;");
+		writeInteger(val, v);
+		return Value(new ConstantLocation(v), expr.type);
+	    }
+	}
+    }
+}
+
+class NegateExpr: IntegerUnaryExpr!("-", "negate")
+{
+    this(Expr e)
+    {
+	super(e);
+    }
+}
+
+class LogicalNegateExpr: IntegerUnaryExpr!("!", "logically negate")
+{
+    this(Expr e)
+    {
+	super(e);
+    }
+    override {
+	Value eval(Language lang, Scope sc, MachineState state)
+	{
+	    Value expr = expr_.eval(lang, sc, state);
+	    PointerType ptrTy = cast(PointerType) expr.type;
+	    if (!ptrTy)
+		return super.eval(lang, sc, state);
+	    ulong ptr = readInteger(expr.loc.readValue(state));
+	    Type ty = new IntegerType("int", true, 4);
+	    ubyte v[4];
+	    writeInteger(ptr ? 0 : 1, v);
+	    return Value(new ConstantLocation(v), ty);
+	}
+    }
+}
+
+class ComplementExpr: IntegerUnaryExpr!("~", "complement")
+{
+    this(Expr e)
+    {
+	super(e);
+    }
+}
+
+class PreIncrementExpr: UnaryExpr
+{
+    this(string op, Expr e)
+    {
+	super(e);
+	op_ = op;
+    }
+    override {
+	string toString()
+	{
+	    return op_ ~ expr_.toString;
+	}
+	Value eval(Language lang, Scope sc, MachineState state)
+	{
+	    return Value(null, new VoidType);
+	}
+    }
+    string op_;
+}
+
+class PostIncrementExpr: UnaryExpr
+{
+    this(string op, Expr e)
+    {
+	super(e);
+	op_ = op;
+    }
+    override {
+	string toString()
+	{
+	    return expr_.toString() ~ op_;
+	}
+	Value eval(Language lang, Scope sc, MachineState state)
+	{
+	    return Value(null, new VoidType);
+	}
+    }
+    string op_;
+}
+
+class BinopExpr: Expr
+{
+    this(string op, Expr l, Expr r)
+    {
+	op_ = op;
+	left_ = l;
+	right_ = r;
+    }
+    override {
+	string toString()
+	{
+	    return left_.toString ~ " " ~ op_ ~ " " ~ right_.toString;
+	}
+	Value eval(Language lang, Scope sc, MachineState state)
+	{
+	    return Value(null, null); // XXX
+	}
+    }
+private:
+    string op_;
+    Expr left_;
+    Expr right_;
+}
+
+class AssignExpr: BinopExpr
+{
+    this(string op, Expr l, Expr r)
+    {
+	super(op, l, r);
+    }
+}
+
+class BinaryExpr: Expr
+{
+    this(Expr l, Expr r)
+    {
+	left_ = l;
+	right_ = r;
+    }
+    abstract string toString();
+    abstract Value eval(Language lang, Scope sc, MachineState state);
+private:
+    Expr left_;
+    Expr right_;
+}
+
+template IntegerBinaryExpr(string op, string name)
+{
+    class IntegerBinaryExpr: BinaryExpr
+    {
+	this(Expr l, Expr r)
+	{
+	    super(l, r);
+	}
+
+	override {
+	    string toString()
+	    {
+		return left_.toString() ~ " " ~ op ~ " " ~ right_.toString();
+	    }
+	    Value eval(Language lang, Scope sc, MachineState state)
+	    {
+		Value left = left_.eval(lang, sc, state);
+		if (!left.type.isIntegerType)
+		    throw new Exception(
+			format("Attempting to %s a value of type %s",
+			       name,
+			       left.type.toString(lang)));
+		ulong lval = readInteger(left.loc.readValue(state));
+
+		Value right = right_.eval(lang, sc, state);
+		if (!right.type.isIntegerType)
+		    throw new Exception(
+			format("Attempting to %s a value of type %s",
+			       name,
+			       right.type.toString(lang)));
+		ulong rval = readInteger(right.loc.readValue(state));
+		
+		static if (op == "/" || op == "%") {
+		    if (!rval)
+			throw new Exception("Divide or remainder with zero");
+		}
+		
+		mixin("lval = lval " ~ op ~ "rval;");
+		ubyte[] v;
+		v.length = left.loc.length;
+		writeInteger(lval, v);
+		return Value(new ConstantLocation(v), left.type);
+	    }
+	}
+    }
+}
+
+class CommaExpr: BinaryExpr
+{
+    this(Expr l, Expr r)
+    {
+	super(l, r);
+    }
+    override {
+	string toString()
+	{
+	    return left_.toString() ~ ", " ~ right_.toString();
+	}
+	Value eval(Language lang, Scope sc, MachineState state)
+	{
+	    Value left = left_.eval(lang, sc, state);
+	    Value right = right_.eval(lang, sc, state);
+	    return right;
+	}
+    }
+}
+
+class AddExpr: IntegerBinaryExpr!("+", "add")
+{
+    this(Expr l, Expr r)
+    {
+	super(l, r);
+    }
+    override {
+	Value eval(Language lang, Scope sc, MachineState state)
+	{
+	    Value left = left_.eval(lang, sc, state);
+	    PointerType ptrTy = cast(PointerType) left.type;
+	    if (!ptrTy)
+		return super.eval(lang, sc, state);
+
+	    Value right = right_.eval(lang, sc, state);
+	    if (!right.type.isIntegerType)
+		throw new Exception("Pointer arithmetic with non-integer");
+
+	    ulong ptr = readInteger(left.loc.readValue(state));
+	    ulong off = readInteger(right.loc.readValue(state));
+	    ptr += off * ptrTy.baseType.byteWidth;
+	    ubyte[] val;
+	    val.length = ptrTy.byteWidth;
+	    writeInteger(ptr, val);
+	    return Value(new ConstantLocation(val), ptrTy);
+	}
+    }
+}
+
+class SubtractExpr: IntegerBinaryExpr!("-", "add")
+{
+    this(Expr l, Expr r)
+    {
+	super(l, r);
+    }
+    override {
+	Value eval(Language lang, Scope sc, MachineState state)
+	{
+	    Value left = left_.eval(lang, sc, state);
+	    PointerType ptrTy = cast(PointerType) left.type;
+	    if (!ptrTy)
+		return super.eval(lang, sc, state);
+
+	    Value right = right_.eval(lang, sc, state);
+	    PointerType rptrTy = cast(PointerType) right.type;
+	    if (!rptrTy && !right.type.isIntegerType)
+		throw new Exception("Pointer arithmetic with non-integer or non-pointer");
+	    if (rptrTy && rptrTy != ptrTy)
+		throw new Exception("Pointer arithmetic with differing pointer types");
+
+	    ulong lval = readInteger(left.loc.readValue(state));
+	    ulong rval  = readInteger(right.loc.readValue(state));
+	    if (rptrTy) {
+		ulong diff = (lval - rval) / ptrTy.baseType.byteWidth;
+		ubyte[] val;
+		val.length = ptrTy.byteWidth;
+		writeInteger(diff, val);
+		return Value(new ConstantLocation(val),
+			     new IntegerType("int", true, ptrTy.byteWidth));
+	    } else {
+		ulong ptr = lval - rval * ptrTy.baseType.byteWidth;
+		ubyte[] val;
+		val.length = ptrTy.byteWidth;
+		writeInteger(ptr, val);
+		return Value(new ConstantLocation(val), ptrTy);
+	    }
+	}
+    }
+}
+
+class IndexExpr: Expr
+{
+    this(Expr base, Expr index)
+    {
+	base_ = base;
+	index_ = index;
+    }
+    override {
+	string toString()
+	{
+	    return base_.toString ~ "[" ~ index_.toString ~ "]";
+	}
+	Value eval(Language lang, Scope sc, MachineState state)
+	{
+	    Value base = base_.eval(lang, sc, state);
+
+	    ArrayType aTy = cast(ArrayType) base.type;
+	    PointerType ptrTy = cast(PointerType) base.type;
+	    Type elementType;
+	    Location baseLoc;
+	    if (aTy) {
+		elementType = aTy.baseType;
+		baseLoc = base.loc;
+	    } else if (ptrTy) {
+		elementType = ptrTy.baseType;
+		/*
+		 * Dereference the pointer to get the array base
+		 */
+		ulong addr = readInteger(base.loc.readValue(state));
+		baseLoc = new MemoryLocation(addr, 0);
+	    } else {
+		throw new Exception("Expected array or pointer for index expression");
+	    }
+
+	    Value index = index_.eval(lang, sc, state);
+	    IntegerType intTy = cast(IntegerType) index.type;
+	    if (!index.type.isIntegerType) {
+		throw new Exception("Expected integer for index expression");
+	    }
+
+	    auto elementLoc = new MemoryLocation(
+		baseLoc.address(state)
+		+ (readInteger(index.loc.readValue(state))
+		   * elementType.byteWidth), 
+		elementType.byteWidth);
+
+	    return Value(elementLoc, elementType);
+	}
+    }
+private:
+    Expr base_;
+    Expr index_;
+}
+
+class MemberExpr: Expr
+{
+    this(Expr base, string member)
+    {
+	base_ = base;
+	member_ = member;
+    }
+    override {
+	string toString()
+	{
+	    return base_.toString ~ "." ~ member_;
+	}
+	Value eval(Language lang, Scope sc, MachineState state)
+	{
+	    Value base = base_.eval(lang, sc, state);
+	    CompoundType cTy = cast(CompoundType) base.type;
+	    if (!cTy)
+		throw new Exception("Not a compound type");
+	    return cTy.fieldValue(member_, base.loc, state);
+	}
+    }
+private:
+    Expr base_;
+    string member_;
+}
+
+class PointsToExpr: Expr
+{
+    this(Expr base, string member)
+    {
+	base_ = base;
+	member_ = member;
+    }
+    override {
+	string toString()
+	{
+	    return base_.toString ~ "->" ~ member_;
+	}
+	Value eval(Language lang, Scope sc, MachineState state)
+	{
+	    Value base = base_.eval(lang, sc, state);
+	    PointerType ptrTy = cast(PointerType) base.type;
+	    if (!ptrTy)
+		throw new Exception("Not a pointer");
+
+	    CompoundType cTy = cast(CompoundType) ptrTy.baseType;
+	    if (!cTy)
+		throw new Exception("Not a pointer to a compound type");
+	    ulong ptr = readInteger(base.loc.readValue(state));
+	    return cTy.fieldValue(member_,
+				  new MemoryLocation(ptr, cTy.byteWidth),
+				  state);
+	}
+    }
+private:
+    Expr base_;
+    string member_;
+}
+
+class IfElseExpr: Expr
+{
+    this(Expr cond, Expr trueExp, Expr falseExp)
+    {
+	cond_ = cond;
+	trueExp_ = trueExp;
+	falseExp_ = falseExp;
+    }
+    override {
+	string toString()
+	{
+	    return cond_.toString ~ " ? " ~ trueExp_.toString
+		~ " : " ~ falseExp_.toString;
+	}
+	Value eval(Language lang, Scope sc, MachineState state)
+	{
+	    Value cond = cond_.eval(lang, sc, state);
+	    if (!cond.type.isIntegerType)
+		throw new Exception("Condition value is not an integer");
+	    if (readInteger(cond.loc.readValue(state)))
+		return trueExp_.eval(lang, sc, state);
+	    else
+		return falseExp_.eval(lang, sc, state);
+	}
+    }
+private:
+    Expr cond_;
+    Expr trueExp_;
+    Expr falseExp_;
 }
 
 struct Value

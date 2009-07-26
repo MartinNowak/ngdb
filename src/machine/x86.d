@@ -206,6 +206,11 @@ class X86State: MachineState
 	    return X86Reg.EIP;
 	}
 
+	uint pointerSize()
+	{
+	    return uint.sizeof;
+	}
+
 	ubyte[] readMemory(ulong address, size_t bytes)
 	{
 	    return target_.readMemory(address, bytes);

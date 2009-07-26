@@ -1504,20 +1504,7 @@ private:
 
 private:
 
-class DWLoc: Location
-{
-    abstract size_t length();
-    abstract ubyte[] readValue(MachineState);
-    abstract void writeValue(MachineState, ubyte[]);
-    abstract ulong address(MachineState);
-    abstract Location fieldLocation(Location fieldLoc);
-    abstract bool evalLocation(CompilationUnit cu, MachineState state,
-			       out Location loc);
-    abstract bool evalExpr(CompilationUnit cu, MachineState state,
-			   ref ValueStack stack);
-}
-
-class DwarfLocation: DWLoc
+class DwarfLocation: Location
 {
     this(CompilationUnit cu, AttributeValue av, size_t len)
     {
@@ -1547,6 +1534,14 @@ class DwarfLocation: DWLoc
 		return loc.writeValue(state, value);
 	}
 
+	bool hasAddress(MachineState state)
+	{
+	    Location loc;
+	    if (av_.evalLocation(cu_, state, loc))
+		return loc.hasAddress(state);
+	    return false;
+	}
+
 	ulong address(MachineState state)
 	{
 	    Location loc;
@@ -1555,197 +1550,34 @@ class DwarfLocation: DWLoc
 	    return 0;
 	}
 
-	Location fieldLocation(Location fieldLoc)
+	Location fieldLocation(Location baseLoc, MachineState state)
 	{
-	    DWLoc loc = cast(DWLoc) fieldLoc;
-	    if (loc)
-		return new DwarfFieldLocation(cu_, this, loc);
-	}
+	    assert(baseLoc.hasAddress(state));
 
-	bool evalLocation(CompilationUnit cu, MachineState state,
-			  out Location loc)
-	{
-	    return av_.evalLocation(cu, state, loc);
-	}
+	    ValueStack stack;
+	    ulong off;
 
-	bool evalExpr(CompilationUnit cu, MachineState state,
-		      ref ValueStack stack)
-	{
-	    return av_.evalExpr(cu, state, stack);
+	    stack.push(baseLoc.address(state));
+	    evalExpr(cu_, state, stack);
+	    return new MemoryLocation(stack.pop, length);
 	}
+    }
+
+    bool evalLocation(CompilationUnit cu, MachineState state,
+		      out Location loc)
+    {
+	return av_.evalLocation(cu, state, loc);
+    }
+
+    bool evalExpr(CompilationUnit cu, MachineState state,
+		  ref ValueStack stack)
+    {
+	return av_.evalExpr(cu, state, stack);
     }
 
     CompilationUnit cu_;
     AttributeValue av_;
     size_t length_;
-}
-
-class DwarfFieldLocation: DWLoc
-{
-    this(CompilationUnit cu, DWLoc baseLoc, DWLoc fieldLoc)
-    {
-	cu_ = cu;
-	baseLoc_ = baseLoc;
-	fieldLoc_ = fieldLoc;
-    }
-
-    override {
-	size_t length()
-	{
-	    return (cast(Location) fieldLoc_).length;
-	}
-
-	ubyte[] readValue(MachineState state)
-	{
-	    Location loc;
-
-	    if (evalLocation(cu_, state, loc))
-		return loc.readValue(state);
-
-	    return null;
-	}
-
-	void writeValue(MachineState state, ubyte[] value)
-	{
-	    Location loc;
-
-	    if (evalLocation(cu_, state, loc))
-		loc.writeValue(state, value);
-	}
-
-	ulong address(MachineState state)
-	{
-	    Location loc;
-
-	    if (evalLocation(cu_, state, loc))
-		return loc.address(state);
-
-	    return 0;
-	}
-
-	Location fieldLocation(Location fieldLoc)
-	{
-	    DWLoc loc = cast(DWLoc) fieldLoc;
-	    if (loc)
-		return new DwarfFieldLocation(cu_, this, loc);
-	}
-
-	bool evalLocation(CompilationUnit cu, MachineState state,
-			  out Location loc)
-	{
-	    ValueStack stack;
-	    ulong off;
-
-	    stack.push(0);
-	    fieldLoc_.evalExpr(cu_, state, stack);
-	    off = stack.pop;
-
-	    if (baseLoc_.evalLocation(cu_, state, loc)) {
-		if (cast(MemoryLocation) loc) {
-		    loc = new MemoryLocation(loc.address(state) + off,
-					     fieldLoc_.length);
-		} else {
-		    loc = new DwarfOffsetLoc(loc, off, fieldLoc_.length);
-		}
-		return true;
-	    }
-
-	    return false;
-	}
-
-	bool evalExpr(CompilationUnit cu, MachineState state,
-			   ref ValueStack stack)
-	{
-	    return false;
-	}
-    }
-
-    CompilationUnit cu_;
-    DWLoc baseLoc_;
-    DWLoc fieldLoc_;
-}
-
-class DwarfOffsetLoc: Location
-{
-    this(Location loc, uint off, size_t length)
-    {
-	loc_ = loc;
-	off_ = off;
-	length_ = length;
-    }
-
-    override {
-	size_t length()
-	{
-	    return length_;
-	}
-
-	ubyte[] readValue(MachineState state)
-	{
-	    ubyte[] val = loc_.readValue(state);
-	    return val[off_..off_ + length_];
-	}
-
-	void writeValue(MachineState state, ubyte[] value)
-	{
-	    ubyte[] val = loc_.readValue(state);
-	    val[off_..off_ + length_] = value[];
-	    loc_.writeValue(state, val);
-	}
-
-	ulong address(MachineState state)
-	{
-	    return loc_.address(state) + off_;
-	}
-
-	Location fieldLocation(Location fieldLoc)
-	{
-	    return null;
-	}
-    }
-
-    Location loc_;
-    uint off_;
-    size_t length_;
-}
-
-class DwarfConstLoc: Location
-{
-    this(ubyte[] value)
-    {
-	value_[] = value[];
-    }
-
-    override {
-	size_t length()
-	{
-	    return value_.length;
-	}
-
-	ubyte[] readValue(MachineState state)
-	{
-	    return value_;
-	}
-
-	void writeValue(MachineState state, ubyte[] value)
-	{
-	    assert(value.length == value_.length);
-	    value_[] = value[];
-	}
-
-	ulong address(MachineState)
-	{
-	    assert(false);
-	    return 0;
-	}
-
-	Location fieldLocation(Location fieldLoc)
-	{
-	    return null;
-	}
-    }
-
-    ubyte[] value_;
 }
 
 struct ValueStack
@@ -2636,15 +2468,19 @@ class DIE
 	case DW_TAG_base_type:
 	    switch (this[DW_AT_encoding].ul) {
 	    case DW_ATE_signed:
-	    case DW_ATE_signed_char:
 		return new IntegerType(name, true, this[DW_AT_byte_size].ui);
 
 	    case DW_ATE_unsigned:
-	    case DW_ATE_unsigned_char:
 		return new IntegerType(name, false, this[DW_AT_byte_size].ui);
 
 	    case DW_ATE_boolean:
 		return new BooleanType(name, this[DW_AT_byte_size].ui);
+
+	    case DW_ATE_signed_char:
+		return new CharType(name, true, this[DW_AT_byte_size].ui);
+
+	    case DW_ATE_unsigned_char:
+		return new CharType(name, false, this[DW_AT_byte_size].ui);
 
 	    case DW_ATE_address:
 	    case DW_ATE_complex_float:
@@ -2662,7 +2498,7 @@ class DIE
 	    }
 
 	case DW_TAG_pointer_type:
-	    return new PointerType(name, subType, is64 ? 8 : 4);
+	    return subType.pointerType(is64 ? 8 : 4);
 
 	case DW_TAG_const_type:
 	    return new ModifierType(name, "const", subType);

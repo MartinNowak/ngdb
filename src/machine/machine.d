@@ -83,6 +83,11 @@ interface MachineState: Scope
     int pcregno();
 
     /**
+     * Return the width of a pointer in bytes
+     */
+    uint pointerSize();
+
+    /**
      * Read from the machine's memory.
      */
     ubyte[] readMemory(ulong address, size_t bytes);

@@ -903,29 +903,39 @@ class PrintCommand: Command
 
 	void run(Debugger db, string fmt, string[] args)
 	{
-	    TargetThread t = db.threads_[0];
-	    MachineState s = t.state;
+	    TargetThread t;
+	    MachineState s;
 	    DebugInfo di;
 
-	    if (args.length != 2) {
+	    if (db.threads_.length > 0) {
+		t = db.threads_[0];
+		s = t.state;
+	    } else {
+		s = null;
+	    }
+
+	    if (args.length < 2) {
 		writefln("usage: print <expr>");
 		return;
 	    }
 
-	    if (db.findDebugInfo(s, di)) {
+	    auto sc = new UnionScope;
+	    Language lang;
+	    if (s && db.findDebugInfo(s, di)) {
 		Function func = di.findFunction(s.getGR(s.pcregno));
-		Language lang = di.findLanguage(s.getGR(s.pcregno));
-		Variable var;
-
-		auto sc = new UnionScope;
+		lang = di.findLanguage(s.getGR(s.pcregno));
 		sc.addScope(func);
 		sc.addScope(s);
-		if (sc.lookup(args[1], var)) {
-		    writefln("%s", var.toString(fmt, lang, s));
-		    return;
-		}
+	    } else {
+		lang = new CLikeLanguage;
 	    }
-	    writefln("Can't evaluate %s", args[1]);
+
+	    try {
+		auto e = lang.parseExpr(join(args[1..$], " "));
+		writefln("%s", e.eval(lang, sc, s).toString(fmt, lang, s));
+	    } catch (Exception ex) {
+		writefln("%s", ex.msg);
+	    }
 	}
     }
 }
