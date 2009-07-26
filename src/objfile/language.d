@@ -697,19 +697,10 @@ class DLanguage: CLikeLanguage
 	    if (super.isStringType(type))
 		return true;
 
-	    CompoundType ct = cast(CompoundType) type;
-	    if (!ct)
+	    DArrayType at = cast(DArrayType) type;
+	    if (!at)
 		return false;
-	    if (ct.length != 2)
-		return false;
-	    CompoundType.field len = ct[0];
-	    if (!len.type.isIntegerType)
-		return false;
-	    CompoundType.field ptr = ct[1];
-	    PointerType pt = cast(PointerType) ptr.type;
-	    if (pt && pt.baseType.isCharType)
-		return true;
-	    return false;
+	    return at.baseType.isCharType;
 	}
 	string stringConstant(MachineState state, Type type, Location loc)
 	{
@@ -717,16 +708,14 @@ class DLanguage: CLikeLanguage
 	    if (pt)
 		return super.stringConstant(state, type, loc);
 
-	    CompoundType ct = cast(CompoundType) type;
-	    CompoundType.field len = ct[0];
-	    CompoundType.field ptr = ct[1];
-
-	    Location lenLoc = len.loc.fieldLocation(loc, state);
-	    Location ptrLoc = ptr.loc.fieldLocation(loc, state);
-
+	    /*
+	     * Assume the representation is two pointer-sized
+	     * quantities - the length followed by the base pointer.
+	     */
+	    ubyte[] val = loc.readValue(state);
 	    return _stringConstant(state,
-				   readInteger(ptrLoc.readValue(state)),
-				   readInteger(lenLoc.readValue(state)));
+				   readInteger(val[state.pointerSize..$]),
+				   readInteger(val[0..state.pointerSize]));
 	}
         string namespaceSeparator()
 	{

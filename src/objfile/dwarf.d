@@ -97,6 +97,12 @@ enum {
     DW_TAG_imported_unit		= 0x3d,
     DW_TAG_condition			= 0x3f,
     DW_TAG_shared_type			= 0x40,
+
+    // D programming language extensions
+    DW_TAG_darray_type			= 0x41,
+    DW_TAG_aarray_type			= 0x42,
+    DW_TAG_delegate_type		= 0x43,
+
     DW_TAG_lo_user			= 0x4080,
     DW_TAG_hi_user			= 0xffff
 }
@@ -159,6 +165,9 @@ string tagNames[] = [
     0x3d: "DW_TAG_imported_unit",
     0x3f: "DW_TAG_condition",
     0x40: "DW_TAG_shared_type",
+    0x41: "DW_TAG_darray_type",
+    0x42: "DW_TAG_aarray_type",
+    0x43: "DW_TAG_delegate_type",
     0x4080: "DW_TAG_lo_user",
     0xffff: "DW_TAG_hi_user"
     ];
@@ -826,7 +835,8 @@ class DwarfFile: public DebugInfo
 			set.names[name] ~= off;
 		    else
 			set.names[name] = [off];
-		    //writefln("%s = %d (cu %d)", name, off, set.sectionOffset);
+		    if (name == "foo.foo")
+		    writefln("%s = %d (cu %d)", name, off, set.cuOffset);
 		}
 		pubnames_ ~= set;
 	    }
@@ -854,7 +864,7 @@ class DwarfFile: public DebugInfo
 			set.names[name] ~= off;
 		    else
 			set.names[name] = [off];
-		    writefln("%s = %d (cu %d)", name, off, set.cuOffset);
+		    //writefln("%s = %d (cu %d)", name, off, set.cuOffset);
 		}
 
 	    }
@@ -890,23 +900,32 @@ class DwarfFile: public DebugInfo
 			break;
 		    cu.addresses ~= AddressRange(start, start + length);
 		}
+		//writefln("cu offset %d = %#x", cu.offset, cast(ulong) cu);
 		compilationUnits_[cu.offset] = cu;
 	    }
-	} else {
-	    // If there is no .debug_aranges section, just read all
-	    // the .debug_info section now.
-	    char[] debugInfo = debugSection(".debug_info");
-	    char* p = &debugInfo[0], pNext, ep = p + debugInfo.length;
-	    bool is64;
-	    size_t len;
-
-	    do {
-		CompilationUnit cu = new CompilationUnit(this);
-		cu.offset = p - &debugInfo[0];
-		parseCompilationUnit(cu, p);
-		compilationUnits_[cu.offset] = cu;
-	    } while (p < ep);
 	}
+
+	/*
+	 * Scan through the .debug_info section and add partial
+	 * compilation units for everything we didn't handle when
+	 * processing .debug_aranges.
+	 */
+	char[] debugInfo = debugSection(".debug_info");
+	char* p = &debugInfo[0], ep = p + debugInfo.length;
+	bool is64;
+
+	do {
+	    CompilationUnit cu = new CompilationUnit(this);
+	    cu.offset = p - &debugInfo[0];
+	    auto len = parseInitialLength(p, is64);
+	    auto pNext = p + len;
+	    auto ver = parseUShort(p);
+	    cu.addressSize = parseUByte(p);
+	    cu.segmentSize = 0;
+	    compilationUnits_[cu.offset] = cu;
+	    p = pNext;
+	} while (p < ep);
+
 	parseDebugFrame();
     }
 
@@ -1276,7 +1295,8 @@ private:
 		if (fe.directoryIndex) {
 		    filename =
 			.toString(includeDirectories[fe.directoryIndex - 1]);
-		    filename ~= "/";
+		    if (filename[$-1] != '/')
+			filename ~= "/";
 		    filename ~= .toString(fe.name);
 		} else {
 		    filename = .toString(fe.name);
@@ -1522,7 +1542,7 @@ class DwarfLocation: Location
 	ubyte[] readValue(MachineState state)
 	{
 	    Location loc;
-	    if (av_.evalLocation(cu_, state, loc))
+	    if (av_.evalLocation(cu_, state, length_, loc))
 		return loc.readValue(state);
 	    return null;
 	}
@@ -1530,14 +1550,14 @@ class DwarfLocation: Location
 	void writeValue(MachineState state, ubyte[] value)
 	{
 	    Location loc;
-	    if (av_.evalLocation(cu_, state, loc))
+	    if (av_.evalLocation(cu_, state, length_, loc))
 		return loc.writeValue(state, value);
 	}
 
 	bool hasAddress(MachineState state)
 	{
 	    Location loc;
-	    if (av_.evalLocation(cu_, state, loc))
+	    if (av_.evalLocation(cu_, state, length_, loc))
 		return loc.hasAddress(state);
 	    return false;
 	}
@@ -1545,7 +1565,7 @@ class DwarfLocation: Location
 	ulong address(MachineState state)
 	{
 	    Location loc;
-	    if (av_.evalLocation(cu_, state, loc))
+	    if (av_.evalLocation(cu_, state, length_, loc))
 		return loc.address(state);
 	    return 0;
 	}
@@ -1561,12 +1581,6 @@ class DwarfLocation: Location
 	    evalExpr(cu_, state, stack);
 	    return new MemoryLocation(stack.pop, length);
 	}
-    }
-
-    bool evalLocation(CompilationUnit cu, MachineState state,
-		      out Location loc)
-    {
-	return av_.evalLocation(cu, state, loc);
     }
 
     bool evalExpr(CompilationUnit cu, MachineState state,
@@ -1948,7 +1962,7 @@ struct Expr
     }
 
     bool evalLocation(CompilationUnit cu, MachineState state,
-		      out Location result)
+		      size_t length, out Location result)
     {
 	/*
 	 * Loop over the expression finding pieces to compose into the
@@ -1966,16 +1980,16 @@ struct Expr
 	    if (op >= DW_OP_reg0 && op <= DW_OP_reg31) {
 		p++;
 		uint regno = op - DW_OP_reg0;
-		loc = new RegisterLocation(regno, state.grWidth(regno) / 8);
+		loc = new RegisterLocation(regno, length);
 	    } else if (op == DW_OP_regx) {
 		p++;
 		uint regno = parseULEB128(p);
-		loc = new RegisterLocation(regno, state.grWidth(regno) / 8);
+		loc = new RegisterLocation(regno, length);
 	    } else {
 		ValueStack stack;
 		Expr e = Expr(is64, p, end);
 		p = e.evalExpr(cu, state, stack);
-		loc = new MemoryLocation(stack.pop, is64 ? 8 : 4);
+		loc = new MemoryLocation(stack.pop, length);
 	    }
 	    if (p == end) {
 		/*
@@ -2040,7 +2054,7 @@ struct Loclist
     char* start;
 
     bool evalLocation(CompilationUnit cu, MachineState state,
-		      out Location result)
+		      size_t length, out Location result)
     {
 	ulong pc = state.getGR(state.pcregno);
 	ulong sOff, eOff, base;
@@ -2067,7 +2081,7 @@ struct Loclist
 	    p = expEnd;
 	    if (pc >= base + sOff && pc < base + eOff) {
 		Expr e = Expr(is64, expStart, expEnd);
-		return e.evalLocation(cu, state, result);
+		return e.evalLocation(cu, state, length, result);
 	    }
 	}
 	return false;
@@ -2252,16 +2266,16 @@ class AttributeValue
     }
 
     bool evalLocation(CompilationUnit cu, MachineState state,
-		      out Location loc)
+		      size_t length, out Location loc)
     {
 	if (isLoclistptr) {
 	    char[] locs = cu.parent.debugSection(".debug_loc");
 	    Loclist ll = Loclist(cu.is64, &locs[ul]);
-	    return ll.evalLocation(cu, state, loc);
+	    return ll.evalLocation(cu, state, length, loc);
 	} else {
 	    assert(isBlock);
 	    Expr e = Expr(cu.is64, b.start, b.end);
-	    return e.evalLocation(cu, state, loc);
+	    return e.evalLocation(cu, state, length, loc);
 	}
     }
 
@@ -2428,8 +2442,7 @@ class DIE
 		    addresses ~= AddressRange(start, end);
 		}
 	    } else {
-		throw new Exception(
-		    "DIE has no address range info");
+		return false;
 	    }
 
 	    // Now that we have parsed the DIE's location, try again
@@ -2570,6 +2583,9 @@ class DIE
 	    return at;
 	}
 
+	case DW_TAG_darray_type:
+	    return new DArrayType(subType, this[DW_AT_byte_size].ui);
+
 	case DW_TAG_typedef:
 	    return new TypedefType(name, subType);
 
@@ -2618,12 +2634,27 @@ class CompilationUnit
 		    return true;
 	    return false;
 	} else {
-	    // Load the DIE if necessary and check its attributes
-	    assert(die is null);
-	    loadDIE();
+	    /*
+	     * Load the DIE if necessary and check its attributes
+	     */
+	    if (die is null)
+		loadDIE();
 	    addresses = die.addresses;
 
-	    // Now that we have loaded the DIE, try again
+	    /*
+	     * If the CU DIE doesn't have any addresses, try to get
+	     * some from the top-level DIEs in the CU.
+	     */
+	    if (addresses.length == 0) {
+		foreach (kid; die.children)
+		    if (kid.contains(pc))
+			return true;
+		return false;
+	    }
+
+	    /*
+	     * Now that we have loaded the DIE, try again
+	     */
 	    return contains(pc);
 	}
     }

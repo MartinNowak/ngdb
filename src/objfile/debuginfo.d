@@ -484,9 +484,6 @@ class CompoundType: TypeBase
 	}
 	string valueToString(string fmt, Language lang, MachineState state, Location loc)
 	{
-	    if (lang.isStringType(this))
-		return lang.stringConstant(state, this, loc);
-
 	    string v = "{ ";
 	    bool first = true;
 
@@ -605,6 +602,50 @@ private:
     dim[] dims_;
 }
 
+class DArrayType: TypeBase
+{
+    this(Type baseType, size_t byteWidth)
+    {
+	baseType_ = baseType;
+	byteWidth_ = byteWidth;
+    }
+
+    Type baseType()
+    {
+	return baseType_;
+    }
+
+    override
+    {
+	string toString(Language lang)
+	{
+	    return baseType_.toString(lang) ~ "[]";
+	}
+	string valueToString(string, Language lang, MachineState state, Location loc)
+	{
+	    if (lang.isStringType(this))
+		return lang.stringConstant(state, this, loc);
+
+	    return toString(lang);
+	}
+	size_t byteWidth()
+	{
+	    return byteWidth_;
+	}
+	bool isCharType()
+	{
+	    return false;
+	}
+	bool isIntegerType()
+	{
+	    return false;
+	}
+    }
+
+private:
+    Type baseType_;
+    size_t byteWidth_;
+}
 
 class VoidType: TypeBase
 {
