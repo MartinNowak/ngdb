@@ -336,6 +336,9 @@ class Debugger: TargetListener
 
     void stopped()
     {
+	if (!target_)
+	    return;
+
 	TargetThread t = threads_[0];	// XXX
 	LineEntry[] le;
 	foreach (mod; modules_) {
@@ -636,6 +639,11 @@ class StepCommand: Command
 
 	void run(Debugger db, string, string[] args)
 	{
+	    if (!db.target_) {
+		writefln("Program is not being debugged");
+		return;
+	    }
+
 	    // XXX current thread
 	    db.setStepBreakpoint(db.threads_[0]);
 	    db.target_.cont();
@@ -664,6 +672,11 @@ class ContinueCommand: Command
 
 	void run(Debugger db, string, string[] args)
 	{
+	    if (!db.target_) {
+		writefln("Program is not being debugged");
+		return;
+	    }
+
 	    db.target_.cont();
 	    db.target_.wait();
 	}
