@@ -1057,8 +1057,20 @@ class DwarfFile: public DebugInfo
 	    if (findSubprogram(pc, cu, func)) {
 		auto l = func[DW_AT_frame_base];
 		if (l) {
-		    loc = new DwarfLocation(cu, l, 1);
-		    return true;
+		    auto dwloc = new DwarfLocation(cu, l, 1);
+		    if (dwloc.evalLocation(state, loc)) {
+			/*
+			 * Transform register location to a memory location
+			 * with address taken from the register value.
+			 */
+			RegisterLocation rloc = cast(RegisterLocation) loc;
+			if (rloc) {
+			    ulong regval = readInteger(rloc.readValue(state));
+			    loc = new MemoryLocation(regval, 1);
+			}
+			return true;
+		    }
+		    return false;
 		}
 	    }
 	    return false;
@@ -1534,6 +1546,12 @@ class DwarfLocation: Location
     }
 
     override {
+	bool valid(MachineState state)
+	{
+	    Location loc;
+	    return av_.evalLocation(cu_, state, length_, loc);
+	}
+
 	size_t length()
 	{
 	    return length_;
@@ -1581,6 +1599,11 @@ class DwarfLocation: Location
 	    evalExpr(cu_, state, stack);
 	    return new MemoryLocation(stack.pop, length);
 	}
+    }
+
+    bool evalLocation(MachineState state, out Location loc)
+    {
+	return av_.evalLocation(cu_, state, length_, loc);
     }
 
     bool evalExpr(CompilationUnit cu, MachineState state,
@@ -2543,12 +2566,15 @@ class DIE
 	    item = ct;
 	    foreach (elem; children) {
 		if (elem.tag == DW_TAG_member) {
-		    Type type = cu_[elem[DW_AT_type]].toType;
-		    DwarfLocation loc;
-		    loc = new DwarfLocation(cu_,
-					    elem[DW_AT_data_member_location],
-					    type.byteWidth);
-		    ct.addField(elem[DW_AT_name].toString, type, loc);
+		    auto at = elem[DW_AT_type];
+		    if (at) {
+			Type type = cu_[at].toType;
+			DwarfLocation loc;
+			loc = new DwarfLocation(cu_,
+						elem[DW_AT_data_member_location],
+						type.byteWidth);
+			ct.addField(elem[DW_AT_name].toString, type, loc);
+		    }
 		}
 	    }
 	    return ct;
