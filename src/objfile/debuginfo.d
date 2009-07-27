@@ -484,8 +484,8 @@ class CompoundType: TypeBase
 	}
 	string valueToString(string fmt, Language lang, MachineState state, Location loc)
 	{
-	    string v = "{ ";
 	    bool first = true;
+	    string v;
 
 	    foreach (f; fields_) {
 		if (!first) {
@@ -496,8 +496,7 @@ class CompoundType: TypeBase
 		v ~= f.type.valueToString(fmt, lang, state,
 					  f.loc.fieldLocation(loc, state));
 	    }
-	    v ~= " }";
-	    return v;
+	    return lang.structConstant(v);
 	}
 	size_t byteWidth()
 	{
@@ -532,12 +531,12 @@ class CompoundType: TypeBase
 	throw new Exception(format("Field %s not found", fieldName));
     }
 
-    private:
-	string kind_;
-	string name_;
-	uint byteWidth_;
-	field[] fields_;
-    }
+private:
+    string kind_;
+    string name_;
+    uint byteWidth_;
+    field[] fields_;
+}
 
 class ArrayType: TypeBase
 {
@@ -570,9 +569,13 @@ class ArrayType: TypeBase
 	    }
 	    return v;
 	}
-	string valueToString(string, Language lang, MachineState state, Location loc)
+	string valueToString(string fmt, Language lang,
+			     MachineState state, Location loc)
 	{
-	    return toString(lang);
+	    if (!loc.hasAddress(state))
+		return lang.arrayConstant("");
+	    ulong addr = loc.address(state);
+	    return valueToString(fmt, lang, state, addr, 0);
 	}
 	size_t byteWidth()
 	{
@@ -593,6 +596,24 @@ class ArrayType: TypeBase
     }
 
 private:
+    string valueToString(string fmt, Language lang,
+			 MachineState state, ref ulong addr, size_t di)
+    {
+	string v;
+	for (size_t i = dims_[di].indexBase;
+	     i < dims_[di].indexBase + dims_[di].count; i++) {
+	    if (i > dims_[di].indexBase)
+		v ~= ", ";
+	    if (di == dims_.length - 1) {
+		v ~= baseType_.valueToString(fmt, lang, state,
+			new MemoryLocation(addr, baseType_.byteWidth));
+		addr += baseType_.byteWidth;
+	    } else {
+		v ~= valueToString(fmt, lang, state, addr, di + 1);
+	    }
+	}
+	return lang.arrayConstant(v);
+    }
     struct dim {
 	size_t indexBase;
 	size_t count;
@@ -621,12 +642,24 @@ class DArrayType: TypeBase
 	{
 	    return baseType_.toString(lang) ~ "[]";
 	}
-	string valueToString(string, Language lang, MachineState state, Location loc)
+	string valueToString(string fmt, Language lang,
+			     MachineState state, Location loc)
 	{
 	    if (lang.isStringType(this))
 		return lang.stringConstant(state, this, loc);
 
-	    return toString(lang);
+	    ubyte[] val = loc.readValue(state);
+	    ulong len = readInteger(val[0..state.pointerSize]);
+	    ulong addr = readInteger(val[state.pointerSize..$]);
+	    string v;
+	    for (auto i = 0; i < len; i++) {
+		if (i > 0)
+		    v ~= ", ";
+		v ~= baseType_.valueToString(fmt, lang, state,
+			new MemoryLocation(addr, baseType_.byteWidth));
+		addr += baseType_.byteWidth;
+	    }
+	    return lang.arrayConstant(v);
 	}
 	size_t byteWidth()
 	{
@@ -677,6 +710,13 @@ class VoidType: TypeBase
 interface Location
 {
     /**
+     * Return true if the location is valid for this machine state (e.g.
+     * for dwarf loclists, the pc is within one of the ranged location 
+     * records).
+     */
+    bool valid(MachineState);
+
+    /**
      * Size in bytes of the object
      */
     size_t length();
@@ -718,6 +758,11 @@ class RegisterLocation: Location
     }
 
     override {
+	bool valid(MachineState)
+	{
+	    return true;
+	}
+
 	size_t length()
 	{
 	    return length_;
@@ -763,6 +808,11 @@ class MemoryLocation: Location
     }
 
     override {
+	bool valid(MachineState)
+	{
+	    return true;
+	}
+
 	size_t length()
 	{
 	    return length_;
@@ -808,6 +858,11 @@ class ConstantLocation: Location
     }
 
     override {
+	bool valid(MachineState)
+	{
+	    return true;
+	}
+
 	size_t length()
 	{
 	    return value_.length;
@@ -1292,18 +1347,42 @@ class IndexExpr: Expr
 	    Value base = base_.eval(lang, sc, state);
 
 	    ArrayType aTy = cast(ArrayType) base.type;
+	    DArrayType daTy = cast(DArrayType) base.type;
 	    PointerType ptrTy = cast(PointerType) base.type;
 	    Type elementType;
 	    Location baseLoc;
+	    ulong minIndex, maxIndex;
 	    if (aTy) {
-		elementType = aTy.baseType;
 		baseLoc = base.loc;
+		minIndex = aTy.dims_[0].indexBase;
+		maxIndex = minIndex + aTy.dims_[0].count;
+		if (aTy.dims_.length == 1) {
+		    elementType = aTy.baseType;
+		} else {
+		    ArrayType subTy = new ArrayType(aTy.baseType);
+		    subTy.dims_ = aTy.dims_[1..$];
+		    elementType = subTy;
+		}
+	    } else if (daTy) {
+		/*
+		 * The memory representation of dynamic arrays is two
+		 * pointer sized values, the first being the array length
+		 * and the second the base pointer.
+		 */
+		elementType = daTy.baseType;
+		ubyte[] val = base.loc.readValue(state);
+		minIndex = 0;
+		maxIndex = readInteger(val[0..state.pointerSize]);
+		ulong addr = readInteger(val[state.pointerSize..$]);
+		baseLoc = new MemoryLocation(addr, 0);
 	    } else if (ptrTy) {
 		elementType = ptrTy.baseType;
 		/*
 		 * Dereference the pointer to get the array base
 		 */
 		ulong addr = readInteger(base.loc.readValue(state));
+		minIndex = 0;
+		maxIndex = ~0;
 		baseLoc = new MemoryLocation(addr, 0);
 	    } else {
 		throw new Exception("Expected array or pointer for index expression");
@@ -1314,11 +1393,14 @@ class IndexExpr: Expr
 	    if (!index.type.isIntegerType) {
 		throw new Exception("Expected integer for index expression");
 	    }
+	    long i = readInteger(index.loc.readValue(state));
+	    if (i < minIndex || i >= maxIndex)
+		throw new Exception(format("Index %d out of array bounds", i));
+	    i -= minIndex;
 
 	    auto elementLoc = new MemoryLocation(
 		baseLoc.address(state)
-		+ (readInteger(index.loc.readValue(state))
-		   * elementType.byteWidth), 
+		+ i * elementType.byteWidth, 
 		elementType.byteWidth);
 
 	    return Value(elementLoc, elementType);
@@ -1426,6 +1508,8 @@ struct Value
 
     string toString(string fmt, Language lang, MachineState state)
     {
+	if (!loc.valid(state))
+	    return "<invalid>";
 	return type.valueToString(fmt, lang, state, loc);
     }
 }
