@@ -98,6 +98,13 @@ interface MachineState: Scope
     void writeMemory(ulong address, ubyte[] toWrite);
 
     /**
+     * Scan the interval [start..end) and return the address of
+     * any flow control instructions in the range. If there are none,
+     * return end.
+     */
+    ulong findFlowControl(ulong start, ulong end);
+
+    /**
      * Disassemble the instruction at 'address' advancing the value of
      * 'address' to point at the next instruction in sequence. The
      * delegate 'lookupAddress' is used to translate machine addresses

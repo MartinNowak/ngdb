@@ -31,6 +31,7 @@ private enum
     MODRMMASKSHIFT = 12,	// mask for matching modrm rm and reg fields
     MODRMMATCH	= 077 << 18,	// value for matching modrm rm and reg fields
     MODRMMATCHSHIFT = 18,	// value for matching modrm rm and reg fields
+    FLOW	= 1<<24		// instruction is a branch, call or ret
 }
 
 class Disassembler
@@ -43,6 +44,100 @@ class Disassembler
 	    attMode_ = true;
 	if (opt == "x86_64")
 	    mode_ = 64;
+    }
+
+    bool isFlowControl(ref ulong loc, char delegate(ulong) readByte)
+    {
+	DecodeState ds;
+	Instruction ip[];
+	ulong iloc = loc;
+
+	bool morePrefixes = true;
+	while (morePrefixes) {
+	    char b = readByte(loc);
+
+	    if (mode_ == 64 && (b & 0xf0) == 0x40) {
+		/*
+		 * This is a REX prefix in 64bit mode.
+		 */
+		ds.rex_ = b;
+		loc++;
+		continue;
+	    }
+
+	    switch (readByte(loc)) {
+	    case 0xf0:
+		ds.lockPrefix_ = true;
+		loc++;
+		break;
+
+	    case 0xf2:
+		ds.repnePrefix_ = true;
+		loc++;
+		break;
+
+	    case 0xf3:
+		ds.repePrefix_ = true;
+		loc++;
+		break;
+
+	    case 0x2e:
+		ds.seg_ = "cs";
+		loc++;
+		break;
+
+	    case 0x36:
+		ds.seg_ = "ss";
+		loc++;
+		break;
+
+	    case 0x3e:
+		ds.seg_ = "ds";
+		loc++;
+		break;
+
+	    case 0x26:
+		ds.seg_ = "es";
+		loc++;
+		break;
+
+	    case 0x64:
+		ds.seg_ = "fs";
+		loc++;
+		break;
+
+	    case 0x65:
+		ds.seg_ = "gs";
+		loc++;
+		break;
+
+	    case 0x67:
+		ds.addressSizePrefix_ = true;
+		loc++;
+		break;
+
+	    case 0x66:
+		ds.operandSizePrefix_ = true;
+		loc++;
+		break;
+
+	    default:
+		morePrefixes = false;
+	    }
+	}
+
+	ds.readByte_ = readByte;
+	ds.attMode_ = attMode_;
+	ds.mode_ = mode_;
+
+	Instruction insn;
+	ds.loc_ = loc;
+	if (table_.lookup(&ds, insn)) {
+	    insn.display(&ds);	// need to read immediate data
+	    loc = ds.loc_;
+	    return insn.flags_ & FLOW ? true : false;
+	}
+	return false;
     }
 
     string disassemble(ref ulong loc, char delegate(ulong) readByte)
@@ -208,10 +303,11 @@ private:
 	alias WORD W;
 	alias LONG L;
 	alias QWORD Q;
-	alias FLOAT F;
+	alias FLOAT S;
 	alias DOUBLE D;
 	alias LDOUBLE LD;
 	alias PREFIX P;
+	const int F = NONE|FLOW;
 	const int VV = VALID32|VALID64;
 
 	ins(VV|B, "00 /r",		"ADD Eb,Gb");
@@ -361,23 +457,23 @@ private:
 	ins(VV|B, "6E",			"OUTS DX,Xb");
 	ins(VV|P, "6F",			"OUTS DX,Xz");
 
-	ins(VV|N, "70",			"JO Jb");
-	ins(VV|N, "71",			"JNO Jb");
-	ins(VV|N, "72",			"JB Jb");
-	ins(VV|N, "73",			"JNB Jb");
-	ins(VV|N, "74",			"JZ Jb");
-	ins(VV|N, "75",			"JNZ Jb");
-	ins(VV|N, "76",			"JBE Jb");
-	ins(VV|N, "77",			"JNBE Jb");
+	ins(VV|F, "70",			"JO Jb");
+	ins(VV|F, "71",			"JNO Jb");
+	ins(VV|F, "72",			"JB Jb");
+	ins(VV|F, "73",			"JNB Jb");
+	ins(VV|F, "74",			"JZ Jb");
+	ins(VV|F, "75",			"JNZ Jb");
+	ins(VV|F, "76",			"JBE Jb");
+	ins(VV|F, "77",			"JNBE Jb");
 
-	ins(VV|N, "78",			"JS Jb");
-	ins(VV|N, "79",			"JNS Jb");
-	ins(VV|N, "7A",			"JP Jb");
-	ins(VV|N, "7B",			"JNP Jb");
-	ins(VV|N, "7C",			"JL Jb");
-	ins(VV|N, "7D",			"JNL Jb");
-	ins(VV|N, "7E",			"JLE Jb");
-	ins(VV|N, "7F",			"JNLE Jb");
+	ins(VV|F, "78",			"JS Jb");
+	ins(VV|F, "79",			"JNS Jb");
+	ins(VV|F, "7A",			"JP Jb");
+	ins(VV|F, "7B",			"JNP Jb");
+	ins(VV|F, "7C",			"JL Jb");
+	ins(VV|F, "7D",			"JNL Jb");
+	ins(VV|F, "7E",			"JLE Jb");
+	ins(VV|F, "7F",			"JNLE Jb");
 
 	ins(VV|B, "80 /0",		"ADD Eb,Ib");
 	ins(VV|B, "80 /1",		"OR Eb,Ib");
@@ -431,7 +527,7 @@ private:
 
 	ins(VV|P, "98",			"CBW/CWDE/CDQE");
 	ins(VV|P, "99",			"CWD/CDQ/CQO");
-	ins(V_|N, "9A",			"LCALL Ap");
+	ins(V_|F, "9A",			"LCALL Ap");
 	//ins(VV|N, "9B D9 /7",		"FSTCW Mb");
 	//ins(VV|N, "9B D9 /6",		"FSTENV Mb");
 	//ins(VV|N, "9B DB E2",		"FCLEX");
@@ -497,8 +593,8 @@ private:
 	ins(VV|P, "C1 /4",		"SHL Ev,Ib");
 	ins(VV|P, "C1 /5",		"SHR Ev,Ib");
 	ins(VV|P, "C1 /7",		"SAR Ev,Ib");
-	ins(VV|N, "C2",			"RET Iw");
-	ins(VV|N, "C3",			"RET");
+	ins(VV|F, "C2",			"RET Iw");
+	ins(VV|F, "C3",			"RET");
 	ins(V_|P, "C4 /r",		"LES Gz,Md"); // XXX Mp
 	ins(V_|P, "C5 /r",		"LDS Gz,Md"); // XXX Mp
 	ins(VV|B, "C6 /0",		"MOV Eb,Ib");
@@ -506,8 +602,8 @@ private:
 
 	ins(VV|N, "C8",			"ENTER Kw,Kb");
 	ins(VV|N, "C9",			"LEAVE");
-	ins(VV|N, "CA",			"LRET Iw");
-	ins(VV|N, "CB",			"LRET");
+	ins(VV|F, "CA",			"LRET Iw");
+	ins(VV|F, "CB",			"LRET");
 	ins(VV|N, "CC",			"INT 3");
 	ins(VV|N, "CD",			"INT Kb");
 	ins(V_|N, "CE",			"INTO");
@@ -557,14 +653,14 @@ private:
 	ins(VV|N, "D8 /r6",		"FDIV ST(0),ST(i)");
 	ins(VV|N, "D8 /r7",		"FDIVR ST(0),ST(i)");
 
-	ins(VV|F, "D8 /0",		"FADD Md");
-	ins(VV|F, "D8 /1",		"FMUL Md");
-	ins(VV|F, "D8 /2",		"FCOM Md");
-	ins(VV|F, "D8 /3",		"FCOMP Md");
-	ins(VV|F, "D8 /4",		"FSUB Md");
-	ins(VV|F, "D8 /5",		"FSUBR Md");
-	ins(VV|F, "D8 /6",		"FDIV Md");
-	ins(VV|F, "D8 /7",		"FDIVR Md");
+	ins(VV|S, "D8 /0",		"FADD Md");
+	ins(VV|S, "D8 /1",		"FMUL Md");
+	ins(VV|S, "D8 /2",		"FCOM Md");
+	ins(VV|S, "D8 /3",		"FCOMP Md");
+	ins(VV|S, "D8 /4",		"FSUB Md");
+	ins(VV|S, "D8 /5",		"FSUBR Md");
+	ins(VV|S, "D8 /6",		"FDIV Md");
+	ins(VV|S, "D8 /7",		"FDIVR Md");
 
 	ins(VV|N, "D9 /r0",		"FLD ST(i)");
 	ins(VV|N, "D9 /r1",		"FXCH ST(i)");
@@ -601,13 +697,13 @@ private:
 	ins(VV|N, "D9 /r76",		"FSIN");
 	ins(VV|N, "D9 /r77",		"FCOS");
 
-	ins(VV|F, "D9 /0",		"FLD Md");
-	ins(VV|F, "D9 /2",		"FST Md");
-	ins(VV|F, "D9 /3",		"FSTP Md");
-	ins(VV|N, "D9 /4",		"FLDENV Mb");
-	ins(VV|N, "D9 /5",		"FLDCW Mw");
-	ins(VV|N, "D9 /6",		"FNSTENV Mb");
-	ins(VV|N, "D9 /7",		"FNSTCW Mb");
+	ins(VV|S, "D9 /0",		"FLD Md");
+	ins(VV|S, "D9 /2",		"FST Md");
+	ins(VV|S, "D9 /3",		"FSTP Md");
+	ins(VV|S, "D9 /4",		"FLDENV Mb");
+	ins(VV|S, "D9 /5",		"FLDCW Mw");
+	ins(VV|S, "D9 /6",		"FNSTENV Mb");
+	ins(VV|S, "D9 /7",		"FNSTCW Mb");
 
 	ins(VV|N, "DA /r0",		"FCMOVB ST(0),ST(i)");
 	ins(VV|N, "DA /r1",		"FCMOVE ST(0),ST(i)");
@@ -707,19 +803,19 @@ private:
 	ins(VV|Q, "DF /5",		"FILD Mdq");
 	ins(VV|Q, "DF /7",		"FISTP Mdq");
 
-	ins(VV|N, "E0",			"LOOPNE Jb");
-	ins(VV|N, "E1",			"LOOPZ Jb");
-	ins(VV|N, "E2",			"LOOP Jb");
-	ins(VV|P, "E3",			"JCXZ/JECXZ/JRCXZ Jb");
+	ins(VV|F, "E0",			"LOOPNE Jb");
+	ins(VV|F, "E1",			"LOOPZ Jb");
+	ins(VV|F, "E2",			"LOOP Jb");
+	ins(VV|P|FLOW, "E3",		"JCXZ/JECXZ/JRCXZ Jb");
 	ins(VV|B, "E4",			"IN AL,Kb");
 	ins(VV|P, "E5",			"IN eAX,Kb");
 	ins(VV|B, "E6",			"OUT Kb,AL");
 	ins(VV|P, "E7",			"OUT eAX,Kb");
 
-	ins(VV|N, "E8",			"CALL Jz");
-	ins(VV|N, "E9",			"JMP Jz");
-	ins(V_|N, "EA",			"LJMP Ap");
-	ins(VV|N, "EB",			"JMP Jb");
+	ins(VV|F, "E8",			"CALL Jz");
+	ins(VV|F, "E9",			"JMP Jz");
+	ins(V_|F, "EA",			"LJMP Ap");
+	ins(VV|F, "EB",			"JMP Jb");
 	ins(VV|B, "EC",			"IN AL,DX");
 	ins(VV|P, "ED",			"IN eAX,DX");
 	ins(VV|B, "EE",			"OUT DX,AL");
@@ -756,10 +852,10 @@ private:
 	ins(VV|B, "FE /1",		"DEC Eb");
 	ins(VV|P, "FF /0",		"INC Ev");
 	ins(VV|P, "FF /1",		"DEC Ev");
-	ins(VV|P, "FF /2",		"CALL Hv");
-	ins(VV|P, "FF /3",		"LCALL Hb"); // XXX Ep
-	ins(VV|P, "FF /4",		"JMP Hv");
-	ins(VV|P, "FF /5",		"LJMP Hb"); // XXX Ep
+	ins(VV|P|FLOW, "FF /2",		"CALL Hv");
+	ins(VV|P|FLOW, "FF /3",		"LCALL Hb"); // XXX Ep
+	ins(VV|P|FLOW, "FF /4",		"JMP Hv");
+	ins(VV|P|FLOW, "FF /5",		"LJMP Hb"); // XXX Ep
 	ins(V_|P, "FF /6",		"PUSH Ev");
 	ins(_V|Q, "FF /6",		"PUSH Ev");
 
@@ -1013,23 +1109,23 @@ private:
 	ins(VV|N, "66 0F 7F /r",	"MOVDQA Wdq,Vdq");
 	ins(VV|N, "F3 0F 7F /r",	"MOVDQU Wdq,Vdq");
 
-	ins(VV|N, "0F 80",		"JO Jz");
-	ins(VV|N, "0F 81",		"JNO Jz");
-	ins(VV|N, "0F 82",		"JB Jz");
-	ins(VV|N, "0F 83",		"JNB Jz");
-	ins(VV|N, "0F 84",		"JZ Jz");
-	ins(VV|N, "0F 85",		"JNZ Jz");
-	ins(VV|N, "0F 86",		"JBE Jz");
-	ins(VV|N, "0F 87",		"JNBE Jz");
+	ins(VV|F, "0F 80",		"JO Jz");
+	ins(VV|F, "0F 81",		"JNO Jz");
+	ins(VV|F, "0F 82",		"JB Jz");
+	ins(VV|F, "0F 83",		"JNB Jz");
+	ins(VV|F, "0F 84",		"JZ Jz");
+	ins(VV|F, "0F 85",		"JNZ Jz");
+	ins(VV|F, "0F 86",		"JBE Jz");
+	ins(VV|F, "0F 87",		"JNBE Jz");
 
-	ins(VV|N, "0F 88",		"JS Jz");
-	ins(VV|N, "0F 89",		"JNS Jz");
-	ins(VV|N, "0F 8A",		"JP Jz");
-	ins(VV|N, "0F 8B",		"JNP Jz");
-	ins(VV|N, "0F 8C",		"JL Jz");
-	ins(VV|N, "0F 8D",		"JNL Jz");
-	ins(VV|N, "0F 8E",		"JLE Jz");
-	ins(VV|N, "0F 8F",		"JNLE Jz");
+	ins(VV|F, "0F 88",		"JS Jz");
+	ins(VV|F, "0F 89",		"JNS Jz");
+	ins(VV|F, "0F 8A",		"JP Jz");
+	ins(VV|F, "0F 8B",		"JNP Jz");
+	ins(VV|F, "0F 8C",		"JL Jz");
+	ins(VV|F, "0F 8D",		"JNL Jz");
+	ins(VV|F, "0F 8E",		"JLE Jz");
+	ins(VV|F, "0F 8F",		"JNLE Jz");
 
 	ins(VV|N, "0F 90 /r",		"SETO Eb");
 	ins(VV|N, "0F 91 /r",		"SETNO Eb");

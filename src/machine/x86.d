@@ -221,6 +221,23 @@ class X86State: MachineState
 	    target_.writeMemory(address, toWrite);
 	}
 
+	ulong findFlowControl(ulong start, ulong end)
+	{
+	    char readByte(ulong loc) {
+		ubyte[] t = readMemory(loc, 1);
+		return cast(char) t[0];
+	    }
+
+	    Disassembler dis = new Disassembler;
+	    ulong loc = start;
+	    while (loc < end) {
+		ulong tloc = loc;
+		if (dis.isFlowControl(loc, &readByte))
+		    return tloc;
+	    }
+	    return end;
+	}
+
 	string disassemble(ref ulong address,
 			   string delegate(ulong) lookupAddress)
 	{
