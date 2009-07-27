@@ -715,14 +715,20 @@ class PtraceRun: TargetFactory
 
 	    debug (ptrace)
 		writefln("PATH=%s", std.string.toString(getenv("PATH")));
-	    foreach (p; path) {
-		string s = p ~ "/" ~ args[0];
-		debug (ptrace)
-			writefln("trying '%s'", s);
-		if (std.file.exists(s) && std.file.isfile(s)) {
-		    execpath = s;
-		    break;
+	    execpath = args[0];
+	    if (find(execpath, "/") < 0) {
+		foreach (p; path) {
+		    string s = p ~ "/" ~ execpath;
+		    debug (ptrace)
+			    writefln("trying '%s'", s);
+		    if (std.file.exists(s) && std.file.isfile(s)) {
+			execpath = s;
+			break;
+		    }
 		}
+	    } else {
+		if (!std.file.exists(execpath) || !std.file.isfile(execpath))
+		    execpath = "";
 	    }
 	    if (execpath.length == 0) {
 		throw new Exception("Can't find executable");
