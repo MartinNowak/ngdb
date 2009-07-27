@@ -34,77 +34,12 @@ import cli;
 int
 main(char[][] args)
 {
-    version (ATTACH) {
-	if (args.length != 2) {
-	    writef("Usage: fdb <pid>\n");
-	    return 1;
-	}
+    if (args.length != 2) {
+	writefln("usage: %s <program>", args[0]);
+	return 1;
     }
 
-    version (GUI)
-	    Gtk.init(args);
-
-    try {
-	version (GUI)
-	{
-	    Gtk.main();
-	} else {
-	    if (args.length != 2) {
-		writefln("usage: %s <program>", args[0]);
-		return 1;
-	    }
-
-	    cli.Debugger cli = new cli.Debugger(args[1]);
-	    cli.run();
-
-	    static if (false) {
-		version (ATTACH)
-		{
-		    PtraceAttach pt = new PtraceAttach;
-		    string[] attachArgs = args[1..2];
-		} else {
-		    PtraceRun pt = new PtraceRun;
-		    string[] attachArgs = [ "hello" ];
-		}
-		Target target = pt.connect(dbg, attachArgs);
-		TargetModule[] modules = target.modules();
-
-		// Put a breakpoint on main and continue up to that point
-		Breakpoint bpMain;
-		foreach (mod; modules) {
-		    TargetSymbol ts;
-		    if (mod.lookupSymbol("main", ts))
-			bpMain = target.setBreakpoint(ts.value);
-		}
-		target.cont();
-		target.wait();
-
-		for (;;) {
-		    Thread t = target.focusThread;
-		    ulong pc = t.pc;
-
-		    if (modules.length > 0) {
-			foreach (mod; modules) {
-			    if (pc >= mod.start && pc < mod.end) {
-				writef("%s: ", mod.filename);
-				mod.findSubModule(pc);
-				Symbol* s = mod.lookupSymbol(pc);
-				if (s)
-				    writefln("0x%08x (%s+%d)", pc, s.name, pc - s.value);
-				else
-				    writefln("0x%08x", pc);
-			    }
-			}
-		    } else {
-			writefln("0x%08x", pc);
-		    }
-		    target.step();
-		}
-	    }
-	}
-    } catch (Exception e) {
-	writefln("error: %s", e.msg);
-    }
-
+    cli.Debugger cli = new cli.Debugger(args[1]);
+    cli.run();
     return 0;
 }
