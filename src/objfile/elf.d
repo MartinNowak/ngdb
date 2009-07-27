@@ -1060,8 +1060,9 @@ private:
 	char[] s;
 
 	s.length = sh.sh_size;
-	if (pread(fd_, &s[0], sh.sh_size, sh.sh_offset) != sh.sh_size)
-	    throw new Exception("Can't read section");
+	if (s.length > 0)
+	    if (pread(fd_, &s[0], sh.sh_size, sh.sh_offset) != sh.sh_size)
+		throw new Exception("Can't read section");
 	return s;
     }
 
