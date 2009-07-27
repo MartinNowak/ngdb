@@ -26,6 +26,8 @@
 
 module cli;
 
+//debug = step;
+
 import editline;
 import target;
 import ptracetarget;
@@ -161,7 +163,8 @@ private class Breakpoint
 	    // Assume the expr is file:line
 	    uint line = toUint(expr_[pos + 1..expr_.length]);
 	    string file = expr_[0..pos];
-	    found = di.findLineByName(file, line, lines);
+	    if (di)
+		found = di.findLineByName(file, line, lines);
 	} else {
 	    // Try looking up a function
 	    if (di)
@@ -349,7 +352,6 @@ class Debugger: TargetListener
 		    writefln("%d %s", le[0].line, sf.lines_[le[0].line - 1]);
 	    }
 	}
-	
     }
 
     string describeAddress(ulong pc, MachineState state)
@@ -383,15 +385,146 @@ class Debugger: TargetListener
 	return std.string.format("0x%x", addr);
     }
 
-    void setStepBreakpoint(TargetThread t)
+    void setStepBreakpoint(ulong pc)
     {
-	LineEntry[] le;
-	foreach (mod; modules_) {
-	    DebugInfo d = mod.debugInfo;
-	    if (d && d.findLineByAddress(t.pc, le)) {
-		target_.setBreakpoint(le[1].address, cast(void*) this);
+	debug (step)
+	    writefln("step breakpoint at %#x", pc);
+	target_.setBreakpoint(pc, cast(void*) this);
+    }
+
+    void clearStepBreakpoints()
+    {
+	debug (step)
+	    writefln("clearing step breakpoints");
+	target_.clearBreakpoint(cast(void*) this);
+    }
+
+    void stepProgram(bool stepOverCalls)
+    {
+	if (!target_) {
+	    writefln("Program is not being debugged");
+	    return;
+	}
+
+	// XXX current thread
+	TargetThread t = threads_[0];
+	MachineState s = t.state;
+	DebugInfo di;
+
+	if (findDebugInfo(s, di)) {
+	    Location frameLoc;
+	    di.findFrameBase(s, frameLoc);
+
+	    ulong frame = frameLoc.address(s);
+	    ulong startpc = t.pc;
+	    ulong stoppc, flowpc;
+
+	    LineEntry[] le;
+	    if (di.findLineByAddress(t.pc, le))
+		stoppc = le[1].address;
+	    else {
+		target_.step(t);
+		stopped();
 		return;
 	    }
+	    setStepBreakpoint(stoppc);
+	    flowpc = s.findFlowControl(t.pc, stoppc);
+	    if (flowpc < stoppc)
+		setStepBreakpoint(flowpc);
+	    else
+		flowpc = 0;
+
+	    bool resetStep = false;
+	    do {
+		/*
+		 * Run up to the next flow control instruction or the
+		 * next statement, whichever comes first. Be careful if
+		 * we are sitting on a flow control instruction.
+		 */
+		if (t.pc != flowpc) {
+		    target_.cont();
+		    target_.wait();
+		}
+		ulong tpc = t.pc;
+		if (tpc == flowpc) {
+		    /*
+		     * Stopped at a flow control instruction - single step
+		     * it and see if we change frame or go out of our step
+		     * range.
+		     */
+		    tpc = t.pc;
+		    debug (step)
+			writefln("stopped at flow control %#x (%s)", tpc, replace(s.disassemble(tpc, &lookupAddress), "\t", " "));
+		    target_.step(t);
+		    tpc = t.pc;
+		    debug (step)
+			writefln("single stepped to %#x (%s)", tpc, replace(s.disassemble(tpc, &lookupAddress), "\t", " "));
+		    resetStep = true;
+		} else {
+		    tpc = t.pc;
+		    debug (step)
+			writefln("stopped at %#x (%s)", tpc, replace(s.disassemble(tpc, &lookupAddress), "\t", " "));
+		}
+		if (!findDebugInfo(s, di)) {
+		    /*
+		     * If we step into something without debug info,
+		     * just continue until we hit the step breakpoint.
+		     */
+		    debug (step)
+			writefln("no debug info at %#x - continue", t.pc);
+		    target_.cont();
+		    target_.wait();
+		    break;
+		}
+		di.findFrameBase(s, frameLoc);
+		if (frameLoc.address(s) != frame) {
+		    if (frameLoc.address(s) > frame) {
+			debug (step)
+			    writefln("returning to outer frame");
+			break;
+		    }
+		    if (stepOverCalls) {
+			/*
+			 * We are stepping over calls - run up to the return
+			 * address
+			 */
+			debug (step)
+			    writefln("stepping over call");
+			MachineState ns = di.unwind(s);
+			clearStepBreakpoints();
+			ulong retpc = ns.getGR(ns.pcregno);
+			debug (step)
+			    writefln("return breakpoint at %#x", retpc);
+			setStepBreakpoint(retpc);
+			target_.cont();
+			target_.wait();
+			resetStep = true;
+		    } else {
+			writefln("%s", describeAddress(t.pc, s));
+			clearStepBreakpoints();
+			break;
+		    }
+		}
+		if (t.pc < startpc || t.pc >= stoppc) {
+		    debug (step)
+			writefln("stepped outside range %#x..%#x", startpc, stoppc);
+		    break;
+		}
+		if (resetStep) {
+		    clearStepBreakpoints();
+		    setStepBreakpoint(stoppc);
+		    flowpc = s.findFlowControl(t.pc, stoppc);
+		    if (flowpc < stoppc)
+			setStepBreakpoint(flowpc);
+		    else
+			flowpc = 0;
+		}
+	    } while (t.pc < stoppc);
+	    clearStepBreakpoints();
+	    stopped();
+	} else {
+	    target_.step(t);
+	    stopped();
 	}
     }
 
@@ -455,10 +588,10 @@ class Debugger: TargetListener
 	void onBreakpoint(Target, TargetThread t, void* id)
 	{
 	    /*
-	     * We use this as id for the step breakpoint.
+	     * We use this as id for the step breakpoints.
 	     */
 	    if (id == cast(void*) this) {
-		target_.clearBreakpoint(id);
+		return;
 	    } else {
 		foreach (i, bp; breakpoints_) {
 		    if (id == cast(void*) bp) {
@@ -466,7 +599,6 @@ class Debugger: TargetListener
 		    }
 		}
 	    }
-	    stopped();
 	}
 	void onSignal(Target, int sig, string sigName)
 	{
@@ -614,7 +746,33 @@ class RunCommand: Command
 	    if (db.target_) {
 		db.target_.cont();
 		db.target_.wait();
+		db.stopped();
 	    }
+	}
+    }
+}
+
+class NextCommand: Command
+{
+    static this()
+    {
+	Debugger.registerCommand(new NextCommand);
+    }
+
+    override {
+	string name()
+	{
+	    return "next";
+	}
+
+	string description()
+	{
+	    return "step the program being debugged, stepping over function calls";
+	}
+
+	void run(Debugger db, string, string[] args)
+	{
+	    db.stepProgram(true);
 	}
     }
 }
@@ -634,20 +792,12 @@ class StepCommand: Command
 
 	string description()
 	{
-	    return "step the program being debugged";
+	    return "step the program being debugged, stepping into function calls";
 	}
 
 	void run(Debugger db, string, string[] args)
 	{
-	    if (!db.target_) {
-		writefln("Program is not being debugged");
-		return;
-	    }
-
-	    // XXX current thread
-	    db.setStepBreakpoint(db.threads_[0]);
-	    db.target_.cont();
-	    db.target_.wait();
+	    db.stepProgram(false);
 	}
     }
 }
@@ -679,6 +829,7 @@ class ContinueCommand: Command
 
 	    db.target_.cont();
 	    db.target_.wait();
+	    db.stopped();
 	}
     }
 }
