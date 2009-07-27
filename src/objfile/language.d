@@ -43,6 +43,8 @@ interface Language
     string stringConstant(MachineState state, Type type, Location loc);
     string namespaceSeparator();
     string charConstant(int ch);
+    string structConstant(string);
+    string arrayConstant(string);
     Expr parseExpr(string s);
 }
 
@@ -85,6 +87,14 @@ class CLikeLanguage: Language
 	string charConstant(int ch)
 	{
 	    return "'" ~ cast(char) ch ~ "'";
+	}
+	string structConstant(string s)
+	{
+	    return format("{%s}", s);
+	}
+	string arrayConstant(string s)
+	{
+	    return format("{%s}", s);
 	}
 	Expr parseExpr(string s)
 	{
@@ -720,6 +730,10 @@ class DLanguage: CLikeLanguage
         string namespaceSeparator()
 	{
 	    return ".";
+	}
+	string arrayConstant(string s)
+	{
+	    return format("[%s]", s);
 	}
     }
 }
