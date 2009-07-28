@@ -82,32 +82,12 @@ class Disassembler
 		break;
 
 	    case 0x2e:
-		ds.seg_ = "cs";
-		loc++;
-		break;
-
 	    case 0x36:
-		ds.seg_ = "ss";
-		loc++;
-		break;
-
 	    case 0x3e:
-		ds.seg_ = "ds";
-		loc++;
-		break;
-
 	    case 0x26:
-		ds.seg_ = "es";
-		loc++;
-		break;
-
 	    case 0x64:
-		ds.seg_ = "fs";
-		loc++;
-		break;
-
 	    case 0x65:
-		ds.seg_ = "gs";
+		// segment prefix
 		loc++;
 		break;
 
@@ -127,13 +107,12 @@ class Disassembler
 	}
 
 	ds.readByte_ = readByte;
-	ds.attMode_ = attMode_;
 	ds.mode_ = mode_;
 
 	Instruction insn;
 	ds.loc_ = loc;
 	if (table_.lookup(&ds, insn)) {
-	    insn.display(&ds);	// need to read immediate data
+	    insn.skipImmediate(&ds);
 	    loc = ds.loc_;
 	    return insn.flags_ & FLOW ? true : false;
 	}
@@ -1665,6 +1644,11 @@ struct Instruction
     string opcode_;
     string[] operands_;
 
+    void skipImmediate(DecodeState* ds)
+    {
+	ds.skipImmediate(operands_);
+    }
+
     string display(DecodeState* ds)
     {
 	return ds.displayInstruction(opcode_, ds.displayOperands(operands_));
@@ -2162,6 +2146,101 @@ struct DecodeState
 	if (seg_.length > 0)
 	    s = seg_ ~ ":" ~ s;
 	return Operand(rt, s);
+    }
+    void skipImmediate(string[] s)
+    {
+	foreach (operand; s) {
+	    /*
+	     * SDM Vol 2b A.2.1
+	     */
+
+	    if (operand.length < 2)
+		continue;
+	    string opsize = operand[1..$];
+	    int size;
+	    switch (opsize) {
+	    case "a":
+		size = operandSizePrefix_ ? LONG : QWORD;
+		break;
+	    case "b":
+		size = BYTE;
+		break;
+	    case "c":
+		size = operandSizePrefix_ ? BYTE : WORD;
+		break;
+	    case "d":
+		size = LONG;
+		break;
+	    case "dq":
+		size = XMM;
+		break;
+	    case "n":
+		size = NONE;
+		break;
+	    case "p":
+		size = BYTE;	// XXX
+		break;
+	    case "pd":
+		size = XMM;
+		break;
+	    case "pi":
+		size = MMX;
+		break;
+	    case "ps":
+		size = XMM;
+		break;
+	    case "q":
+		size = QWORD;
+		break;
+	    case "s":
+		break;
+	    case "sd":
+		size = XMM;
+		break;
+	    case "ss":
+		size = XMM;
+		break;
+	    case "si":
+		size = LONG;
+		break;
+	    case "v":
+		size = operandSize;
+		break;
+	    case "w":
+		size = WORD;
+		break;
+	    case "z":	    
+		size = operandSizePrefix_ ? WORD : LONG;
+		break;
+	    default:
+		continue;
+	    }
+
+	    switch (operand[0]) {
+	    case 'A':
+		assert(opsize == "p");
+		fetchImmediate(operandSize);
+		fetchImmediate(WORD);
+		continue;
+	    case 'I':
+		fetchImmediate(size);
+		continue;
+	    case 'J':
+		fetchImmediate(size);
+		continue;
+	    case 'K':
+		fetchImmediate(size);
+		continue;
+	    case 'O':
+		if (addressSizePrefix_)
+		    nextWord;
+		else
+		    nextDWord;
+		continue;
+	    default:
+		continue;
+	    }
+	}
     }
     Operand[] displayOperands(string[] s)
     {
