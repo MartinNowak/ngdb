@@ -226,59 +226,19 @@ class Disassembler
 	ds.attMode_ = attMode_;
 	ds.mode_ = mode_;
 
-	static if (false) {
-	    char op = readByte(loc++);
-	    if (op == 0x0f) {
-		char fop = readByte(loc++);
-		//writefln("opcode is 0f %02x", readByte(loc + 1));
-		ip = table0f_[fop];
-	    } else {
-		//writefln("opcode is %02x", op);
-		ip = table_[op];
-	    }
-	    foreach (i; ip) {
-		if (mode_ == 32) {
-		    if (!(i.flags_ & VALID32))
-			continue;
-		} else {
-		    if (!(i.flags_ & VALID64))
-			continue;
-		}
-		ds.loc_ = loc;
-		//writefln("matching with \"%s\", assembler is \"%s\"", i.match_, i.assembler_);
-		if (i.decode_(&ds)) {
-		    //writefln("matched with \"%s\", assembler is \"%s\"", i.match_, i.assembler_);
-		    string prefixString = "";
-		    if (ds.lockPrefix_)
-			prefixString ~= "lock ";
-		    if (ds.repnePrefix_)
-			prefixString ~= "repne ";
-		    if (ds.repePrefix_)
-			prefixString ~= "repe ";
-		    string res = prefixString ~ i.display(&ds);
-		    loc = ds.loc_;
-		    return res;
-		}
-	    }
-	    if (op == 0x0f)
-		loc = loc + 2;
-	    else
-		loc = loc + 1;
-	} else {
-	    Instruction insn;
-	    ds.loc_ = loc;
-	    if (table_.lookup(&ds, insn)) {
-		string prefixString = "";
-		if (ds.lockPrefix_)
-		    prefixString ~= "lock ";
-		if (ds.repnePrefix_)
-		    prefixString ~= "repne ";
-		if (ds.repePrefix_)
-		    prefixString ~= "repe ";
-		string res = prefixString ~ insn.display(&ds);
-		loc = ds.loc_;
-		return res;
-	    }
+	Instruction insn;
+	ds.loc_ = loc;
+	if (table_.lookup(&ds, insn)) {
+	    string prefixString = "";
+	    if (ds.lockPrefix_)
+		prefixString ~= "lock ";
+	    if (ds.repnePrefix_)
+		prefixString ~= "repne ";
+	    if (ds.repePrefix_)
+		prefixString ~= "repe ";
+	    string res = prefixString ~ insn.display(&ds);
+	    loc = ds.loc_;
+	    return res;
 	}
 
 	string s = ".byte\t";
