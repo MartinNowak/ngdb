@@ -37,6 +37,7 @@ import machine.machine;
 interface Language
 {
     string structureType(string baseType);
+    string unionType(string baseType);
     string pointerType(string baseType);
     string referenceType(string baseType);
     bool isStringType(Type type);
@@ -54,6 +55,10 @@ class CLikeLanguage: Language
 	string structureType(string baseType)
 	{
 	    return "struct " ~ baseType;
+	}
+	string unionType(string baseType)
+	{
+	    return "union " ~ baseType;
 	}
 	string pointerType(string baseType)
 	{
@@ -86,7 +91,25 @@ class CLikeLanguage: Language
 	}
 	string charConstant(int ch)
 	{
-	    return "'" ~ cast(char) ch ~ "'";
+	    string specials[char] = [
+		'\0': "\\0",
+		'\a': "\\a",
+		'\b': "\\b",
+		'\f': "\\f",
+		'\n': "\\n",
+		'\r': "\\r",
+		'\t': "\\t",
+		'\v': "\\v"];
+	    if (ch in specials || isprint(ch)) {
+		string res = " '";
+		if (ch in specials)
+		    res ~= specials[ch];
+		else
+		    res ~= cast(char) ch;
+		res ~= "'";
+		return res;
+	    }
+	    return "";
 	}
 	string structConstant(string s)
 	{
@@ -112,6 +135,15 @@ class CLikeLanguage: Language
 	string sv;
 	bool zt = (len == 0);
 	bool more;
+	string specials[char] = [
+	    '\0': "\\0",
+	    '\a': "\\a",
+	    '\b': "\\b",
+	    '\f': "\\f",
+	    '\n': "\\n",
+	    '\r': "\\r",
+	    '\t': "\\t",
+	    '\v': "\\v"];
 
 	try {
 	    ubyte[] b;
@@ -125,14 +157,6 @@ class CLikeLanguage: Language
 		    if (isprint(c)) {
 			sv ~= c;
 		    } else {
-			string specials[char] = [
-			    '\a': "\\a",
-			    '\b': "\\b",
-			    '\f': "\\f",
-			    '\n': "\\n",
-			    '\r': "\\r",
-			    '\t': "\\t",
-			    '\v': "\\v"];
 			if (c in specials)
 			    sv ~= specials[c];
 			else
@@ -724,8 +748,8 @@ class DLanguage: CLikeLanguage
 	     */
 	    ubyte[] val = loc.readValue(state);
 	    return _stringConstant(state,
-				   readInteger(val[state.pointerSize..$]),
-				   readInteger(val[0..state.pointerSize]));
+				   readInteger(val[state.pointerWidth..$]),
+				   readInteger(val[0..state.pointerWidth]));
 	}
         string namespaceSeparator()
 	{

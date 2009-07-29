@@ -150,6 +150,11 @@ class X86State: MachineState
 	    }
 	}
 
+	ulong pc()
+	{
+	    return gregs_[X86Reg.EIP];
+	}
+
 	void setGR(uint gregno, ulong val)
 	{
 	    gregs_[gregno] = val;
@@ -186,7 +191,7 @@ class X86State: MachineState
 
 	size_t grWidth(int greg)
 	{
-	    return 32;
+	    return 4;
 	}
 
 	size_t grCount()
@@ -201,14 +206,9 @@ class X86State: MachineState
 	    return newState;
 	}
 
-	int pcregno()
+	uint pointerWidth()
 	{
-	    return X86Reg.EIP;
-	}
-
-	uint pointerSize()
-	{
-	    return uint.sizeof;
+	    return 4;
 	}
 
 	ubyte[] readMemory(ulong address, size_t bytes)
@@ -260,9 +260,8 @@ class X86State: MachineState
 	{
 	    foreach (i, s; X86RegNames) {
 		if (s == reg) {
-		    Location loc = new RegisterLocation(i, grWidth(i) / 8);
-		    Type ty = new IntegerType("uint32_t", false,
-					      grWidth(i) / 8);
+		    Location loc = new RegisterLocation(i, grWidth(i));
+		    Type ty = new IntegerType("uint32_t", false, grWidth(i));
 		    var.name = reg;
 		    var.value = Value(loc, ty);
 		    return true;

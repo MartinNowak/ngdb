@@ -970,22 +970,27 @@ class DwarfFile: public DebugInfo
 	{
 	    bool found = false;
 	    LineEntry lastEntry;
+	    LineEntry best[2];
 
 	    bool processEntry(LineEntry* le)
 	    {
+		if (!le) {
+		    lastEntry.address = ~0;
+		    return false;
+		}
 		debug (line)
 		    writefln("%s:%d 0x%x", le.fullname, le.line, le.address);
-		if (le.address <= address) {
-		    lastEntry = *le;
-		    found = true;
-		} else if (address <= le.address) {
-		    if (found) {
-			res.length = 2;
-			res[0] = lastEntry;
-			res[1] = *le;
-			return true; // stop now
+		if (le.address > lastEntry.address) {
+		    if (lastEntry.address <= address
+			&& address <= le.address) {
+			if (!found || (address - lastEntry.address < address - best[0].address)) {
+			    best[0] = lastEntry;
+			    best[1] = *le;
+			    found = true;
+		        }
 		    }
 		}
+		lastEntry = *le;
 		return false;
 	    }
 
@@ -996,8 +1001,13 @@ class DwarfFile: public DebugInfo
 		uint lineOffset = cu.die[DW_AT_stmt_list].ul;
 		char[] lines = debugSection(".debug_line");
 		char* p = &lines[lineOffset];
+		lastEntry.address = ~0;
 		parseLineTable(p, &processEntry);
-		return res.length == 2;
+		if (found) {
+		    res.length = 2;
+		    res[] = best[];
+		    return true;
+		}
 	    }
 	    return false;
 	}
@@ -1008,6 +1018,8 @@ class DwarfFile: public DebugInfo
 
 	    bool processEntry(LineEntry* le)
 	    {
+		if (!le)
+		    return false;
 		if ((le.name == file || le.fullname == file)
 		    && le.line == line) {
 		    found = true;
@@ -1032,6 +1044,8 @@ class DwarfFile: public DebugInfo
 
 	    bool processEntry(LineEntry* le)
 	    {
+		if (!le)
+		    return false;
 		if (!(le.fullname in fileset))
 		    fileset[le.fullname] = true;
 		return false;
@@ -1071,7 +1085,7 @@ class DwarfFile: public DebugInfo
 
 	bool findFrameBase(MachineState state, out Location loc)
 	{
-	    auto pc = state.getGR(state.pcregno);
+	    auto pc = state.pc;
 	    CompilationUnit cu;
 	    DIE func;
 	    if (findSubprogram(pc, cu, func)) {
@@ -1135,7 +1149,7 @@ class DwarfFile: public DebugInfo
 
 	MachineState unwind(MachineState state)
 	{
-	    auto pc = state.getGR(state.pcregno);
+	    auto pc = state.pc;
 
 	    foreach (fde; fdes_)
 		if (fde.contains(pc))
@@ -1396,6 +1410,7 @@ private:
 		    le.endSequence = true;
 		    if (processRow(&le))
 			return;
+		    dg(null);
 		    le = init;
 		    break;
 
@@ -2111,7 +2126,7 @@ struct Loclist
     bool evalLocation(CompilationUnit cu, MachineState state,
 		      size_t length, out Location result)
     {
-	ulong pc = state.getGR(state.pcregno);
+	ulong pc = state.pc;
 	ulong sOff, eOff, base;
 
 	auto p = start;
@@ -2144,7 +2159,7 @@ struct Loclist
 
     bool evalExpr(CompilationUnit cu, MachineState state, ref ValueStack stack)
     {
-	ulong pc = state.getGR(state.pcregno);
+	ulong pc = state.pc;
 	ulong sOff, eOff, base;
 
 	auto p = start;
@@ -2587,9 +2602,15 @@ class DIE
 	    return new ModifierType(name, "volatile", subType);
 
 	case DW_TAG_structure_type:
+	case DW_TAG_union_type:
 	{
 	    ulong sz = this[DW_AT_byte_size] ? this[DW_AT_byte_size].ul: 0;
-	    CompoundType ct = new CompoundType("struct", name, sz);
+	    string kind;
+	    if (tag == DW_TAG_structure_type)
+		kind = "struct";
+	    else
+		kind = "union";
+	    CompoundType ct = new CompoundType(kind, name, sz);
 
 	    /*
 	     * Set our memoized type so that we can avoid recursion
@@ -2601,10 +2622,12 @@ class DIE
 		    auto at = elem[DW_AT_type];
 		    if (at) {
 			Type type = cu_[at].toType;
-			DwarfLocation loc;
-			loc = new DwarfLocation(cu_,
-						elem[DW_AT_data_member_location],
-						type.byteWidth);
+			auto mloc = elem[DW_AT_data_member_location];
+			Location loc;
+			if (mloc)
+			    loc = new DwarfLocation(cu_, mloc, type.byteWidth);
+			else
+			    loc = new FirstFieldLocation(type.byteWidth);
 			ct.addField(elem[DW_AT_name].toString, type, loc);
 		    }
 		}
@@ -2827,7 +2850,7 @@ class FDE
 	cieFs.clear(this, state.grCount);
 	fdeFs.clear(this, state.grCount);
 
-	auto pc = state.getGR(state.pcregno);
+	auto pc = state.pc;
 	execute(cie.instructionStart, cie.instructionEnd, pc, cieFs, cieFs);
 
 	fdeFs = cieFs;
@@ -2844,7 +2867,7 @@ class FDE
 	cieFs.clear(this, state.grCount);
 	fdeFs.clear(this, state.grCount);
 
-	auto pc = state.getGR(state.pcregno);
+	auto pc = state.pc;
 	execute(cie.instructionStart, cie.instructionEnd, pc, cieFs, cieFs);
 
 	fdeFs = cieFs;

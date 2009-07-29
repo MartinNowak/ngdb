@@ -223,10 +223,6 @@ class PtraceThread: TargetThread
 	{
 	    return target_;
 	}
-	ulong pc()
-	{
-	    return state_.getGR(pcRegno_);
-	}
 	MachineState state()
 	{
 	    return state_;
@@ -439,14 +435,14 @@ class PtraceTarget: Target
 		 */
 		foreach (t; threads_.values.dup) {
 		    foreach (pbp; breakpoints_) {
-			if (t.pc == pbp.address) {
+			if (t.state.pc == pbp.address) {
 			    debug(breakpoints)
 				writefln("stepping over breakpoint at 0x%x",
-					 t.pc);
+					 t.state.pc);
 			    step(t);
 			    debug(breakpoints)
 				writefln("after step, thread.pc 0x%x",
-					 t.pc);
+					 t.state.pc);
 			    /*
 			     * Step each thread at most once so that we
 			     * will correctly stop at the next instruction
@@ -679,12 +675,12 @@ private:
 	 */
 	foreach (t; threads_) {
 	    foreach (pbp; breakpoints_.values) {
-		if (t.pc == pbp.address + 1) {
+		if (t.state.pc == pbp.address + 1) {
 		    t.pc = pbp.address;
 		    foreach (id; pbp.ids) {
 			debug(breakpoints)
 			    writefln("hit breakpoint at 0x%x for 0x%x",
-				     t.pc, id);
+				     t.state.pc, id);
 			listener_.onBreakpoint(this, t, id);
 		    }
 		}

@@ -285,7 +285,7 @@ private class SourceFile
 		error_ = true;
 	    }
 	}
-	if (lineno < 1 || lineno >= lines_.length)
+	if (lineno < 1 || lineno > lines_.length)
 	    return null;
 	return lines_[lineno - 1];
     }
@@ -298,6 +298,36 @@ private class SourceFile
     string filename_;
     string[] lines_;
     bool error_;
+}
+
+private class Frame
+{
+    this(Debugger db, uint index,
+	 DebugInfo di, Function func, MachineState state)
+    {
+	db_ = db;
+	index_ = index;
+	di_ = di;
+	func_ = func;
+	state_ = state;
+	Location loc;
+	di.findFrameBase(state, loc);
+	addr_ = loc.address(state);
+	lang_ = di.findLanguage(state.pc);
+    }
+    string toString()
+    {
+	return format("#%-2d %s", index_,
+		      db_.describeAddress(state_.pc, state_));
+    }
+
+    Debugger db_;
+    uint index_;
+    DebugInfo di_;
+    Function func_;
+    Language lang_;
+    MachineState state_;
+    ulong addr_;
 }
 
 /**
@@ -436,16 +466,55 @@ class Debugger: TargetListener
 	    return;
 
 	TargetThread t = threads_[0];	// XXX
+	MachineState s = t.state;
 	LineEntry[] le;
-	foreach (mod; modules_) {
-	    DebugInfo d = mod.debugInfo;
-	    if (d && d.findLineByAddress(t.pc, le)) {
+	DebugInfo di;
+
+	if (findDebugInfo(t.state, di)) {
+	    Location loc;
+	    Function func;
+	    if (di.findFrameBase(s, loc) && (func = di.findFunction(s.pc)) !is null) {
+		if (frames_.length == 0 || frames_[0].func_ != func
+		    || frames_[0].addr_ != loc.address(s)) {
+		    writefln("%s", describeAddress(s.pc, s));
+		    frames_.length = 0;
+		    MachineState fs = s;
+		    DebugInfo fdi = di;
+		    uint fi = 0;
+		    for (;;) {
+			frames_ ~= new Frame(this, fi++, fdi, func, fs);
+			fs = di.unwind(fs);
+			if (!fs)
+			    break;
+			if (!findDebugInfo(fs, fdi))
+			    break;
+			func = di.findFunction(fs.pc);
+			if (!func)
+			    break;
+		    }
+		    currentFrame_ = 0;
+		}
+	    }
+	    if (di.findLineByAddress(s.pc, le)) {
 		SourceFile sf = findFile(le[0].fullname);
-		currentSourceFile_ = sf;
-		currentSourceLine_ = le[0].line;
+		currentSourceFile_ = stoppedSourceFile_ = sf;
+		currentSourceLine_ = stoppedSourceLine_ = le[0].line;
 		displaySourceLine(sf, currentSourceLine_);
 		commands_.onStopped(this, sf, le[0].line);
 		infoCommands_.onStopped(this, sf, le[0].line);
+	    }
+	}
+    }
+
+    void displaySourceLine(MachineState s)
+    {
+	DebugInfo di;
+	LineEntry[] le;
+
+	if (findDebugInfo(s, di)) {
+	    if (di.findLineByAddress(s.pc, le)) {
+		SourceFile sf = findFile(le[0].fullname);
+		displaySourceLine(sf, le[0].line);
 	    }
 	}
     }
@@ -471,7 +540,7 @@ class Debugger: TargetListener
 	auto s = sf[line];
 	if (s) {
 	    string a = "  ";
-	    if (sf == currentSourceFile_ && line == currentSourceLine_)
+	    if (sf == stoppedSourceFile_ && line == stoppedSourceLine_)
 		a = "=>";
 	    writefln("%s%4d%s%s", a, line, bpmark, expandtabs(s));
 	}
@@ -539,11 +608,11 @@ class Debugger: TargetListener
 	    di.findFrameBase(s, frameLoc);
 
 	    ulong frame = frameLoc.address(s);
-	    ulong startpc = t.pc;
+	    ulong startpc = s.pc;
 	    ulong stoppc, flowpc;
 
 	    LineEntry[] le;
-	    if (di.findLineByAddress(t.pc, le))
+	    if (di.findLineByAddress(s.pc, le))
 		stoppc = le[1].address;
 	    else {
 		target_.step(t);
@@ -551,7 +620,7 @@ class Debugger: TargetListener
 		return;
 	    }
 	    setStepBreakpoint(stoppc);
-	    flowpc = s.findFlowControl(t.pc, stoppc);
+	    flowpc = s.findFlowControl(s.pc, stoppc);
 	    if (flowpc < stoppc)
 		setStepBreakpoint(flowpc);
 	    else
@@ -564,29 +633,32 @@ class Debugger: TargetListener
 		 * next statement, whichever comes first. Be careful if
 		 * we are sitting on a flow control instruction.
 		 */
-		if (t.pc != flowpc) {
+		if (s.pc != flowpc) {
 		    target_.cont();
 		    target_.wait();
 		}
-		ulong tpc = t.pc;
-		if (tpc == flowpc) {
+		debug (step) {
+		    void stoppedAt(string msg, ulong pc)
+		    {
+			writefln("%s %#x (%s)", msg, pc,
+				replace(s.disassemble(pc, &lookupAddress), "\t", " "));
+		    }
+		}
+		if (s.pc == flowpc) {
 		    /*
 		     * Stopped at a flow control instruction - single step
 		     * it and see if we change frame or go out of our step
 		     * range.
 		     */
-		    tpc = t.pc;
 		    debug (step)
-			writefln("stopped at flow control %#x (%s)", tpc, replace(s.disassemble(tpc, &lookupAddress), "\t", " "));
+			stoppedAt("stopped at flow control", s.pc);
 		    target_.step(t);
-		    tpc = t.pc;
 		    debug (step)
-			writefln("single stepped to %#x (%s)", tpc, replace(s.disassemble(tpc, &lookupAddress), "\t", " "));
+			stoppedAt("single stepped to", s.pc);
 		    resetStep = true;
 		} else {
-		    tpc = t.pc;
 		    debug (step)
-			writefln("stopped at %#x (%s)", tpc, replace(s.disassemble(tpc, &lookupAddress), "\t", " "));
+			stoppedAt("stopped at", s.pc);
 		}
 		if (!findDebugInfo(s, di)) {
 		    /*
@@ -594,7 +666,7 @@ class Debugger: TargetListener
 		     * just continue until we hit the step breakpoint.
 		     */
 		    debug (step)
-			writefln("no debug info at %#x - continue", t.pc);
+			writefln("no debug info at %#x - continue", s.pc);
 		    target_.cont();
 		    target_.wait();
 		    break;
@@ -617,20 +689,29 @@ class Debugger: TargetListener
 			    writefln("stepping over call");
 			MachineState ns = di.unwind(s);
 			clearStepBreakpoints();
-			ulong retpc = ns.getGR(ns.pcregno);
+			ulong retpc = ns.pc;
 			debug (step)
 			    writefln("return breakpoint at %#x", retpc);
 			setStepBreakpoint(retpc);
-			target_.cont();
-			target_.wait();
+			do {
+			    target_.cont();
+			    target_.wait();
+			    debug (step)
+				stoppedAt("stopped at", s.pc);
+			    if (s.pc != retpc
+				|| !di.findFrameBase(s, frameLoc))
+				break;
+			    debug (step)
+				if (frameLoc.address(s) < frame)
+				    writefln("stopped at inner frame %#x - continuing", frameLoc.address(s));
+			} while (frameLoc.address(s) != frame);
 			resetStep = true;
 		    } else {
-			writefln("%s", describeAddress(t.pc, s));
 			clearStepBreakpoints();
 			break;
 		    }
 		}
-		if (t.pc < startpc || t.pc >= stoppc) {
+		if (s.pc < startpc || s.pc >= stoppc) {
 		    debug (step)
 			writefln("stepped outside range %#x..%#x", startpc, stoppc);
 		    break;
@@ -638,19 +719,99 @@ class Debugger: TargetListener
 		if (resetStep) {
 		    clearStepBreakpoints();
 		    setStepBreakpoint(stoppc);
-		    flowpc = s.findFlowControl(t.pc, stoppc);
+		    flowpc = s.findFlowControl(s.pc, stoppc);
 		    if (flowpc < stoppc)
 			setStepBreakpoint(flowpc);
 		    else
 			flowpc = 0;
 		}
-	    } while (t.pc < stoppc);
+	    } while (s.pc < stoppc);
 	    clearStepBreakpoints();
 	    stopped();
 	} else {
 	    target_.step(t);
 	    stopped();
 	}
+    }
+
+    void stepInstruction(bool stepOverCalls)
+    {
+	if (!target_) {
+	    writefln("Program is not being debugged");
+	    return;
+	}
+
+	// XXX current thread
+	TargetThread t = threads_[0];
+	MachineState s = t.state;
+
+	ulong frame = 0;
+	DebugInfo di;
+
+	if (findDebugInfo(s, di)) {
+	    Location frameLoc;
+	    di.findFrameBase(s, frameLoc);
+	    frame = frameLoc.address(s);
+	}
+
+	target_.step(t);
+	
+	if (findDebugInfo(s, di)) {
+	    Location frameLoc;
+	    di.findFrameBase(s, frameLoc);
+	    if (frameLoc.address(s) != frame) {
+		debug (step)
+		    writefln("new frame address %#x", frameLoc.address(s));
+		if (frameLoc.address(s) > frame) {
+		    debug (step)
+			writefln("returning to outer frame");
+		    stopped();
+		    return;
+		}
+		if (stepOverCalls) {
+		    /*
+		     * We are stepping over calls - run up to the return
+		     * address
+		     */
+		    debug (step)
+			writefln("stepping over call");
+		    MachineState ns = di.unwind(s);
+		    clearStepBreakpoints();
+		    ulong retpc = ns.pc;
+		    debug (step)
+			writefln("return breakpoint at %#x", retpc);
+		    setStepBreakpoint(retpc);
+		    do {
+			target_.cont();
+			target_.wait();
+			clearStepBreakpoints();
+			debug (step)
+			    stoppedAt("stopped at", s.pc);
+			if (s.pc != retpc
+			    || !di.findFrameBase(s, frameLoc))
+			    break;
+			debug (step)
+			    if (frameLoc.address(s) < frame)
+				writefln("stopped at inner frame %#x - continuing", frameLoc.address(s));
+		    } while (frameLoc.address(s) != frame);
+		}
+	    }
+	}
+	stopped();
+    }
+
+    Frame currentFrame()
+    {
+	if (frames_.length > currentFrame_)
+	    return frames_[currentFrame_];
+	return null;
+    }
+
+    Frame getFrame(uint frameIndex)
+    {
+	if (frames_.length > frameIndex)
+	    return frames_[frameIndex];
+	return null;
     }
 
     static void registerCommand(Command c)
@@ -725,7 +886,7 @@ class Debugger: TargetListener
 	    } else {
 		foreach (i, bp; breakpoints_) {
 		    if (id == cast(void*) bp) {
-			writefln("Breakpoint %d, %s", i + 1, describeAddress(t.pc, t.state));
+			writefln("Breakpoint %d, %s", i + 1, describeAddress(t.state.pc, t.state));
 		    }
 		}
 	    }
@@ -736,13 +897,14 @@ class Debugger: TargetListener
 	}
 	void onExit(Target)
 	{
-	    writefln("Target program has exited.");
-	    target_ = null;
-	    threads_.length = 0;
-	    modules_.length = 0;
-	    foreach (bp; breakpoints_)
-		bp.onExit;
-	    return;
+	    if (target_) {
+		writefln("Target program has exited.");
+		target_ = null;
+		threads_.length = 0;
+		modules_.length = 0;
+		foreach (bp; breakpoints_)
+		    bp.onExit;
+	    }
 	}
     }
 
@@ -769,9 +931,13 @@ private:
     Target target_;
     TargetModule[] modules_;
     TargetThread[] threads_;
+    Frame[] frames_;
+    uint currentFrame_;
     Breakpoint[] breakpoints_;
     SourceFile[string] sourceFiles_;
     SourceFile[string] sourceFilesBasename_;
+    SourceFile stoppedSourceFile_;
+    uint stoppedSourceLine_;
     SourceFile currentSourceFile_;
     uint currentSourceLine_;
     uint nextBPID_;
@@ -950,6 +1116,56 @@ class StepCommand: Command
     }
 }
 
+class IStepCommand: Command
+{
+    static this()
+    {
+	Debugger.registerCommand(new IStepCommand);
+    }
+
+    override {
+	string name()
+	{
+	    return "istep";
+	}
+
+	string description()
+	{
+	    return "Step the program one instruction, stepping into function calls";
+	}
+
+	void run(Debugger db, string, string[] args)
+	{
+	    db.stepInstruction(false);
+	}
+    }
+}
+
+class INextCommand: Command
+{
+    static this()
+    {
+	Debugger.registerCommand(new INextCommand);
+    }
+
+    override {
+	string name()
+	{
+	    return "inext";
+	}
+
+	string description()
+	{
+	    return "Step the program one instruction, stepping over function calls";
+	}
+
+	void run(Debugger db, string, string[] args)
+	{
+	    db.stepInstruction(true);
+	}
+    }
+}
+
 class ContinueCommand: Command
 {
     static this()
@@ -977,6 +1193,53 @@ class ContinueCommand: Command
 
 	    db.target_.cont();
 	    db.target_.wait();
+	    db.stopped();
+	}
+    }
+}
+
+class FinishCommand: Command
+{
+    static this()
+    {
+	Debugger.registerCommand(new FinishCommand);
+    }
+
+    override {
+	string name()
+	{
+	    return "finish";
+	}
+
+	string description()
+	{
+	    return "Continue to calling stack frame";
+	}
+
+	void run(Debugger db, string, string[] args)
+	{
+	    if (db.frames_.length < 2) {
+		writefln("Already in outermost stack frame");
+		return;
+	    }
+	    auto fromFrame = db.getFrame(0);
+	    auto toFrame = db.getFrame(1);
+
+	    Type rTy = fromFrame.func_.returnType;
+	    db.setStepBreakpoint(toFrame.state_.pc);
+	    db.target_.cont();
+	    db.target_.wait();
+	    db.clearStepBreakpoints();
+	    if (rTy) {
+		/*
+		 * XXX factor out calling convention details
+		 */
+		MachineState s = db.threads_[0].state;
+		Language lang = toFrame.di_.findLanguage(s.pc);
+		Location loc = new RegisterLocation(0, s.grWidth(0));
+		Value val = Value(loc, rTy);
+		writefln("Value returned is %s", val.toString(null, lang, s));
+	    }
 	    db.stopped();
 	}
     }
@@ -1095,7 +1358,7 @@ class InfoThreadCommand: Command
 	void run(Debugger db, string, string[] args)
 	{
 	    foreach (i, t; db.threads_) {
-		writefln("%d: stopped at 0x%08x", i + 1, t.pc);
+		writefln("%d: stopped at 0x%08x", i + 1, t.state.pc);
 	    }
 	}
     }
@@ -1121,14 +1384,14 @@ class InfoRegistersCommand: Command
 
 	void run(Debugger db, string, string[] args)
 	{
-	    foreach (i, t; db.threads_) {
-		writefln("%d: stopped at 0x%08x", i + 1, t.pc);
-		t.state.dumpState;
-		ulong pc = t.state.getGR(t.state.pcregno);
-		ulong tpc = pc;
-		writefln("%s:\t%s", db.lookupAddress(pc),
-			 t.state.disassemble(tpc, &db.lookupAddress));
-	    }
+	    auto f = db.currentFrame;
+	    writefln("%s", f.toString);
+	    auto s = f.state_;
+	    s.dumpState;
+	    ulong pc = s.pc;
+	    ulong tpc = pc;
+	    writefln("%s:\t%s", db.lookupAddress(pc),
+		     s.disassemble(tpc, &db.lookupAddress));
 	}
     }
 }
@@ -1148,7 +1411,7 @@ class InfoVariablesCommand: Command
 
 	string description()
 	{
-	    return "List variabless";
+	    return "List variables";
 	}
 
 	void run(Debugger db, string fmt, string[] args)
@@ -1157,20 +1420,150 @@ class InfoVariablesCommand: Command
 		writefln("target is not running");
 		return;
 	    }
-	    TargetThread t = db.threads_[0];
-	    MachineState s = t.state;
+	    auto f = db.currentFrame;
+	    if (!f) {
+		writefln("current stack frame is invalid");
+		return;
+	    }
+	    MachineState s = f.state_;
 	    DebugInfo di;
 
 	    if (db.findDebugInfo(s, di)) {
-		Function func = di.findFunction(s.getGR(s.pcregno));
+		Function func = di.findFunction(s.pc);
 		auto vars = func.arguments;
 		vars ~= func.variables;
-		Language lang = di.findLanguage(s.getGR(s.pcregno));
+		Language lang = di.findLanguage(s.pc);
 		foreach (v; vars) {
 		    writefln("%s = %s", v.toString(lang),
 			     v.valueToString(fmt, lang, s));
 		}
 	    }
+	}
+    }
+}
+
+class FrameCommand: Command
+{
+    static this()
+    {
+	Debugger.registerCommand(new FrameCommand);
+    }
+
+    override {
+	string name()
+	{
+	    return "frame";
+	}
+
+	string description()
+	{
+	    return "Manipulate stack frame";
+	}
+
+	void run(Debugger db, string, string[] args)
+	{
+	    if (args.length > 2) {
+		writefln("usage: frame [frame index]");
+		return;
+	    }
+	    if (args.length == 2) {
+		uint frameIndex;
+		try {
+		    frameIndex = toUint(args[1]);
+		} catch (ConvError ce) {
+		    frameIndex = ~0;
+		}
+		if (frameIndex >= db.frames_.length) {
+		    writefln("Invalid frame number %s", args[1]);
+		    return;
+		}
+		db.currentFrame_ = frameIndex;
+	    }
+	    auto f = db.currentFrame;
+	    if (!f) {
+		writefln("stack frame information unavailable");
+		return;
+	    }
+	    writefln("%s", f.toString);
+	    db.displaySourceLine(f.state_);
+	}
+    }
+}
+
+class UpCommand: Command
+{
+    static this()
+    {
+	Debugger.registerCommand(new UpCommand);
+    }
+
+    override {
+	string name()
+	{
+	    return "up";
+	}
+
+	string description()
+	{
+	    return "Select next outer stack frame";
+	}
+
+	void run(Debugger db, string, string[] args)
+	{
+	    if (args.length != 1) {
+		writefln("usage: up");
+		return;
+	    }
+	    auto f = db.currentFrame;
+	    if (!f) {
+		writefln("stack frame information unavailable");
+		return;
+	    }
+	    if (f.index_ + 1 < db.frames_.length) {
+		db.currentFrame_ = f.index_ + 1;
+		f = db.currentFrame;
+	    }
+	    writefln("%s", f.toString);
+	    db.displaySourceLine(f.state_);
+	}
+    }
+}
+
+class DownCommand: Command
+{
+    static this()
+    {
+	Debugger.registerCommand(new DownCommand);
+    }
+
+    override {
+	string name()
+	{
+	    return "down";
+	}
+
+	string description()
+	{
+	    return "Select next inner stack frame";
+	}
+
+	void run(Debugger db, string, string[] args)
+	{
+	    if (args.length != 1) {
+		writefln("usage: down");
+		return;
+	    }
+	    auto f = db.currentFrame;
+	    if (!f) {
+		writefln("stack frame information unavailable");
+		return;
+	    }
+	    if (f.index_ > 0) {
+		db.currentFrame_ = f.index_ - 1;
+		f = db.currentFrame;
+	    }
+	    writefln("%s", f.toString);
+	    db.displaySourceLine(f.state_);
 	}
     }
 }
@@ -1195,25 +1588,9 @@ class WhereCommand: Command
 
 	void run(Debugger db, string, string[] args)
 	{
-	    TargetThread t = db.threads_[0];
-	    MachineState s = t.state, ns;
-	    int i = 0;
-
-	    while (s) {
-		ulong pc = s.getGR(s.pcregno);
-		writefln("%d: %s", i + 1, db.describeAddress(pc, s));
-		
-		DebugInfo di;
-		if (db.findDebugInfo(s, di)) {
-		    ns = di.unwind(s);
-		} else {
-		    ns = null;
-		}
-
-		s = ns;
-
-		i++;
-	    }
+	    foreach (f; db.frames_)
+		writefln("%d: %s", f.index_,
+		    db.describeAddress(f.state_.pc, f.state_));
 	}
     }
 }
@@ -1238,16 +1615,12 @@ class PrintCommand: Command
 
 	void run(Debugger db, string fmt, string[] args)
 	{
-	    TargetThread t;
 	    MachineState s;
 	    DebugInfo di;
 
-	    if (db.threads_.length > 0) {
-		t = db.threads_[0];
-		s = t.state;
-	    } else {
-		s = null;
-	    }
+	    auto f = db.currentFrame;
+	    if (f)
+		s = f.state_;
 
 	    if (args.length < 2) {
 		writefln("usage: print <expr>");
@@ -1256,10 +1629,20 @@ class PrintCommand: Command
 
 	    auto sc = new UnionScope;
 	    Language lang;
-	    if (s && db.findDebugInfo(s, di)) {
-		Function func = di.findFunction(s.getGR(s.pcregno));
-		lang = di.findLanguage(s.getGR(s.pcregno));
-		sc.addScope(func);
+	    if (f) {
+		lang = f.lang_;
+
+		Value thisvar;
+		if (f.func_.thisArgument(thisvar)) {
+		    PointerType ptrTy =
+			cast (PointerType) thisvar.type.underlyingType;
+		    if (ptrTy) {
+			Value v = ptrTy.dereference(s, thisvar.loc);
+			CompoundType cTy = cast (CompoundType) v.type;
+			sc.addScope(new CompoundScope(cTy, v.loc, s));
+		    }
+		}
+		sc.addScope(f.func_);
 		sc.addScope(s);
 	    } else {
 		lang = new CLikeLanguage;
@@ -1267,7 +1650,8 @@ class PrintCommand: Command
 
 	    try {
 		auto e = lang.parseExpr(join(args[1..$], " "));
-		writefln("%s", e.eval(lang, sc, s).toString(fmt, lang, s));
+		auto v = e.eval(lang, sc, s);
+		writefln("%s", v.toString(fmt, lang, s));
 	    } catch (Exception ex) {
 		writefln("%s", ex.msg);
 	    }
@@ -1338,6 +1722,8 @@ class ListCommand: Command
 		db.displaySourceLine(sf, ln);
 	    sourceFile_ = sf;
 	    sourceLine_ = el + 5;
+	    db.currentSourceFile_ = sf;
+	    db.currentSourceLine_ = line;
 	}
 	void onStopped(Debugger db, SourceFile sf, uint line)
 	{

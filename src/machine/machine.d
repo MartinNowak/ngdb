@@ -38,6 +38,11 @@ interface MachineState: Scope
     void dumpState();
 
     /**
+     * Return the machine's program counter register.
+     */
+    ulong pc();
+
+    /**
      * Set a general register by register number.
      */
     void setGR(uint gregno, ulong val);
@@ -68,7 +73,7 @@ interface MachineState: Scope
     void writeGR(uint gregno, ubyte[]);
 
     /**
-     * Return the width in bits of a general register
+     * Return the width in bytes of a general register
      */
     size_t grWidth(int greg);
 
@@ -78,14 +83,9 @@ interface MachineState: Scope
     size_t grCount();
 
     /**
-     * Return the register number for the program counter
-     */
-    int pcregno();
-
-    /**
      * Return the width of a pointer in bytes
      */
-    uint pointerSize();
+    uint pointerWidth();
 
     /**
      * Read from the machine's memory.

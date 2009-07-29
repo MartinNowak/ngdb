@@ -63,6 +63,7 @@ interface Type: DebugItem
     string toString(Language);
     string valueToString(string, Language, MachineState, Location);
     size_t byteWidth();
+    Type underlyingType();
     Type pointerType(uint);
     bool isCharType();
     bool isIntegerType();
@@ -73,6 +74,10 @@ class TypeBase: Type
     abstract string toString(Language);
     abstract string valueToString(string, Language, MachineState, Location);
     abstract size_t byteWidth();
+    Type underlyingType()
+    {
+	return this;
+    }
     Type pointerType(uint width)
     {
 	if (width in ptrTypes_)
@@ -207,14 +212,12 @@ class CharType: IntegerType
 
 	    if (isSigned) {
 		long val = readInteger(loc.readValue(state));
-		if (val < 0 || !isprint(val))
-		    return super.valueToString(fmt, lang, state, loc);
-		return lang.charConstant(val);
+		return super.valueToString(fmt, lang, state, loc)
+		    ~ lang.charConstant(val);
 	    } else {
 		ulong val = readInteger(loc.readValue(state));
-		if (!isprint(val))
-		    return super.valueToString(fmt, lang, state, loc);
-		return lang.charConstant(val);
+		return super.valueToString(fmt, lang, state, loc)
+		    ~ lang.charConstant(val);
 	    }		
 	}
 
@@ -321,6 +324,14 @@ class PointerType: TypeBase
 	return baseType_;
     }
 
+    Value dereference(MachineState state, Location loc)
+    {
+	return Value(new MemoryLocation(
+			 readInteger(loc.readValue(state)),
+			 baseType.byteWidth),
+		     baseType);
+    }
+
 private:
     Type baseType_;
     uint byteWidth_;
@@ -403,6 +414,10 @@ class ModifierType: TypeBase
 	{
 	    return baseType_.byteWidth;
 	}
+	Type underlyingType()
+	{
+	    return baseType_.underlyingType;
+	}
 	bool isCharType()
 	{
 	    return baseType_.isCharType;
@@ -440,6 +455,10 @@ class TypedefType: TypeBase
 	size_t byteWidth()
 	{
 	    return baseType_.byteWidth;
+	}
+	Type underlyingType()
+	{
+	    return baseType_.underlyingType;
 	}
 	bool isCharType()
 	{
@@ -480,7 +499,10 @@ class CompoundType: TypeBase
     {
 	string toString(Language lang)
 	{
-	    return lang.structureType(name_);
+	    if (kind_ == "struct")
+		return lang.structureType(name_);
+	    else
+		return lang.unionType(name_);
 	}
 	string valueToString(string fmt, Language lang, MachineState state, Location loc)
 	{
@@ -536,6 +558,38 @@ private:
     string name_;
     uint byteWidth_;
     field[] fields_;
+}
+
+class CompoundScope: Scope
+{
+    this(CompoundType type, Location base, MachineState state)
+    {
+	type_ = type;
+	base_ = base;
+	state_ = state;
+    }
+    string[] contents()
+    {
+	string[] res;
+	foreach (f; type_.fields_)
+	    res ~= f.name;
+	return res;
+    }
+    bool lookup(string name, out Variable var)
+    {
+	foreach (f; type_.fields_) {
+	    if (f.name == name) {
+		var.name = name;
+		var.value = Value(f.loc.fieldLocation(base_, state_), f.type);
+		return true;
+	    }
+	}
+	return false;
+    }
+private:
+    CompoundType type_;
+    Location base_;
+    MachineState state_;
 }
 
 class ArrayType: TypeBase
@@ -600,17 +654,21 @@ private:
 			 MachineState state, ref ulong addr, size_t di)
     {
 	string v;
-	for (size_t i = dims_[di].indexBase;
-	     i < dims_[di].indexBase + dims_[di].count; i++) {
-	    if (i > dims_[di].indexBase)
+	for (size_t i = 0; i < dims_[di].count; i++) {
+	    if (i > 0 && i <= 3)
 		v ~= ", ";
+	    if (i == 3)
+		v ~= "...";
+	    string elem;
 	    if (di == dims_.length - 1) {
-		v ~= baseType_.valueToString(fmt, lang, state,
+		elem = baseType_.valueToString(fmt, lang, state,
 			new MemoryLocation(addr, baseType_.byteWidth));
 		addr += baseType_.byteWidth;
 	    } else {
-		v ~= valueToString(fmt, lang, state, addr, di + 1);
+		elem = valueToString(fmt, lang, state, addr, di + 1);
 	    }
+	    if (i < 3)
+		v ~= elem;
 	}
 	return lang.arrayConstant(v);
     }
@@ -649,8 +707,8 @@ class DArrayType: TypeBase
 		return lang.stringConstant(state, this, loc);
 
 	    ubyte[] val = loc.readValue(state);
-	    ulong len = readInteger(val[0..state.pointerSize]);
-	    ulong addr = readInteger(val[state.pointerSize..$]);
+	    ulong len = readInteger(val[0..state.pointerWidth]);
+	    ulong addr = readInteger(val[state.pointerWidth..$]);
 	    string v;
 	    for (auto i = 0; i < len; i++) {
 		if (i > 0)
@@ -789,7 +847,7 @@ class RegisterLocation: Location
 	    return 0;
 	}
 
-	Location fieldLocation(Location fieldLoc, MachineState state)
+	Location fieldLocation(Location baseLoc, MachineState state)
 	{
 	    return null;
 	}
@@ -839,13 +897,66 @@ class MemoryLocation: Location
 	    return address_;
 	}
 
-	Location fieldLocation(Location fieldLoc, MachineState state)
+	Location fieldLocation(Location baseLoc, MachineState state)
 	{
 	    return null;
 	}
     }
 
     ulong address_;
+    size_t length_;
+}
+
+/**
+ * A field location that describes a field at the exact start of a compound.
+ * Typically used for union field locations.
+ */
+class FirstFieldLocation: Location
+{
+    this(size_t length)
+    {
+	length_ = length;
+    }
+
+    override {
+	bool valid(MachineState)
+	{
+	    return false;
+	}
+
+	size_t length()
+	{
+	    return length_;
+	}
+
+	ubyte[] readValue(MachineState state)
+	{
+	    assert(false);
+	    return null;
+	}
+
+	void writeValue(MachineState state, ubyte[] value)
+	{
+	    assert(false);
+	}
+
+	bool hasAddress(MachineState)
+	{
+	    return false;
+	}
+
+	ulong address(MachineState)
+	{
+	    assert(false);
+	    return 0;
+	}
+
+	Location fieldLocation(Location baseLoc, MachineState state)
+	{
+	    return baseLoc;
+	}
+    }
+
     size_t length_;
 }
 
@@ -890,7 +1001,7 @@ class ConstantLocation: Location
 	    return 0;
 	}
 
-	Location fieldLocation(Location fieldLoc, MachineState state)
+	Location fieldLocation(Location baseLoc, MachineState state)
 	{
 	    return null;
 	}
@@ -1000,10 +1111,10 @@ class AddressOfExpr: UnaryExpr
 	    if (expr.loc.hasAddress(state)) {
 		ulong addr = expr.loc.address(state);
 		ubyte[] val;
-		val.length = state.pointerSize;
+		val.length = state.pointerWidth;
 		writeInteger(addr, val);
 		return Value(new ConstantLocation(val),
-			     expr.type.pointerType(state.pointerSize));
+			     expr.type.pointerType(state.pointerWidth));
 	    } else {
 		throw new Exception("Can't take the address of a value which is not in memory");
 	    }
@@ -1026,13 +1137,10 @@ class DereferenceExpr: UnaryExpr
 	Value eval(Language lang, Scope sc, MachineState state)
 	{
 	    Value expr = expr_.eval(lang, sc, state);
-	    PointerType ptrTy = cast(PointerType) expr.type;
+	    PointerType ptrTy = cast(PointerType) expr.type.underlyingType;
 	    if (!ptrTy)
 		throw new Exception("Attempting to dereference a non-pointer");
-	    return Value(new MemoryLocation(
-			     readInteger(expr.loc.readValue(state)),
-			     ptrTy.baseType.byteWidth),
-			 ptrTy.baseType);
+	    return ptrTy.dereference(state, expr.loc);
 	}
     }
 }
@@ -1087,7 +1195,7 @@ class LogicalNegateExpr: IntegerUnaryExpr!("!", "logically negate")
 	Value eval(Language lang, Scope sc, MachineState state)
 	{
 	    Value expr = expr_.eval(lang, sc, state);
-	    PointerType ptrTy = cast(PointerType) expr.type;
+	    PointerType ptrTy = cast(PointerType) expr.type.underlyingType;
 	    if (!ptrTy)
 		return super.eval(lang, sc, state);
 	    ulong ptr = readInteger(expr.loc.readValue(state));
@@ -1270,7 +1378,7 @@ class AddExpr: IntegerBinaryExpr!("+", "add")
 	Value eval(Language lang, Scope sc, MachineState state)
 	{
 	    Value left = left_.eval(lang, sc, state);
-	    PointerType ptrTy = cast(PointerType) left.type;
+	    PointerType ptrTy = cast(PointerType) left.type.underlyingType;
 	    if (!ptrTy)
 		return super.eval(lang, sc, state);
 
@@ -1299,12 +1407,12 @@ class SubtractExpr: IntegerBinaryExpr!("-", "add")
 	Value eval(Language lang, Scope sc, MachineState state)
 	{
 	    Value left = left_.eval(lang, sc, state);
-	    PointerType ptrTy = cast(PointerType) left.type;
+	    PointerType ptrTy = cast(PointerType) left.type.underlyingType;
 	    if (!ptrTy)
 		return super.eval(lang, sc, state);
 
 	    Value right = right_.eval(lang, sc, state);
-	    PointerType rptrTy = cast(PointerType) right.type;
+	    PointerType rptrTy = cast(PointerType) right.type.underlyingType;
 	    if (!rptrTy && !right.type.isIntegerType)
 		throw new Exception("Pointer arithmetic with non-integer or non-pointer");
 	    if (rptrTy && rptrTy != ptrTy)
@@ -1346,9 +1454,9 @@ class IndexExpr: Expr
 	{
 	    Value base = base_.eval(lang, sc, state);
 
-	    ArrayType aTy = cast(ArrayType) base.type;
-	    DArrayType daTy = cast(DArrayType) base.type;
-	    PointerType ptrTy = cast(PointerType) base.type;
+	    ArrayType aTy = cast(ArrayType) base.type.underlyingType;
+	    DArrayType daTy = cast(DArrayType) base.type.underlyingType;
+	    PointerType ptrTy = cast(PointerType) base.type.underlyingType;
 	    Type elementType;
 	    Location baseLoc;
 	    ulong minIndex, maxIndex;
@@ -1372,8 +1480,8 @@ class IndexExpr: Expr
 		elementType = daTy.baseType;
 		ubyte[] val = base.loc.readValue(state);
 		minIndex = 0;
-		maxIndex = readInteger(val[0..state.pointerSize]);
-		ulong addr = readInteger(val[state.pointerSize..$]);
+		maxIndex = readInteger(val[0..state.pointerWidth]);
+		ulong addr = readInteger(val[state.pointerWidth..$]);
 		baseLoc = new MemoryLocation(addr, 0);
 	    } else if (ptrTy) {
 		elementType = ptrTy.baseType;
@@ -1389,7 +1497,7 @@ class IndexExpr: Expr
 	    }
 
 	    Value index = index_.eval(lang, sc, state);
-	    IntegerType intTy = cast(IntegerType) index.type;
+	    IntegerType intTy = cast(IntegerType) index.type.underlyingType;
 	    if (!index.type.isIntegerType) {
 		throw new Exception("Expected integer for index expression");
 	    }
@@ -1426,7 +1534,7 @@ class MemberExpr: Expr
 	Value eval(Language lang, Scope sc, MachineState state)
 	{
 	    Value base = base_.eval(lang, sc, state);
-	    CompoundType cTy = cast(CompoundType) base.type;
+	    CompoundType cTy = cast(CompoundType) base.type.underlyingType;
 	    if (!cTy)
 		throw new Exception("Not a compound type");
 	    return cTy.fieldValue(member_, base.loc, state);
@@ -1452,11 +1560,11 @@ class PointsToExpr: Expr
 	Value eval(Language lang, Scope sc, MachineState state)
 	{
 	    Value base = base_.eval(lang, sc, state);
-	    PointerType ptrTy = cast(PointerType) base.type;
+	    PointerType ptrTy = cast(PointerType) base.type.underlyingType;
 	    if (!ptrTy)
 		throw new Exception("Not a pointer");
 
-	    CompoundType cTy = cast(CompoundType) ptrTy.baseType;
+	    CompoundType cTy = cast(CompoundType) ptrTy.baseType.underlyingType;
 	    if (!cTy)
 		throw new Exception("Not a pointer to a compound type");
 	    ulong ptr = readInteger(base.loc.readValue(state));
@@ -1635,6 +1743,15 @@ class Function: DebugItem, Scope
     Type containingType()
     {
 	return containingType_;
+    }
+
+    bool thisArgument(out Value val)
+    {
+	if (arguments_.length > 0 && arguments_[0].name == "this") {
+	    val = arguments_[0].value;
+	    return true;
+	}
+	return false;
     }
 
     Variable[] arguments()

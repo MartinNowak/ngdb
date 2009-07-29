@@ -2079,10 +2079,15 @@ struct DecodeState
 
 	    if (indexReg_ >= 0) {
 		if (scale_ && scale_ != 1)
-		    return std.string.format("[%s+%s*%d%s]",
-					     regName(mode, baseReg_),
-					     regName(mode, indexReg_),
-					     scale_, s);
+		    if (baseReg_ >= 0)
+			return std.string.format("[%s+%s*%d%s]",
+						 regName(mode, baseReg_),
+						 regName(mode, indexReg_),
+						 scale_, s);
+		    else
+			return std.string.format("[%s*%d%s]",
+						 regName(mode, indexReg_),
+						 scale_, s);
 		else
 		    return std.string.format("[%s+%s%s]",
 					     regName(mode, baseReg_),

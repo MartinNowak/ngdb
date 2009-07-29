@@ -83,11 +83,6 @@ interface TargetThread
     Target target();
 
     /**
-     * Return the thread's current program counter.
-     */
-    ulong pc();
-
-    /**
      * Return the machine state for this thread
      */
     MachineState state();
