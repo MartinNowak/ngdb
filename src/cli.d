@@ -40,6 +40,7 @@ import std.c.freebsd.freebsd;
 else
 import std.c.unix.unix;
 import std.conv;
+static import std.path;
 import std.string;
 import std.stdio;
 import std.file;
@@ -52,22 +53,29 @@ extern (C) void free(void*);
 /**
  * A CLI command
  */
-interface Command
+class Command
 {
     /**
      * Return the command name.
      */
-    string name();
+    abstract string name();
 
     /**
      * Return the command description.
      */
-    string description();
+    abstract string description();
 
     /**
      * Execute the command
      */
-    void run(Debugger db, string format, string[] args);
+    abstract void run(Debugger db, string format, string[] args);
+
+    /**
+     * Called when the program stops with the current source file and line
+     */
+    void onStopped(Debugger db, SourceFile sf, uint line)
+    {
+    }
 }
 
 class CommandTable
@@ -136,16 +144,30 @@ class CommandTable
 	}
     }
 
+    void onStopped(Debugger db, SourceFile sf, uint line)
+    {
+	foreach (c; list_)
+	    c.onStopped(db, sf, line);
+    }
+
     Command[string] list_;
 }
 
 private class Breakpoint
 {
-    this(Debugger db, uint id, string expr)
+    this(Debugger db, uint id, SourceFile sf, uint line)
     {
 	db_ = db;
 	id_ = id;
-	expr_ = expr;
+	sf_ = sf;
+	line_ = line;
+    }
+
+    this(Debugger db, uint id, string func)
+    {
+	db_ = db;
+	id_ = id;
+	func_ = func;
     }
 
     void activate(TargetModule mod)
@@ -159,19 +181,26 @@ private class Breakpoint
 
 	LineEntry[] lines;
 	bool found;
-	if ((pos = expr_.find(':')) >= 0) {
-	    // Assume the expr is file:line
-	    uint line = toUint(expr_[pos + 1..expr_.length]);
-	    string file = expr_[0..pos];
+	if (sf_ !is null) {
 	    if (di)
-		found = di.findLineByName(file, line, lines);
+		found = di.findLineByName(sf_.filename, line_, lines);
 	} else {
-	    // Try looking up a function
 	    if (di)
-		found = di.findLineByFunction(expr_, lines);
+		found = di.findLineByFunction(func_, lines);
 	}
 	if (found) {
+	    Function func = null;
 	    foreach (le; lines) {
+		/*
+		 * In optimised code we can get several line entries for
+		 * the same source line - take only the first one.
+		 * XXX possibly remove this if it causes problems with
+		 * inlines.
+		 */
+		Function f = di.findFunction(le.address);
+		if (func && f == func)
+		    continue;
+		func = f;
 		db_.target_.setBreakpoint(le.address, cast(void*) this);
 		addresses_ ~= le.address;
 	    }
@@ -191,6 +220,11 @@ private class Breakpoint
 	enabled_ = true;
     }
 
+    void onExit()
+    {
+	addresses_.length = 0;
+    }
+
     bool active()
     {
 	return addresses_.length > 0;
@@ -201,22 +235,31 @@ private class Breakpoint
 	return id_;
     }
 
-    string expr()
+    bool matches(ulong pc)
     {
-	return expr_;
+	foreach (addr; addresses_)
+	    if (pc == addr)
+		return true;
+	return false;
     }
 
     string[] describe()
     {
 	string[] res;
-	foreach (address; addresses_)
-	    res ~= db_.describeAddress(address, null);
-	if (res.length == 0)
-	    res ~= expr;
+	foreach (addr; addresses_)
+	    res ~= format("%#x: %s", addr, db_.describeAddress(addr, null));
+	if (res.length == 0) {
+	    if (sf_)
+		res ~= format("%s:%d", sf_.filename, line_);
+	    else
+		res ~= func_;
+	}
 	return res;
     }
 
-    string expr_;
+    SourceFile sf_;
+    uint line_;
+    string func_;
     bool enabled_ = true;
     Debugger db_;
     uint id_;
@@ -228,15 +271,33 @@ private class SourceFile
 {
     this(string filename)
     {
-	try {
-	    string file = cast(string) std.file.read(filename);
-	    lines_ = splitlines(file);
-	} catch {
-	    writefln("Can't open file %s", filename);
-	}
+	filename_ = filename;
     }
 
+    string opIndex(uint lineno)
+    {
+	if (lines_.length == 0 && !error_) {
+	    try {
+		string file = cast(string) std.file.read(filename);
+		lines_ = splitlines(file);
+	    } catch {
+		writefln("Can't open file %s", filename);
+		error_ = true;
+	    }
+	}
+	if (lineno < 1 || lineno >= lines_.length)
+	    return null;
+	return lines_[lineno - 1];
+    }
+
+    string filename()
+    {
+	return filename_;
+    }
+
+    string filename_;
     string[] lines_;
+    bool error_;
 }
 
 /**
@@ -247,6 +308,7 @@ class Debugger: TargetListener
     this(string prog)
     {
 	prog_ = prog;
+	prompt_ = "(qdebug)";
 
 	HistEvent ev;
 	hist_ = history_init();
@@ -255,7 +317,7 @@ class Debugger: TargetListener
 	el_ = el_init(toStringz("qdebug"), stdin, stdout, stderr);
 	el_set(el_, EL_EDITOR, toStringz("emacs"));
 	el_set(el_, EL_SIGNAL, 1);
-	el_set(el_, EL_PROMPT, &prompt);
+	el_set(el_, EL_PROMPT, &el_prompt);
 	el_set(el_, EL_HIST, &history, hist_);
 
 	tok_ = tok_init(null);
@@ -274,6 +336,11 @@ class Debugger: TargetListener
     {
     }
 
+    void prompt(string s)
+    {
+	prompt_ = s;
+    }
+
     void run()
     {
 	char* buf;
@@ -285,6 +352,7 @@ class Debugger: TargetListener
 	sa.sa_flags = 0;
 	sigaction(SIGINT, &sa, null);
 
+	staticPrompt_ = prompt_;
 	while (!quit_ && (buf = el_gets(el_, &num)) != null && num != 0) {
 	    int ac;
 	    char** av;
@@ -328,13 +396,38 @@ class Debugger: TargetListener
 
     SourceFile findFile(string filename)
     {
-	try {
-	    return sourceFiles_[filename];
-	} catch {
-	    SourceFile sf = new SourceFile(filename);
-	    sourceFiles_[filename] = sf;
-	    return sf;
+	auto tab = &sourceFiles_;
+	if (!std.path.isabs(filename))
+	    tab = &sourceFilesBasename_;
+	if (filename in *tab)
+	    return (*tab)[filename];
+	SourceFile sf = new SourceFile(filename);
+	sourceFiles_[filename] = sf;
+	sourceFilesBasename_[std.path.getBaseName(filename)] = sf;
+	return sf;
+    }
+
+    bool parseSourceLine(string s, out SourceFile sf, out uint line)
+    {
+	auto pos = find(s, ":");
+	if (pos >= 0) {
+	    try {
+	        line = toUint(s[pos + 1..$]);
+		sf = findFile(s[0..pos]);
+	    } catch (ConvError ce) {
+	        return false;
+	    }
+	    return true;
+	} else if (currentSourceFile_) {
+	    try {
+	        line = toUint(s);
+	    } catch (ConvError ce) {
+	        return false;
+	    }
+	    sf = currentSourceFile_;
+	    return true;
 	}
+	return false;
     }
 
     void stopped()
@@ -348,9 +441,39 @@ class Debugger: TargetListener
 	    DebugInfo d = mod.debugInfo;
 	    if (d && d.findLineByAddress(t.pc, le)) {
 		SourceFile sf = findFile(le[0].fullname);
-		if (le[0].line <= sf.lines_.length)
-		    writefln("%d %s", le[0].line, sf.lines_[le[0].line - 1]);
+		currentSourceFile_ = sf;
+		currentSourceLine_ = le[0].line;
+		displaySourceLine(sf, currentSourceLine_);
+		commands_.onStopped(this, sf, le[0].line);
+		infoCommands_.onStopped(this, sf, le[0].line);
 	    }
+	}
+    }
+
+    void displaySourceLine(SourceFile sf, uint line)
+    {
+	string bpmark = " ";
+	foreach (mod; modules_) {
+	    DebugInfo di = mod.debugInfo;
+	    if (!di)
+		continue;
+	    LineEntry[] lines;
+	    if (di.findLineByName(sf.filename, line, lines)) {
+		foreach (li; lines)
+		    foreach (bp; breakpoints_)
+			if (bp.matches(li.address))  {
+			    bpmark = "*";
+			    goto showline;
+			}
+	    }
+	}
+    showline:
+	auto s = sf[line];
+	if (s) {
+	    string a = "  ";
+	    if (sf == currentSourceFile_ && line == currentSourceLine_)
+		a = "=>";
+	    writefln("%s%4d%s%s", a, line, bpmark, expandtabs(s));
 	}
     }
 
@@ -582,6 +705,11 @@ class Debugger: TargetListener
 	    writefln("New module %s", mod.filename);
 	    modules_ ~= mod;
 
+	    auto di = mod.debugInfo;
+	    if (di) {
+		foreach (s; di.findSourceFiles)
+		    findFile(s);
+	    }
 	    foreach (bp; breakpoints_)
 		bp.activate(mod);
 	}
@@ -604,16 +732,27 @@ class Debugger: TargetListener
 	{
 	    writefln("Signal %d (%s)", sig, sigName);
 	}
+	void onExit(Target)
+	{
+	    writefln("Target program has exited.");
+	    target_ = null;
+	    threads_.length = 0;
+	    modules_.length = 0;
+	    foreach (bp; breakpoints_)
+		bp.onExit;
+	    return;
+	}
     }
 
 private:
     static int continuation_;
-    static char *prompt(EditLine *el)
+    static string staticPrompt_; // messy
+    static char *el_prompt(EditLine *el)
     {
 	if (continuation_)
 	    return "> ";
 	else
-	    return "(qdebug) ";
+	    return toStringz(staticPrompt_ ~ " ");
     }
 
     static CommandTable commands_;
@@ -624,11 +763,15 @@ private:
     bool quit_ = false;
 
     string prog_;
+    string prompt_;
     Target target_;
     TargetModule[] modules_;
     TargetThread[] threads_;
     Breakpoint[] breakpoints_;
     SourceFile[string] sourceFiles_;
+    SourceFile[string] sourceFilesBasename_;
+    SourceFile currentSourceFile_;
+    uint currentSourceLine_;
     uint nextBPID_;
 }
 
@@ -740,9 +883,11 @@ class RunCommand: Command
 	    }
 
 	    PtraceRun pt = new PtraceRun;
-	    string[] runArgs = args.dup;
-	    runArgs[0] = db.prog_;
-	    pt.connect(db, runArgs);
+	    if (args.length > 1 || runArgs_.length == 0) {
+		runArgs_ = args.dup;
+		runArgs_[0] = db.prog_;
+	    }
+	    pt.connect(db, runArgs_);
 	    if (db.target_) {
 		db.target_.cont();
 		db.target_.wait();
@@ -750,6 +895,7 @@ class RunCommand: Command
 	    }
 	}
     }
+    string[] runArgs_;
 }
 
 class NextCommand: Command
@@ -854,11 +1000,30 @@ class BreakCommand: Command
 
 	void run(Debugger db, string, string[] args)
 	{
-	    if (args.length != 2) {
-		writefln("usage: break <function or line>");
+	    if (args.length > 2) {
+		writefln("usage: break [<function or line>]");
 		return;
 	    }
-	    Breakpoint bp = new Breakpoint(db, db.nextBPID_++, args[1]);
+	    SourceFile sf;
+	    string func;
+	    uint line;
+	    if (args.length == 2) {
+		string file;
+		if (!db.parseSourceLine(args[1], sf, line))
+		    func = args[1];
+	    } else {
+		sf = db.currentSourceFile_;
+		line = db.currentSourceLine_;
+		if (!sf) {
+		    writefln("no current source file");
+		    return;
+		}
+	    }
+	    Breakpoint bp;
+	    if (sf)
+		bp = new Breakpoint(db, db.nextBPID_++, sf, line);
+	    else
+		bp = new Breakpoint(db, db.nextBPID_++, func);
 	    db.breakpoints_ ~= bp;
 	    if (db.target_)
 		foreach (mod; db.modules_)
@@ -986,6 +1151,10 @@ class InfoVariablesCommand: Command
 
 	void run(Debugger db, string fmt, string[] args)
 	{
+	    if (!db.target_) {
+		writefln("target is not running");
+		return;
+	    }
 	    TargetThread t = db.threads_[0];
 	    MachineState s = t.state;
 	    DebugInfo di;
@@ -1102,4 +1271,79 @@ class PrintCommand: Command
 	    }
 	}
     }
+}
+
+class ListCommand: Command
+{
+    static this()
+    {
+	Debugger.registerCommand(new ListCommand);
+    }
+
+    override {
+	string name()
+	{
+	    return "list";
+	}
+
+	string description()
+	{
+	    return "list source file contents";
+	}
+
+	void run(Debugger db, string fmt, string[] args)
+	{
+	    uint line = 0;
+	    SourceFile sf = null;
+	    if (args.length > 2) {
+		writefln("usage: list [- | <file:line>]");
+		return;
+	    }
+	    if (args.length == 1) {
+		sf = sourceFile_;
+		line = sourceLine_;
+	    } else if (args[1] == "-") {
+		sf = sourceFile_;
+		line = sourceLine_;
+		if (line > 20)
+		    line -= 20;
+		else
+		    line = 1;
+	    } else if (args.length == 2) {
+		if (!db.parseSourceLine(args[1], sf, line)) {
+		    line = 0;
+		    sf = db.findFile(args[1]);
+		}
+	    }
+	    if (sf) {
+		if (line == 0) {
+		    if (sf == sourceFile_)
+			line = sourceLine_;
+		    else
+			line = 1;
+		}
+	    } else {
+		writefln("no source file");
+		return;
+	    }
+	    uint sl, el;
+	    if (line > 5)
+		sl = line - 5;
+	    else
+		sl = 1;
+	    el = sl + 10;
+	    for (uint ln = sl; ln < el; ln++)
+		db.displaySourceLine(sf, ln);
+	    sourceFile_ = sf;
+	    sourceLine_ = el + 5;
+	}
+	void onStopped(Debugger db, SourceFile sf, uint line)
+	{
+	    sourceFile_ = sf;
+	    sourceLine_ = line;
+	}
+    }
+
+    SourceFile sourceFile_;
+    uint sourceLine_;
 }
