@@ -367,7 +367,12 @@ class PtraceTarget: Target
 	{
 	    ptrace_lwpinfo info;
 
-	    ptrace(PT_LWPINFO, pid_, cast(char*) &info, info.sizeof);
+	    try {
+		ptrace(PT_LWPINFO, pid_, cast(char*) &info, info.sizeof);
+	    } catch (PtraceException pte) {
+		listener_.onExit(this);
+		return null;
+	    }
 	    return threads_[info.pl_lwpid];
 	}
 
@@ -410,54 +415,66 @@ class PtraceTarget: Target
 	{
 	    assert(state_ == TargetState.STOPPED);
 
-	    PtraceThread pt = cast(PtraceThread) t;
-	    ptrace(PT_STEP, pt.lwpid_, cast(char*) 1, 0);
-	    state_ = TargetState.RUNNING;
-	    wait();
+	    try {
+		PtraceThread pt = cast(PtraceThread) t;
+		ptrace(PT_STEP, pt.lwpid_, cast(char*) 1, 0);
+		state_ = TargetState.RUNNING;
+		wait();
+	    } catch (PtraceException pte) {
+		listener_.onExit(this);
+	    }
 	}
 
 	void cont()
 	{
 	    assert(state_ == TargetState.STOPPED);
 
-	    /*
-	     * If a thread is currently sitting on a breakpoint, step
-	     * over it.
-	     */
-	    foreach (t; threads_.values.dup) {
-		foreach (pbp; breakpoints_) {
-		    if (t.pc == pbp.address) {
-			debug(breakpoints)
-			    writefln("stepping over breakpoint at 0x%x",
-				     t.pc);
-			step(t);
-			debug(breakpoints)
-			    writefln("after step, thread.pc 0x%x",
-				     t.pc);
-			/*
-			 * Step each thread at most once so that we
-			 * will correctly stop at the next instruction
-			 * if that also has a breakpoint set.
-			 */
-			break;
+	    try {
+		/*
+		 * If a thread is currently sitting on a breakpoint, step
+		 * over it.
+		 */
+		foreach (t; threads_.values.dup) {
+		    foreach (pbp; breakpoints_) {
+			if (t.pc == pbp.address) {
+			    debug(breakpoints)
+				writefln("stepping over breakpoint at 0x%x",
+					 t.pc);
+			    step(t);
+			    debug(breakpoints)
+				writefln("after step, thread.pc 0x%x",
+					 t.pc);
+			    /*
+			     * Step each thread at most once so that we
+			     * will correctly stop at the next instruction
+			     * if that also has a breakpoint set.
+			     */
+			    break;
+			}
 		    }
 		}
-	    }
 
-	    foreach (pbp; breakpoints_)
-		pbp.activate;
-	    breakpointsActive_ = true;
-	    ptrace(PT_CONTINUE, pid_, cast(char*) 1, 0);
-	    state_ = TargetState.RUNNING;
+		foreach (pbp; breakpoints_)
+		    pbp.activate;
+		breakpointsActive_ = true;
+		ptrace(PT_CONTINUE, pid_, cast(char*) 1, 0);
+		state_ = TargetState.RUNNING;
+	    } catch (PtraceException pte) {
+		listener_.onExit(this);
+	    }
 	}
 
 	void wait()
 	{
 	    assert(state_ == TargetState.RUNNING);
 
-	    wait4(pid_, &waitStatus_, 0, null);
-	    state_ = TargetState.STOPPED;
-	    stopped();
+	    try {
+		wait4(pid_, &waitStatus_, 0, null);
+		state_ = TargetState.STOPPED;
+		stopped();
+	    } catch (PtraceException pte) {
+		listener_.onExit(this);
+	    }
 	}
 
 	void setBreakpoint(ulong addr, void* id)
@@ -494,12 +511,17 @@ class PtraceTarget: Target
 	ubyte[] result;
 	ptrace_io_desc io;
 
-	result.length = bytes;
-	io.piod_op = data ? PIOD_READ_D : PIOD_READ_I;
-	io.piod_offs = cast(void*) targetAddress;
-	io.piod_addr = cast(void*) result.ptr;
-	io.piod_len = bytes;
-	ptrace(PT_IO, pid_, cast(char*) &io, 0);
+	try {
+	    result.length = bytes;
+	    io.piod_op = data ? PIOD_READ_D : PIOD_READ_I;
+	    io.piod_offs = cast(void*) targetAddress;
+	    io.piod_addr = cast(void*) result.ptr;
+	    io.piod_len = bytes;
+	    ptrace(PT_IO, pid_, cast(char*) &io, 0);
+	} catch (PtraceException pte) {
+	    listener_.onExit(this);
+	    result.length = 0;
+	}
 
 	return result;
     }
@@ -508,11 +530,15 @@ class PtraceTarget: Target
     {
 	ptrace_io_desc io;
 
-	io.piod_op = data ? PIOD_WRITE_D : PIOD_WRITE_I;
-	io.piod_offs = cast(void*) targetAddress;
-	io.piod_addr = cast(void*) toWrite.ptr;
-	io.piod_len = toWrite.length;
-	ptrace(PT_IO, pid_, cast(char*) &io, 0);
+	try {
+	    io.piod_op = data ? PIOD_WRITE_D : PIOD_WRITE_I;
+	    io.piod_offs = cast(void*) targetAddress;
+	    io.piod_addr = cast(void*) toWrite.ptr;
+	    io.piod_len = toWrite.length;
+	    ptrace(PT_IO, pid_, cast(char*) &io, 0);
+	} catch (PtraceException pte) {
+	    listener_.onExit(this);
+	}
     }
 
 private:

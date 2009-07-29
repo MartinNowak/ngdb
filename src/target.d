@@ -64,6 +64,11 @@ interface TargetListener
      * Called when the target stops because of a signal
      */
     void onSignal(Target, int sig, string sigName);
+
+    /**
+     * Called when the target exits
+     */
+    void onExit(Target);
 }
 
 /**
