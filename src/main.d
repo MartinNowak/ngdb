@@ -25,6 +25,7 @@
  */
 
 import std.stdio;
+import std.path;
 
 import ptracetarget;
 import target;
@@ -40,6 +41,9 @@ main(char[][] args)
     }
 
     cli.Debugger cli = new cli.Debugger(args[1]);
+    if (getBaseName(args[1]) == "qdebug")
+	cli.prompt = "(topdebug)";
+
     cli.run();
     return 0;
 }
