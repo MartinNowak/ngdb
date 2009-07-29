@@ -61,10 +61,11 @@ class PtraceException: Exception
 {
     this()
     {
-	char[] s = std.string.toString(strerror(errno)).dup;
+	errno_ = errno;
+	char[] s = std.string.toString(errno_).dup;
 	super(s);
     }
-
+    int errno_;
 }
 
 class PtraceModule: TargetModule
@@ -370,7 +371,8 @@ class PtraceTarget: Target
 	    try {
 		ptrace(PT_LWPINFO, pid_, cast(char*) &info, info.sizeof);
 	    } catch (PtraceException pte) {
-		listener_.onExit(this);
+		if (pte.errno_ == ESRCH)
+		    listener_.onExit(this);
 		return null;
 	    }
 	    return threads_[info.pl_lwpid];
@@ -421,7 +423,8 @@ class PtraceTarget: Target
 		state_ = TargetState.RUNNING;
 		wait();
 	    } catch (PtraceException pte) {
-		listener_.onExit(this);
+		if (pte.errno_ == ESRCH)
+		    listener_.onExit(this);
 	    }
 	}
 
@@ -460,7 +463,8 @@ class PtraceTarget: Target
 		ptrace(PT_CONTINUE, pid_, cast(char*) 1, 0);
 		state_ = TargetState.RUNNING;
 	    } catch (PtraceException pte) {
-		listener_.onExit(this);
+		if (pte.errno_ == ESRCH)
+		    listener_.onExit(this);
 	    }
 	}
 
@@ -473,7 +477,8 @@ class PtraceTarget: Target
 		state_ = TargetState.STOPPED;
 		stopped();
 	    } catch (PtraceException pte) {
-		listener_.onExit(this);
+		if (pte.errno_ == ESRCH)
+		    listener_.onExit(this);
 	    }
 	}
 
@@ -519,7 +524,8 @@ class PtraceTarget: Target
 	    io.piod_len = bytes;
 	    ptrace(PT_IO, pid_, cast(char*) &io, 0);
 	} catch (PtraceException pte) {
-	    listener_.onExit(this);
+	    if (pte.errno_ == ESRCH)
+		listener_.onExit(this);
 	    result.length = 0;
 	}
 
@@ -537,7 +543,8 @@ class PtraceTarget: Target
 	    io.piod_len = toWrite.length;
 	    ptrace(PT_IO, pid_, cast(char*) &io, 0);
 	} catch (PtraceException pte) {
-	    listener_.onExit(this);
+	    if (pte.errno_ == ESRCH)
+		listener_.onExit(this);
 	}
     }
 
