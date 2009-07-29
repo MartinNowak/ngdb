@@ -32,6 +32,7 @@ import objfile.objfile;
 import objfile.debuginfo;
 import objfile.language;
 import machine.machine;
+static import std.path;
 import std.string;
 import std.stdio;
 version(tangobos) import std.compat;
@@ -1024,6 +1025,25 @@ class DwarfFile: public DebugInfo
 	    }
 	    return found;
 	}
+
+	string[] findSourceFiles()
+	{
+	    bool[string] fileset;
+
+	    bool processEntry(LineEntry* le)
+	    {
+		if (!(le.fullname in fileset))
+		    fileset[le.fullname] = true;
+		return false;
+	    }
+
+	    char[] lines = debugSection(".debug_line");
+	    char* p = &lines[0], pEnd = p + lines.length;
+	    while (p < pEnd)
+		parseLineTable(p, &processEntry);
+
+	    return fileset.keys;
+	}
 	bool findLineByFunction(string func, out LineEntry[] res)
 	{
 	    foreach (ns; pubnames_) {
@@ -1307,9 +1327,7 @@ private:
 		if (fe.directoryIndex) {
 		    filename =
 			.toString(includeDirectories[fe.directoryIndex - 1]);
-		    if (filename[$-1] != '/')
-			filename ~= "/";
-		    filename ~= .toString(fe.name);
+		    filename = std.path.join(filename, .toString(fe.name));
 		} else {
 		    filename = .toString(fe.name);
 		}

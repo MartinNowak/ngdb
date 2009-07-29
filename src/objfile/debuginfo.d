@@ -1702,6 +1702,11 @@ interface DebugInfo
     bool findLineByName(string file, int line, out LineEntry[] res);
 
     /**
+     * Returh a list of all the source files referenced by this debug info.
+     */
+    string[] findSourceFiles();
+
+    /**
      * Find the line entry that represents the first line of the given
      * function. All entries which match are returnbed in res (there
      * could be many in the case of templates or inline
