@@ -601,6 +601,8 @@ class Debugger: TargetListener
 		}
 		di.findFrameBase(s, frameLoc);
 		if (frameLoc.address(s) != frame) {
+		    debug (step)
+			writefln("new frame address %#x", frameLoc.address(s));
 		    if (frameLoc.address(s) > frame) {
 			debug (step)
 			    writefln("returning to outer frame");
