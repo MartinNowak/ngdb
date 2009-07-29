@@ -200,7 +200,7 @@ class CLikeLanguage: Language
 	    auto e2 = expr(lex);
 	    if (!e2)
 		return null;
-	    return new CommaExpr(e, e2);
+	    return new CommaExpr(this, e, e2);
 	}
 	lex.pushBack(tok);
 	return e;
@@ -230,7 +230,7 @@ class CLikeLanguage: Language
 	    auto e2 = assignExpr(lex);
 	    if (!e2)
 		return null;
-	    return new AssignExpr(tok.id, e, e2);
+	    return new AssignExpr(this, tok.id, e, e2);
 	}
 	lex.pushBack(tok);
 	return e;
@@ -254,7 +254,7 @@ class CLikeLanguage: Language
 	    if (tok.id != ":")
 		return unexpected(tok);
 	    auto e3 = conditionalExpr(lex);
-	    return new IfElseExpr(e, e2, e3);
+	    return new IfElseExpr(this, e, e2, e3);
 	}
 	lex.pushBack(tok);
 	return e;
@@ -282,7 +282,7 @@ class CLikeLanguage: Language
 	    auto e2 = andandExpr(lex);
 	    if (!e2)
 		return null;
-	    e = new IntegerBinaryExpr!("||", "logical or")(e, e2);
+	    e = new IntegerBinaryExpr!("||", "logical or")(this, e, e2);
 	    tok = lex.nextToken;
 	}
 	lex.pushBack(tok);
@@ -311,7 +311,7 @@ class CLikeLanguage: Language
 	    auto e2 = orExpr(lex);
 	    if (!e2)
 		return null;
-	    e = new IntegerBinaryExpr!("&&", "logical and")(e, e2);
+	    e = new IntegerBinaryExpr!("&&", "logical and")(this, e, e2);
 	    tok = lex.nextToken;
 	}
 	lex.pushBack(tok);
@@ -340,7 +340,7 @@ class CLikeLanguage: Language
 	    auto e2 = xorExpr(lex);
 	    if (!e2)
 		return null;
-	    e = new IntegerBinaryExpr!("|", "bitwise or")(e, e2);
+	    e = new IntegerBinaryExpr!("|", "bitwise or")(this, e, e2);
 	    tok = lex.nextToken;
 	}
 	lex.pushBack(tok);
@@ -369,7 +369,7 @@ class CLikeLanguage: Language
 	    auto e2 = andExpr(lex);
 	    if (!e2)
 		return null;
-	    e = new IntegerBinaryExpr!("^", "bitwise exclusive or")(e, e2);
+	    e = new IntegerBinaryExpr!("^", "bitwise exclusive or")(this, e, e2);
 	    tok = lex.nextToken;
 	}
 	lex.pushBack(tok);
@@ -398,7 +398,7 @@ class CLikeLanguage: Language
 	    auto e2 = andExpr(lex);
 	    if (!e2)
 		return null;
-	    e = new IntegerBinaryExpr!("&", "bitwise and")(e, e2);
+	    e = new IntegerBinaryExpr!("&", "bitwise and")(this, e, e2);
 	    tok = lex.nextToken;
 	}
 	lex.pushBack(tok);
@@ -435,22 +435,22 @@ class CLikeLanguage: Language
 		return null;
 	    switch (tok.id) {
 	    case "==":
-		e = new IntegerBinaryExpr!("==", "equals")(e, e2);
+		e = new IntegerBinaryExpr!("==", "equals")(this, e, e2);
 		break;
 	    case "!=":
-		e = new IntegerBinaryExpr!("!=", "not equals")(e, e2);
+		e = new IntegerBinaryExpr!("!=", "not equals")(this, e, e2);
 		break;
 	    case "<":
-		e = new IntegerBinaryExpr!("<", "less than")(e, e2);
+		e = new IntegerBinaryExpr!("<", "less than")(this, e, e2);
 		break;
 	    case "<=":
-		e = new IntegerBinaryExpr!("<=", "less than or equals")(e, e2);
+		e = new IntegerBinaryExpr!("<=", "less than or equals")(this, e, e2);
 		break;
 	    case ">":
-		e = new IntegerBinaryExpr!(">", "greater than")(e, e2);
+		e = new IntegerBinaryExpr!(">", "greater than")(this, e, e2);
 		break;
 	    case ">=":
-		e = new IntegerBinaryExpr!(">=", "greater than or equals")(e, e2);
+		e = new IntegerBinaryExpr!(">=", "greater than or equals")(this, e, e2);
 		break;
 	    default:
 		assert(false);
@@ -485,9 +485,9 @@ class CLikeLanguage: Language
 	    if (!e2)
 		return null;
 	    if (tok.id == "<<")
-		e = new IntegerBinaryExpr!("<<", "left shift")(e, e2);
+		e = new IntegerBinaryExpr!("<<", "left shift")(this, e, e2);
 	    else
-		e = new IntegerBinaryExpr!(">>", "right shift")(e, e2);
+		e = new IntegerBinaryExpr!(">>", "right shift")(this, e, e2);
 	    tok = lex.nextToken;
 	}
 	lex.pushBack(tok);
@@ -519,9 +519,9 @@ class CLikeLanguage: Language
 	    if (!e2)
 		return null;
 	    if (tok.id == "+")
-		e = new AddExpr(e, e2);
+		e = new AddExpr(this, e, e2);
 	    else
-		e = new SubtractExpr(e, e2);
+		e = new SubtractExpr(this, e, e2);
 	    tok = lex.nextToken;
 	}
 	lex.pushBack(tok);
@@ -555,11 +555,11 @@ class CLikeLanguage: Language
 	    if (!e2)
 		return null;
 	    if (tok.id == "*")
-		e = new IntegerBinaryExpr!("*", "multiply")(e, e2);
+		e = new IntegerBinaryExpr!("*", "multiply")(this, e, e2);
 	    else if (tok.id == "/")
-		e = new IntegerBinaryExpr!("/", "divide")(e, e2);
+		e = new IntegerBinaryExpr!("/", "divide")(this, e, e2);
 	    else
-		e = new IntegerBinaryExpr!("%", "remainder")(e, e2);
+		e = new IntegerBinaryExpr!("%", "remainder")(this, e, e2);
 	    tok = lex.nextToken;
 	}
 	lex.pushBack(tok);
@@ -582,24 +582,24 @@ class CLikeLanguage: Language
 	auto tok = lex.nextToken;
 	if (tok.id == "++" || tok.id == "--") {
 	    auto e = unaryExpr(lex);
-	    return new PreIncrementExpr(tok.id, e);
+	    return new PreIncrementExpr(this, tok.id, e);
 	}
 	if (tok.id == "&"
 	    || tok.id == "*" || tok.id == "-" || tok.id == "+"
 	    || tok.id == "!" || tok.id == "~") {
 	    auto e = unaryExpr(lex);
 	    if (tok.id == "&")
-		return new AddressOfExpr(e);
+		return new AddressOfExpr(this, e);
 	    if (tok.id == "*")
-		return new DereferenceExpr(e);
+		return new DereferenceExpr(this, e);
 	    if (tok.id == "-")
-		return new NegateExpr(e);
+		return new NegateExpr(this, e);
 	    if (tok.id == "+")
 		return e;
 	    if (tok.id == "!")
-		return new LogicalNegateExpr(e);
+		return new LogicalNegateExpr(this, e);
 	    if (tok.id == "~")
-		return new ComplementExpr(e);
+		return new ComplementExpr(this, e);
 	    assert(false);
 	}
 	lex.pushBack(tok);
@@ -639,20 +639,20 @@ class CLikeLanguage: Language
 		tok = lex.nextToken;
 		if (tok.id != "identifier")
 		    unexpected(tok);
-		e = new MemberExpr(e, (cast(IdentifierToken) tok).value);
+		e = new MemberExpr(this, e, (cast(IdentifierToken) tok).value);
 	    } else if (tok.id == "->") {
 		tok = lex.nextToken;
 		if (tok.id != "identifier")
 		    unexpected(tok);
-		e = new PointsToExpr(e, (cast(IdentifierToken) tok).value);
+		e = new PointsToExpr(this, e, (cast(IdentifierToken) tok).value);
 	    } else if (tok.id == "++" || tok.id == "--") {
-		e = new PostIncrementExpr(tok.id, e);
+		e = new PostIncrementExpr(this, tok.id, e);
 	    } else if (tok.id == "[") {
 		auto e2 = assignExpr(lex);
 		tok = lex.nextToken;
 		if (tok.id != "]")
 		    return unexpected(tok);
-		e = new IndexExpr(e, e2);
+		e = new IndexExpr(this, e, e2);
 	    } else {
 		lex.pushBack(tok);
 		return e;
@@ -672,9 +672,9 @@ class CLikeLanguage: Language
 	 */
 	auto tok = lex.nextToken;
 	if (tok.id == "identifier")
-	    return new VariableExpr(tok.value);
+	    return new VariableExpr(this, tok.value);
 	if (tok.id == "number")
-	    return new NumericExpr(tok.value);
+	    return new NumericExpr(this, tok.value);
 	if (tok.id == "(") {
 	    Expr e = expr(lex);
 	    tok = lex.nextToken;

@@ -556,7 +556,7 @@ class Debugger: TargetListener
 
 		Function func = di.findFunction(pc);
 		if (func) {
-		    s = func.toString(null, di.findLanguage(pc), state);
+		    s = func.toString(null, state);
 		}
 
 		s ~= le[0].fullname ~ ":" ~ .toString(le[0].line);
@@ -1235,10 +1235,9 @@ class FinishCommand: Command
 		 * XXX factor out calling convention details
 		 */
 		MachineState s = db.threads_[0].state;
-		Language lang = toFrame.di_.findLanguage(s.pc);
 		Location loc = new RegisterLocation(0, s.grWidth(0));
 		Value val = Value(loc, rTy);
-		writefln("Value returned is %s", val.toString(null, lang, s));
+		writefln("Value returned is %s", val.toString(null, s));
 	    }
 	    db.stopped();
 	}
@@ -1432,10 +1431,8 @@ class InfoVariablesCommand: Command
 		Function func = di.findFunction(s.pc);
 		auto vars = func.arguments;
 		vars ~= func.variables;
-		Language lang = di.findLanguage(s.pc);
 		foreach (v; vars) {
-		    writefln("%s = %s", v.toString(lang),
-			     v.valueToString(fmt, lang, s));
+		    writefln("%s = %s", v.toString, v.valueToString(fmt, s));
 		}
 	    }
 	}
@@ -1650,8 +1647,8 @@ class PrintCommand: Command
 
 	    try {
 		auto e = lang.parseExpr(join(args[1..$], " "));
-		auto v = e.eval(lang, sc, s);
-		writefln("%s", v.toString(fmt, lang, s));
+		auto v = e.eval(sc, s);
+		writefln("%s", v.toString(fmt, s));
 	    } catch (Exception ex) {
 		writefln("%s", ex.msg);
 	    }

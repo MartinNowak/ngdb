@@ -60,8 +60,9 @@ interface DebugItem
 
 interface Type: DebugItem
 {
-    string toString(Language);
-    string valueToString(string, Language, MachineState, Location);
+    Language language();
+    string toString();
+    string valueToString(string, MachineState, Location);
     size_t byteWidth();
     Type underlyingType();
     Type pointerType(uint);
@@ -71,8 +72,16 @@ interface Type: DebugItem
 
 class TypeBase: Type
 {
-    abstract string toString(Language);
-    abstract string valueToString(string, Language, MachineState, Location);
+    this(Language lang)
+    {
+	lang_ = lang;
+    }
+    Language language()
+    {
+	return lang_;
+    }
+    abstract string toString();
+    abstract string valueToString(string, MachineState, Location);
     abstract size_t byteWidth();
     Type underlyingType()
     {
@@ -82,12 +91,13 @@ class TypeBase: Type
     {
 	if (width in ptrTypes_)
 	    return ptrTypes_[width];
-	return (ptrTypes_[width] = new PointerType(this, width));
+	return (ptrTypes_[width] = new PointerType(lang_, this, width));
     }
     abstract bool isCharType();
     abstract bool isIntegerType();
 
 private:
+    Language lang_;
     Type[uint] ptrTypes_;
 }
 
@@ -118,8 +128,9 @@ writeInteger(ulong val, ubyte[] bytes)
 
 class IntegerType: TypeBase
 {
-    this(string name, bool isSigned, uint byteWidth)
+    this(Language lang, string name, bool isSigned, uint byteWidth)
     {
+	super(lang);
 	name_ = name;
 	isSigned_ = isSigned;
 	byteWidth_ = byteWidth;
@@ -132,13 +143,12 @@ class IntegerType: TypeBase
 
     override
     {
-	string toString(Language)
+	string toString()
 	{
 	    return name_;
 	}
 
-	string valueToString(string fmt, Language,
-			     MachineState state, Location loc)
+	string valueToString(string fmt, MachineState state, Location loc)
 	{
 	    if (fmt)
 		fmt = "%#" ~ fmt;
@@ -197,27 +207,26 @@ private:
 
 class CharType: IntegerType
 {
-    this(string name, bool isSigned, uint byteWidth)
+    this(Language lang, string name, bool isSigned, uint byteWidth)
     {
-	super(name, isSigned, byteWidth);
+	super(lang, name, isSigned, byteWidth);
     }
 
     override
     {
-	string valueToString(string fmt, Language lang,
-			     MachineState state, Location loc)
+	string valueToString(string fmt, MachineState state, Location loc)
 	{
 	    if (fmt)
-		return super.valueToString(fmt, lang, state, loc);
+		return super.valueToString(fmt, state, loc);
 
 	    if (isSigned) {
 		long val = readInteger(loc.readValue(state));
-		return super.valueToString(fmt, lang, state, loc)
-		    ~ lang.charConstant(val);
+		return super.valueToString(fmt, state, loc)
+		    ~ lang_.charConstant(val);
 	    } else {
 		ulong val = readInteger(loc.readValue(state));
-		return super.valueToString(fmt, lang, state, loc)
-		    ~ lang.charConstant(val);
+		return super.valueToString(fmt, state, loc)
+		    ~ lang_.charConstant(val);
 	    }		
 	}
 
@@ -235,20 +244,21 @@ private:
 
 class BooleanType: TypeBase
 {
-    this(string name, uint byteWidth)
+    this(Language lang, string name, uint byteWidth)
     {
+	super(lang);
 	name_ = name;
 	byteWidth_ = byteWidth;
     }
 
     override
     {
-	string toString(Language)
+	string toString()
 	{
 	    return name_;
 	}
 
-	string valueToString(string, Language, MachineState state, Location loc)
+	string valueToString(string, MachineState state, Location loc)
 	{
 	    ubyte[] val = loc.readValue(state);
 	    return readInteger(val) ? "true" : "false";
@@ -277,29 +287,30 @@ private:
 
 class PointerType: TypeBase
 {
-    this(Type baseType, uint byteWidth)
+    this(Language lang, Type baseType, uint byteWidth)
     {
+	super(lang);
 	baseType_ = baseType;
 	byteWidth_ = byteWidth;
     }
 
     override
     {
-	string toString(Language lang)
+	string toString()
 	{
 	    if (baseType_)
-		return lang.pointerType(baseType_.toString(lang));
+		return lang_.pointerType(baseType_.toString);
 	    else
-		return lang.pointerType("void");
+		return lang_.pointerType("void");
 	}
 
-	string valueToString(string, Language lang, MachineState state, Location loc)
+	string valueToString(string, MachineState state, Location loc)
 	{
 	    string v;
 	    ulong p = readInteger(loc.readValue(state));
 	    v = std.string.format("0x%x", p);
-	    if (lang.isStringType(this))
-		v ~= " " ~ lang.stringConstant(state, this, loc);
+	    if (lang_.isStringType(this))
+		v ~= " " ~ lang_.stringConstant(state, this, loc);
 	    return v;
 	}
 
@@ -339,8 +350,9 @@ private:
 
 class ReferenceType: TypeBase
 {
-    this(string name, Type baseType, uint byteWidth)
+    this(Language lang, string name, Type baseType, uint byteWidth)
     {
+	super(lang);
 	name_ = name;
 	baseType_ = baseType;
 	byteWidth_ = byteWidth;
@@ -348,15 +360,15 @@ class ReferenceType: TypeBase
 
     override
     {
-	string toString(Language lang)
+	string toString()
 	{
 	    if (baseType_)
-		return lang.referenceType(baseType_.toString(lang));
+		return lang_.referenceType(baseType_.toString);
 	    else
-		return lang.referenceType("void");
+		return lang_.referenceType("void");
 	}
 
-	string valueToString(string, Language, MachineState state, Location loc)
+	string valueToString(string, MachineState state, Location loc)
 	{
 	    string v;
 	    ulong p = readInteger(loc.readValue(state));
@@ -393,8 +405,9 @@ private:
 
 class ModifierType: TypeBase
 {
-    this(string name, string modifier, Type baseType)
+    this(Language lang, string name, string modifier, Type baseType)
     {
+	super(lang);
 	name_ = name;
 	modifier_ = modifier;
 	baseType_ = baseType;
@@ -402,13 +415,13 @@ class ModifierType: TypeBase
 
     override
     {
-	string toString(Language lang)
+	string toString()
 	{
-	    return modifier_ ~ " " ~ baseType_.toString(lang);
+	    return modifier_ ~ " " ~ baseType_.toString;
 	}
-	string valueToString(string fmt, Language lang, MachineState state, Location loc)
+	string valueToString(string fmt, MachineState state, Location loc)
 	{
-	    return baseType_.valueToString(fmt, lang, state, loc);
+	    return baseType_.valueToString(fmt, state, loc);
 	}
 	size_t byteWidth()
 	{
@@ -436,21 +449,22 @@ private:
 
 class TypedefType: TypeBase
 {
-    this(string name, Type baseType)
+    this(Language lang, string name, Type baseType)
     {
+	super(lang);
 	name_ = name;
 	baseType_ = baseType;
     }
 
     override
     {
-	string toString(Language)
+	string toString()
 	{
 	    return name_;
 	}
-	string valueToString(string fmt, Language lang, MachineState state, Location loc)
+	string valueToString(string fmt, MachineState state, Location loc)
 	{
-	    return baseType_.valueToString(fmt, lang, state, loc);
+	    return baseType_.valueToString(fmt, state, loc);
 	}
 	size_t byteWidth()
 	{
@@ -483,8 +497,9 @@ class CompoundType: TypeBase
 	Location loc;
     }
 
-    this(string kind, string name, uint byteWidth)
+    this(Language lang, string kind, string name, uint byteWidth)
     {
+	super(lang);
 	kind_ = kind;
 	name_ = name;
 	byteWidth_ = byteWidth;
@@ -497,14 +512,14 @@ class CompoundType: TypeBase
 
     override
     {
-	string toString(Language lang)
+	string toString()
 	{
 	    if (kind_ == "struct")
-		return lang.structureType(name_);
+		return lang_.structureType(name_);
 	    else
-		return lang.unionType(name_);
+		return lang_.unionType(name_);
 	}
-	string valueToString(string fmt, Language lang, MachineState state, Location loc)
+	string valueToString(string fmt, MachineState state, Location loc)
 	{
 	    bool first = true;
 	    string v;
@@ -515,10 +530,10 @@ class CompoundType: TypeBase
 		}
 		first = false;
 		v ~= f.name ~ " = ";
-		v ~= f.type.valueToString(fmt, lang, state,
+		v ~= f.type.valueToString(fmt, state,
 					  f.loc.fieldLocation(loc, state));
 	    }
-	    return lang.structConstant(v);
+	    return lang_.structConstant(v);
 	}
 	size_t byteWidth()
 	{
@@ -594,8 +609,9 @@ private:
 
 class ArrayType: TypeBase
 {
-    this(Type baseType)
+    this(Language lang, Type baseType)
     {
+	super(lang);
 	baseType_ = baseType;
     }
 
@@ -611,9 +627,9 @@ class ArrayType: TypeBase
 
     override
     {
-	string toString(Language lang)
+	string toString()
 	{
-	    string v = baseType_.toString(lang);
+	    string v = baseType_.toString;
 	    foreach (d; dims_) {
 		if (d.indexBase > 0)
 		    v ~= std.string.format("[%d..%d]", d.indexBase,
@@ -623,13 +639,12 @@ class ArrayType: TypeBase
 	    }
 	    return v;
 	}
-	string valueToString(string fmt, Language lang,
-			     MachineState state, Location loc)
+	string valueToString(string fmt, MachineState state, Location loc)
 	{
 	    if (!loc.hasAddress(state))
-		return lang.arrayConstant("");
+		return lang_.arrayConstant("");
 	    ulong addr = loc.address(state);
-	    return valueToString(fmt, lang, state, addr, 0);
+	    return valueToString(fmt, state, addr, 0);
 	}
 	size_t byteWidth()
 	{
@@ -650,8 +665,8 @@ class ArrayType: TypeBase
     }
 
 private:
-    string valueToString(string fmt, Language lang,
-			 MachineState state, ref ulong addr, size_t di)
+    string valueToString(string fmt, MachineState state, ref ulong addr,
+			 size_t di)
     {
 	string v;
 	for (size_t i = 0; i < dims_[di].count; i++) {
@@ -661,16 +676,16 @@ private:
 		v ~= "...";
 	    string elem;
 	    if (di == dims_.length - 1) {
-		elem = baseType_.valueToString(fmt, lang, state,
+		elem = baseType_.valueToString(fmt, state,
 			new MemoryLocation(addr, baseType_.byteWidth));
 		addr += baseType_.byteWidth;
 	    } else {
-		elem = valueToString(fmt, lang, state, addr, di + 1);
+		elem = valueToString(fmt, state, addr, di + 1);
 	    }
 	    if (i < 3)
 		v ~= elem;
 	}
-	return lang.arrayConstant(v);
+	return lang_.arrayConstant(v);
     }
     struct dim {
 	size_t indexBase;
@@ -683,8 +698,9 @@ private:
 
 class DArrayType: TypeBase
 {
-    this(Type baseType, size_t byteWidth)
+    this(Language lang, Type baseType, size_t byteWidth)
     {
+	super(lang);
 	baseType_ = baseType;
 	byteWidth_ = byteWidth;
     }
@@ -696,15 +712,14 @@ class DArrayType: TypeBase
 
     override
     {
-	string toString(Language lang)
+	string toString()
 	{
-	    return baseType_.toString(lang) ~ "[]";
+	    return baseType_.toString ~ "[]";
 	}
-	string valueToString(string fmt, Language lang,
-			     MachineState state, Location loc)
+	string valueToString(string fmt, MachineState state, Location loc)
 	{
-	    if (lang.isStringType(this))
-		return lang.stringConstant(state, this, loc);
+	    if (lang_.isStringType(this))
+		return lang_.stringConstant(state, this, loc);
 
 	    ubyte[] val = loc.readValue(state);
 	    ulong len = readInteger(val[0..state.pointerWidth]);
@@ -713,11 +728,11 @@ class DArrayType: TypeBase
 	    for (auto i = 0; i < len; i++) {
 		if (i > 0)
 		    v ~= ", ";
-		v ~= baseType_.valueToString(fmt, lang, state,
+		v ~= baseType_.valueToString(fmt, state,
 			new MemoryLocation(addr, baseType_.byteWidth));
 		addr += baseType_.byteWidth;
 	    }
-	    return lang.arrayConstant(v);
+	    return lang_.arrayConstant(v);
 	}
 	size_t byteWidth()
 	{
@@ -740,13 +755,17 @@ private:
 
 class VoidType: TypeBase
 {
+    this(Language lang)
+    {
+	super(lang);
+    }
     override
     {
-	string toString(Language)
+	string toString()
 	{
 	    return "void";
 	}
-	string valueToString(string, Language, MachineState, Location)
+	string valueToString(string, MachineState, Location)
 	{
 	    return "void";
 	}
@@ -1012,14 +1031,31 @@ class ConstantLocation: Location
 
 interface Expr
 {
+    Language language();
     string toString();
-    Value eval(Language lang, Scope sc, MachineState state);
+    Value eval(Scope sc, MachineState state);
 }
 
-class VariableExpr: Expr
+class ExprBase: Expr
 {
-    this(string name)
+    this(Language lang)
     {
+	lang_ = lang;
+    }
+    Language language()
+    {
+	return lang_;
+    }
+    abstract string toString();
+    abstract Value eval(Scope sc, MachineState state);
+    Language lang_;
+}
+
+class VariableExpr: ExprBase
+{
+    this(Language lang, string name)
+    {
+	super(lang);
 	name_ = name;
     }
     override {
@@ -1027,7 +1063,7 @@ class VariableExpr: Expr
 	{
 	    return name_;
 	}
-	Value eval(Language lang, Scope sc, MachineState state)
+	Value eval(Scope sc, MachineState state)
 	{
 	    Variable var;
 	    if (sc.lookup(name_, var))
@@ -1039,10 +1075,11 @@ private:
     string name_;
 }
 
-class NumericExpr: Expr
+class NumericExpr: ExprBase
 {
-    this(string num)
+    this(Language lang, string num)
     {
+	super(lang);
 	if (num[$-1] == 'U' || num[$-1] == 'u') {
 	    unum_ = toUlong(num[0..$-1]);
 	    isSigned_ = false;
@@ -1056,19 +1093,18 @@ class NumericExpr: Expr
 	{
 	    return std.string.toString(num_);
 	}
-	Value eval(Language lang, Scope sc, MachineState state)
+	Value eval(Scope sc, MachineState state)
 	{
 	    ubyte val[4];
 	    long n = num_;
-
 	    
 	    Type ty;
 	    if (isSigned_) {
 		writeInteger(num_, val);
-		ty = new IntegerType("int", true, 4);
+		ty = new IntegerType(lang_, "int", true, 4);
 	    } else {
 		writeInteger(unum_, val);
-		ty = new IntegerType("uint", false, 4);
+		ty = new IntegerType(lang_, "uint", false, 4);
 	    }
 	    return Value(new ConstantLocation(val), ty);
 	}
@@ -1081,23 +1117,24 @@ private:
     }
 }
 
-class UnaryExpr: Expr
+class UnaryExpr: ExprBase
 {
-    this(Expr e)
+    this(Language lang, Expr e)
     {
+	super(lang);
 	expr_ = e;
     }
     abstract string toString();
-    abstract Value eval(Language lang, Scope sc, MachineState state);
+    abstract Value eval(Scope sc, MachineState state);
 private:
     Expr expr_;
 }
 
 class AddressOfExpr: UnaryExpr
 {
-    this(Expr e)
+    this(Language lang, Expr e)
     {
-	super(e);
+	super(lang, e);
     }
 
     override {
@@ -1105,9 +1142,9 @@ class AddressOfExpr: UnaryExpr
 	{
 	    return "&" ~ expr_.toString();
 	}
-	Value eval(Language lang, Scope sc, MachineState state)
+	Value eval(Scope sc, MachineState state)
 	{
-	    Value expr = expr_.eval(lang, sc, state);
+	    Value expr = expr_.eval(sc, state);
 	    if (expr.loc.hasAddress(state)) {
 		ulong addr = expr.loc.address(state);
 		ubyte[] val;
@@ -1124,9 +1161,9 @@ class AddressOfExpr: UnaryExpr
 
 class DereferenceExpr: UnaryExpr
 {
-    this(Expr e)
+    this(Language lang, Expr e)
     {
-	super(e);
+	super(lang, e);
     }
 
     override {
@@ -1134,9 +1171,9 @@ class DereferenceExpr: UnaryExpr
 	{
 	    return "*" ~ expr_.toString();
 	}
-	Value eval(Language lang, Scope sc, MachineState state)
+	Value eval(Scope sc, MachineState state)
 	{
-	    Value expr = expr_.eval(lang, sc, state);
+	    Value expr = expr_.eval(sc, state);
 	    PointerType ptrTy = cast(PointerType) expr.type.underlyingType;
 	    if (!ptrTy)
 		throw new Exception("Attempting to dereference a non-pointer");
@@ -1149,24 +1186,24 @@ template IntegerUnaryExpr(string op, string name)
 {
     class IntegerUnaryExpr: UnaryExpr
     {
-	this(Expr e)
+	this(Language lang, Expr e)
 	{
-	    super(e);
+	    super(lang, e);
 	}
 
 	override {
 	    string toString()
 	    {
-		return op ~ expr_.toString();
+		return op ~ expr_.toString;
 	    }
-	    Value eval(Language lang, Scope sc, MachineState state)
+	    Value eval(Scope sc, MachineState state)
 	    {
-		Value expr = expr_.eval(lang, sc, state);
+		Value expr = expr_.eval(sc, state);
 		if (!expr.type.isIntegerType)
 		    throw new Exception(
 			format("Attempting to %s a value of type %s",
 			       name,
-			       expr.type.toString(lang)));
+			       expr.type.toString));
 		ubyte[] v = expr.loc.readValue(state);
 		ulong val = readInteger(v);
 		mixin("val = " ~ op ~ "val;");
@@ -1179,27 +1216,27 @@ template IntegerUnaryExpr(string op, string name)
 
 class NegateExpr: IntegerUnaryExpr!("-", "negate")
 {
-    this(Expr e)
+    this(Language lang, Expr e)
     {
-	super(e);
+	super(lang, e);
     }
 }
 
 class LogicalNegateExpr: IntegerUnaryExpr!("!", "logically negate")
 {
-    this(Expr e)
+    this(Language lang, Expr e)
     {
-	super(e);
+	super(lang, e);
     }
     override {
-	Value eval(Language lang, Scope sc, MachineState state)
+	Value eval(Scope sc, MachineState state)
 	{
-	    Value expr = expr_.eval(lang, sc, state);
+	    Value expr = expr_.eval(sc, state);
 	    PointerType ptrTy = cast(PointerType) expr.type.underlyingType;
 	    if (!ptrTy)
-		return super.eval(lang, sc, state);
+		return super.eval(sc, state);
 	    ulong ptr = readInteger(expr.loc.readValue(state));
-	    Type ty = new IntegerType("int", true, 4);
+	    Type ty = new IntegerType(lang_, "int", true, 4);
 	    ubyte v[4];
 	    writeInteger(ptr ? 0 : 1, v);
 	    return Value(new ConstantLocation(v), ty);
@@ -1209,17 +1246,17 @@ class LogicalNegateExpr: IntegerUnaryExpr!("!", "logically negate")
 
 class ComplementExpr: IntegerUnaryExpr!("~", "complement")
 {
-    this(Expr e)
+    this(Language lang, Expr e)
     {
-	super(e);
+	super(lang, e);
     }
 }
 
 class PreIncrementExpr: UnaryExpr
 {
-    this(string op, Expr e)
+    this(Language lang, string op, Expr e)
     {
-	super(e);
+	super(lang, e);
 	op_ = op;
     }
     override {
@@ -1227,9 +1264,9 @@ class PreIncrementExpr: UnaryExpr
 	{
 	    return op_ ~ expr_.toString;
 	}
-	Value eval(Language lang, Scope sc, MachineState state)
+	Value eval(Scope sc, MachineState state)
 	{
-	    return Value(null, new VoidType);
+	    return Value(null, new VoidType(lang_));
 	}
     }
     string op_;
@@ -1237,9 +1274,9 @@ class PreIncrementExpr: UnaryExpr
 
 class PostIncrementExpr: UnaryExpr
 {
-    this(string op, Expr e)
+    this(Language lang, string op, Expr e)
     {
-	super(e);
+	super(lang, e);
 	op_ = op;
     }
     override {
@@ -1247,18 +1284,19 @@ class PostIncrementExpr: UnaryExpr
 	{
 	    return expr_.toString() ~ op_;
 	}
-	Value eval(Language lang, Scope sc, MachineState state)
+	Value eval(Scope sc, MachineState state)
 	{
-	    return Value(null, new VoidType);
+	    return Value(null, new VoidType(lang_));
 	}
     }
     string op_;
 }
 
-class BinopExpr: Expr
+class BinopExpr: ExprBase
 {
-    this(string op, Expr l, Expr r)
+    this(Language lang, string op, Expr l, Expr r)
     {
+	super(lang);
 	op_ = op;
 	left_ = l;
 	right_ = r;
@@ -1268,9 +1306,9 @@ class BinopExpr: Expr
 	{
 	    return left_.toString ~ " " ~ op_ ~ " " ~ right_.toString;
 	}
-	Value eval(Language lang, Scope sc, MachineState state)
+	Value eval(Scope sc, MachineState state)
 	{
-	    return Value(null, null); // XXX
+	    return Value(null, new VoidType(lang_)); // XXX
 	}
     }
 private:
@@ -1281,21 +1319,22 @@ private:
 
 class AssignExpr: BinopExpr
 {
-    this(string op, Expr l, Expr r)
+    this(Language lang, string op, Expr l, Expr r)
     {
-	super(op, l, r);
+	super(lang, op, l, r);
     }
 }
 
-class BinaryExpr: Expr
+class BinaryExpr: ExprBase
 {
-    this(Expr l, Expr r)
+    this(Language lang, Expr l, Expr r)
     {
+	super(lang);
 	left_ = l;
 	right_ = r;
     }
     abstract string toString();
-    abstract Value eval(Language lang, Scope sc, MachineState state);
+    abstract Value eval(Scope sc, MachineState state);
 private:
     Expr left_;
     Expr right_;
@@ -1305,32 +1344,32 @@ template IntegerBinaryExpr(string op, string name)
 {
     class IntegerBinaryExpr: BinaryExpr
     {
-	this(Expr l, Expr r)
+	this(Language lang, Expr l, Expr r)
 	{
-	    super(l, r);
+	    super(lang, l, r);
 	}
 
 	override {
 	    string toString()
 	    {
-		return left_.toString() ~ " " ~ op ~ " " ~ right_.toString();
+		return left_.toString ~ " " ~ op ~ " " ~ right_.toString;
 	    }
-	    Value eval(Language lang, Scope sc, MachineState state)
+	    Value eval(Scope sc, MachineState state)
 	    {
-		Value left = left_.eval(lang, sc, state);
+		Value left = left_.eval(sc, state);
 		if (!left.type.isIntegerType)
 		    throw new Exception(
 			format("Attempting to %s a value of type %s",
 			       name,
-			       left.type.toString(lang)));
+			       left.type.toString));
 		ulong lval = readInteger(left.loc.readValue(state));
 
-		Value right = right_.eval(lang, sc, state);
+		Value right = right_.eval(sc, state);
 		if (!right.type.isIntegerType)
 		    throw new Exception(
 			format("Attempting to %s a value of type %s",
 			       name,
-			       right.type.toString(lang)));
+			       right.type.toString));
 		ulong rval = readInteger(right.loc.readValue(state));
 		
 		static if (op == "/" || op == "%") {
@@ -1350,19 +1389,19 @@ template IntegerBinaryExpr(string op, string name)
 
 class CommaExpr: BinaryExpr
 {
-    this(Expr l, Expr r)
+    this(Language lang, Expr l, Expr r)
     {
-	super(l, r);
+	super(lang, l, r);
     }
     override {
 	string toString()
 	{
-	    return left_.toString() ~ ", " ~ right_.toString();
+	    return left_.toString ~ ", " ~ right_.toString;
 	}
-	Value eval(Language lang, Scope sc, MachineState state)
+	Value eval(Scope sc, MachineState state)
 	{
-	    Value left = left_.eval(lang, sc, state);
-	    Value right = right_.eval(lang, sc, state);
+	    Value left = left_.eval(sc, state);
+	    Value right = right_.eval(sc, state);
 	    return right;
 	}
     }
@@ -1370,19 +1409,19 @@ class CommaExpr: BinaryExpr
 
 class AddExpr: IntegerBinaryExpr!("+", "add")
 {
-    this(Expr l, Expr r)
+    this(Language lang, Expr l, Expr r)
     {
-	super(l, r);
+	super(lang, l, r);
     }
     override {
-	Value eval(Language lang, Scope sc, MachineState state)
+	Value eval(Scope sc, MachineState state)
 	{
-	    Value left = left_.eval(lang, sc, state);
+	    Value left = left_.eval(sc, state);
 	    PointerType ptrTy = cast(PointerType) left.type.underlyingType;
 	    if (!ptrTy)
-		return super.eval(lang, sc, state);
+		return super.eval(sc, state);
 
-	    Value right = right_.eval(lang, sc, state);
+	    Value right = right_.eval(sc, state);
 	    if (!right.type.isIntegerType)
 		throw new Exception("Pointer arithmetic with non-integer");
 
@@ -1399,19 +1438,19 @@ class AddExpr: IntegerBinaryExpr!("+", "add")
 
 class SubtractExpr: IntegerBinaryExpr!("-", "add")
 {
-    this(Expr l, Expr r)
+    this(Language lang, Expr l, Expr r)
     {
-	super(l, r);
+	super(lang, l, r);
     }
     override {
-	Value eval(Language lang, Scope sc, MachineState state)
+	Value eval(Scope sc, MachineState state)
 	{
-	    Value left = left_.eval(lang, sc, state);
+	    Value left = left_.eval(sc, state);
 	    PointerType ptrTy = cast(PointerType) left.type.underlyingType;
 	    if (!ptrTy)
-		return super.eval(lang, sc, state);
+		return super.eval(sc, state);
 
-	    Value right = right_.eval(lang, sc, state);
+	    Value right = right_.eval(sc, state);
 	    PointerType rptrTy = cast(PointerType) right.type.underlyingType;
 	    if (!rptrTy && !right.type.isIntegerType)
 		throw new Exception("Pointer arithmetic with non-integer or non-pointer");
@@ -1426,7 +1465,7 @@ class SubtractExpr: IntegerBinaryExpr!("-", "add")
 		val.length = ptrTy.byteWidth;
 		writeInteger(diff, val);
 		return Value(new ConstantLocation(val),
-			     new IntegerType("int", true, ptrTy.byteWidth));
+			     new IntegerType(lang_, "int", true, ptrTy.byteWidth));
 	    } else {
 		ulong ptr = lval - rval * ptrTy.baseType.byteWidth;
 		ubyte[] val;
@@ -1438,10 +1477,11 @@ class SubtractExpr: IntegerBinaryExpr!("-", "add")
     }
 }
 
-class IndexExpr: Expr
+class IndexExpr: ExprBase
 {
-    this(Expr base, Expr index)
+    this(Language lang, Expr base, Expr index)
     {
+	super(lang);
 	base_ = base;
 	index_ = index;
     }
@@ -1450,9 +1490,9 @@ class IndexExpr: Expr
 	{
 	    return base_.toString ~ "[" ~ index_.toString ~ "]";
 	}
-	Value eval(Language lang, Scope sc, MachineState state)
+	Value eval(Scope sc, MachineState state)
 	{
-	    Value base = base_.eval(lang, sc, state);
+	    Value base = base_.eval(sc, state);
 
 	    ArrayType aTy = cast(ArrayType) base.type.underlyingType;
 	    DArrayType daTy = cast(DArrayType) base.type.underlyingType;
@@ -1467,7 +1507,7 @@ class IndexExpr: Expr
 		if (aTy.dims_.length == 1) {
 		    elementType = aTy.baseType;
 		} else {
-		    ArrayType subTy = new ArrayType(aTy.baseType);
+		    ArrayType subTy = new ArrayType(lang_, aTy.baseType);
 		    subTy.dims_ = aTy.dims_[1..$];
 		    elementType = subTy;
 		}
@@ -1496,7 +1536,7 @@ class IndexExpr: Expr
 		throw new Exception("Expected array or pointer for index expression");
 	    }
 
-	    Value index = index_.eval(lang, sc, state);
+	    Value index = index_.eval(sc, state);
 	    IntegerType intTy = cast(IntegerType) index.type.underlyingType;
 	    if (!index.type.isIntegerType) {
 		throw new Exception("Expected integer for index expression");
@@ -1519,10 +1559,11 @@ private:
     Expr index_;
 }
 
-class MemberExpr: Expr
+class MemberExpr: ExprBase
 {
-    this(Expr base, string member)
+    this(Language lang, Expr base, string member)
     {
+	super(lang);
 	base_ = base;
 	member_ = member;
     }
@@ -1531,9 +1572,9 @@ class MemberExpr: Expr
 	{
 	    return base_.toString ~ "." ~ member_;
 	}
-	Value eval(Language lang, Scope sc, MachineState state)
+	Value eval(Scope sc, MachineState state)
 	{
-	    Value base = base_.eval(lang, sc, state);
+	    Value base = base_.eval(sc, state);
 	    CompoundType cTy = cast(CompoundType) base.type.underlyingType;
 	    if (!cTy)
 		throw new Exception("Not a compound type");
@@ -1541,14 +1582,16 @@ class MemberExpr: Expr
 	}
     }
 private:
+    Language lang_;
     Expr base_;
     string member_;
 }
 
-class PointsToExpr: Expr
+class PointsToExpr: ExprBase
 {
-    this(Expr base, string member)
+    this(Language lang, Expr base, string member)
     {
+	super(lang);
 	base_ = base;
 	member_ = member;
     }
@@ -1557,9 +1600,9 @@ class PointsToExpr: Expr
 	{
 	    return base_.toString ~ "->" ~ member_;
 	}
-	Value eval(Language lang, Scope sc, MachineState state)
+	Value eval(Scope sc, MachineState state)
 	{
-	    Value base = base_.eval(lang, sc, state);
+	    Value base = base_.eval(sc, state);
 	    PointerType ptrTy = cast(PointerType) base.type.underlyingType;
 	    if (!ptrTy)
 		throw new Exception("Not a pointer");
@@ -1578,10 +1621,11 @@ private:
     string member_;
 }
 
-class IfElseExpr: Expr
+class IfElseExpr: ExprBase
 {
-    this(Expr cond, Expr trueExp, Expr falseExp)
+    this(Language lang, Expr cond, Expr trueExp, Expr falseExp)
     {
+	super(lang);
 	cond_ = cond;
 	trueExp_ = trueExp;
 	falseExp_ = falseExp;
@@ -1592,15 +1636,15 @@ class IfElseExpr: Expr
 	    return cond_.toString ~ " ? " ~ trueExp_.toString
 		~ " : " ~ falseExp_.toString;
 	}
-	Value eval(Language lang, Scope sc, MachineState state)
+	Value eval(Scope sc, MachineState state)
 	{
-	    Value cond = cond_.eval(lang, sc, state);
+	    Value cond = cond_.eval(sc, state);
 	    if (!cond.type.isIntegerType)
 		throw new Exception("Condition value is not an integer");
 	    if (readInteger(cond.loc.readValue(state)))
-		return trueExp_.eval(lang, sc, state);
+		return trueExp_.eval(sc, state);
 	    else
-		return falseExp_.eval(lang, sc, state);
+		return falseExp_.eval(sc, state);
 	}
     }
 private:
@@ -1614,11 +1658,11 @@ struct Value
     Location loc;
     Type type;
 
-    string toString(string fmt, Language lang, MachineState state)
+    string toString(string fmt, MachineState state)
     {
 	if (!loc.valid(state))
 	    return "<invalid>";
-	return type.valueToString(fmt, lang, state, loc);
+	return type.valueToString(fmt, state, loc);
     }
 }
 
@@ -1627,22 +1671,22 @@ struct Variable
     string name;
     Value value;
 
-    string toString(Language lang)
+    string toString()
     {
-	return value.type.toString(lang) ~ " " ~ name;
+	return value.type.toString ~ " " ~ name;
     }
 
-    string toString(string fmt, Language lang, MachineState state)
+    string toString(string fmt, MachineState state)
     {
 	if (state)
-	    return toString(lang) ~ " = " ~ valueToString(fmt, lang, state);
+	    return toString ~ " = " ~ valueToString(fmt, state);
 	else
-	    return toString(lang);
+	    return toString;
     }
 
-    string valueToString(string fmt, Language lang, MachineState state)
+    string valueToString(string fmt, MachineState state)
     {
-	return value.toString(fmt, lang, state);
+	return value.toString(fmt, state);
     }
 }
 
@@ -1683,20 +1727,20 @@ private:
 
 class Function: DebugItem, Scope
 {
-    this(string name)
+    this(string name, Language lang)
     {
 	name_ = name;
-	returnType_ = new VoidType;
+	returnType_ = new VoidType(lang);
 	containingType_ = null;
     }
 
-    string toString(string fmt, Language lang, MachineState state)
+    string toString(string fmt, MachineState state)
     {
 	string s;
 
-	s = returnType_.toString(lang) ~ " ";
+	s = returnType_.toString ~ " ";
 	if (containingType_)
-	    s ~= containingType_.toString(lang) ~ lang.namespaceSeparator;
+	    s ~= containingType_.toString ~ lang_.namespaceSeparator;
 	s ~= std.string.format("%s(", name_);
 	bool first = true;
 	foreach (a; arguments_) {
@@ -1704,7 +1748,7 @@ class Function: DebugItem, Scope
 		s ~= std.string.format(", ");
 	    }
 	    first = false;
-	    s ~= std.string.format("%s", a.toString(fmt, lang, state));
+	    s ~= std.string.format("%s", a.toString(fmt, state));
 	}
 	s ~= "): ";
 	return s;
@@ -1785,6 +1829,7 @@ class Function: DebugItem, Scope
     }
 
     string name_;
+    Language lang_;
     Type returnType_;
     Type containingType_;
     Variable[] arguments_;

@@ -944,26 +944,9 @@ class DwarfFile: public DebugInfo
 	Language findLanguage(ulong address)
 	{
 	    CompilationUnit cu;
-	    if (findCU(address, cu)) {
-		AttributeValue lang = cu.die[DW_AT_language];
-		if (!lang)
-		    return new CLikeLanguage;
-		switch (lang.ul) {
-		case DW_LANG_C:
-		case DW_LANG_C89:
-		case DW_LANG_C99:
-		    return new CLikeLanguage;
-
-		case DW_LANG_C_plus_plus:
-		    return new CPlusPlusLanguage;
-
-		case DW_LANG_D:
-		    return new DLanguage;
-
-		default:
-		    return new CLikeLanguage;
-		}
-	    }	    
+	    if (findCU(address, cu))
+		return cu.lang;
+	    return null;
 	}
 
 	bool findLineByAddress(ulong address, out LineEntry[] res)
@@ -1132,15 +1115,18 @@ class DwarfFile: public DebugInfo
 		if (func.item)
 		    return cast(Function) func.item;
 
-		Function f = new Function(func.name);
+		auto lang = cu.lang;
+		Function f = new Function(func.name, lang);
 		auto rt = func[DW_AT_type];
 		if (rt)
 		    f.returnType = cu[rt].toType;
 		f.containingType = func.containingType;
-		foreach (v; findVars(cu, func, DW_TAG_formal_parameter))
+		foreach (v; findVars(cu, func, DW_TAG_formal_parameter)) {
 		    f.addArgument(v);
-		foreach (v; findVars(cu, func, DW_TAG_variable))
+		}
+		foreach (v; findVars(cu, func, DW_TAG_variable)) {
 		    f.addVariable(v);
+		}
 		func.item = f;
 		return f;
 	    }
@@ -1255,6 +1241,28 @@ private:
 	cu.die = new DIE(cu, null, base, p, abbrevCode,
 			 abbrevTable, addrlen, strtab_);
 	cu.dieMap[off] = cu.die;
+
+	auto  lang = cu.die[DW_AT_language];
+	if (!lang) {
+	    cu.lang = new CLikeLanguage;
+	} else {
+	    switch (lang.ul) {
+	    case DW_LANG_C:
+	    case DW_LANG_C89:
+	    case DW_LANG_C99:
+	    default:
+		cu.lang = new CLikeLanguage;
+		break;
+
+	    case DW_LANG_C_plus_plus:
+		cu.lang = new CPlusPlusLanguage;
+		break;
+
+	    case DW_LANG_D:
+		cu.lang = new DLanguage;
+		break;
+	    }
+	}
     }
 
     void parseLineTable(ref char* p, bool delegate(LineEntry*) dg)
@@ -2541,29 +2549,31 @@ class DIE
     {
 	auto t = this[DW_AT_type];
 	Type subType = null;
+	auto lang = cu_.lang;
 
 	if (t)
 	    subType = cu_[t].toType;
 	else
-	    subType = new VoidType;
+	    subType = new VoidType(lang);
 
 	switch (tag) {
 	case DW_TAG_base_type:
+	    auto sz = this[DW_AT_byte_size].ui;
 	    switch (this[DW_AT_encoding].ul) {
 	    case DW_ATE_signed:
-		return new IntegerType(name, true, this[DW_AT_byte_size].ui);
+		return new IntegerType(lang, name, true, sz);
 
 	    case DW_ATE_unsigned:
-		return new IntegerType(name, false, this[DW_AT_byte_size].ui);
+		return new IntegerType(lang, name, false, sz);
 
 	    case DW_ATE_boolean:
-		return new BooleanType(name, this[DW_AT_byte_size].ui);
+		return new BooleanType(lang, name, sz);
 
 	    case DW_ATE_signed_char:
-		return new CharType(name, true, this[DW_AT_byte_size].ui);
+		return new CharType(lang, name, true, sz);
 
 	    case DW_ATE_unsigned_char:
-		return new CharType(name, false, this[DW_AT_byte_size].ui);
+		return new CharType(lang, name, false, sz);
 
 	    case DW_ATE_address:
 	    case DW_ATE_complex_float:
@@ -2577,29 +2587,29 @@ class DIE
 	    case DW_ATE_decimal_float:
 		writefln("Unsupported base type encoding %d - using integer",
 			 this[DW_AT_encoding].ul);
-		return new IntegerType(name, false, this[DW_AT_byte_size].ui);
+		return new IntegerType(lang, name, false, sz);
 	    }
 
 	case DW_TAG_pointer_type:
 	    return subType.pointerType(is64 ? 8 : 4);
 
 	case DW_TAG_const_type:
-	    return new ModifierType(name, "const", subType);
+	    return new ModifierType(lang, name, "const", subType);
 
 	case DW_TAG_packed_type:
-	    return new ModifierType(name, "packed", subType);
+	    return new ModifierType(lang, name, "packed", subType);
 
 	case DW_TAG_reference_type:
-	    return new ReferenceType(name, subType, is64 ? 8 : 4);
+	    return new ReferenceType(lang, name, subType, is64 ? 8 : 4);
 
 	case DW_TAG_restrict_type:
-	    return new ModifierType(name, "restrict", subType);
+	    return new ModifierType(lang, name, "restrict", subType);
 
 	case DW_TAG_shared_type:
-	    return new ModifierType(name, "shared", subType);
+	    return new ModifierType(lang, name, "shared", subType);
 
 	case DW_TAG_volatile_type:
-	    return new ModifierType(name, "volatile", subType);
+	    return new ModifierType(lang, name, "volatile", subType);
 
 	case DW_TAG_structure_type:
 	case DW_TAG_union_type:
@@ -2610,7 +2620,7 @@ class DIE
 		kind = "struct";
 	    else
 		kind = "union";
-	    CompoundType ct = new CompoundType(kind, name, sz);
+	    CompoundType ct = new CompoundType(lang, kind, name, sz);
 
 	    /*
 	     * Set our memoized type so that we can avoid recursion
@@ -2637,7 +2647,7 @@ class DIE
 
 	case DW_TAG_array_type:
 	{
-	    ArrayType at = new ArrayType(subType);
+	    ArrayType at = new ArrayType(lang, subType);
 
 	    /*
 	     * Set our memoized type so that we can avoid recursion
@@ -2665,13 +2675,13 @@ class DIE
 	}
 
 	case DW_TAG_darray_type:
-	    return new DArrayType(subType, this[DW_AT_byte_size].ui);
+	    return new DArrayType(lang, subType, this[DW_AT_byte_size].ui);
 
 	case DW_TAG_typedef:
-	    return new TypedefType(name, subType);
+	    return new TypedefType(lang, name, subType);
 
 	default:
-	    return new VoidType;
+	    return new VoidType(lang);
 	}
     }
 
@@ -2698,7 +2708,6 @@ class DIE
 	}
     }
 }
-
 
 class CompilationUnit
 {
@@ -2779,6 +2788,7 @@ class CompilationUnit
     AddressRange[] addresses; // set of address ranges for this CU
     DIE die;		// top-level DIE for this CU
     DIE[ulong] dieMap;	// map DIE offset to loaded DIE
+    Language lang;
 }
 
 class CIE

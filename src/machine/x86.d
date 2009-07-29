@@ -27,6 +27,7 @@
 module machine.x86;
 import machine.machine;
 import objfile.debuginfo;
+import objfile.language;
 private import machine.x86dis;
 import target;
 
@@ -261,7 +262,9 @@ class X86State: MachineState
 	    foreach (i, s; X86RegNames) {
 		if (s == reg) {
 		    Location loc = new RegisterLocation(i, grWidth(i));
-		    Type ty = new IntegerType("uint32_t", false, grWidth(i));
+		    Type ty =
+			new IntegerType(new CLikeLanguage,
+					"uint32_t", false, grWidth(i));
 		    var.name = reg;
 		    var.value = Value(loc, ty);
 		    return true;
