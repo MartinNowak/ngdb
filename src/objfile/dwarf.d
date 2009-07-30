@@ -872,6 +872,7 @@ class DwarfFile: public DebugInfo
 	}
 
 	// Read .debug_aranges if present
+	CompilationUnit cu;
 	if (obj_.hasSection(".debug_aranges")) {
 	    char[] aranges = obj_.readSection(".debug_aranges");
 	    char* p = &aranges[0], pEnd = p + aranges.length;
@@ -881,7 +882,7 @@ class DwarfFile: public DebugInfo
 		ulong len = parseInitialLength(p, is64);
 		uint ver = parseUShort(p);
 
-		CompilationUnit cu = new CompilationUnit(this);
+		cu = new CompilationUnit(this);
 		cu.offset = parseOffset(p, is64);
 		cu.addressSize = parseUByte(p);
 		cu.segmentSize = parseUByte(p);
@@ -916,14 +917,15 @@ class DwarfFile: public DebugInfo
 	bool is64;
 
 	do {
-	    CompilationUnit cu = new CompilationUnit(this);
+	    cu = new CompilationUnit(this);
 	    cu.offset = p - &debugInfo[0];
 	    auto len = parseInitialLength(p, is64);
 	    auto pNext = p + len;
 	    auto ver = parseUShort(p);
 	    cu.addressSize = parseUByte(p);
 	    cu.segmentSize = 0;
-	    compilationUnits_[cu.offset] = cu;
+	    if (!(cu.offset in compilationUnits_))
+		compilationUnits_[cu.offset] = cu;
 	    p = pNext;
 	} while (p < ep);
 
@@ -2444,6 +2446,20 @@ class DIE
 	    AttributeValue val = new AttributeValue(form, diep,
 						    addrlen, strtab);
 	    attrs[at] = val;
+	}
+	static if (false) {
+	    if (tag == DW_TAG_compile_unit) {
+		string path;
+		if (this[DW_AT_name]) {
+		    path = this[DW_AT_name].toString;
+		    if (this[DW_AT_comp_dir])
+			path = std.path.join(this[DW_AT_comp_dir].toString,
+					     path);
+		} else {
+		    path = "<unknown>";
+		}
+		writefln("Loading debug information for %s", path);
+	    }
 	}
 	if (hasChildren) {
 	    char* p = diep;
