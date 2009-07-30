@@ -61,6 +61,14 @@ class Command
     abstract string name();
 
     /**
+     * Return the command short name, if any.
+     */
+    string shortName()
+    {
+	return null;
+    }
+
+    /**
      * Return the command description.
      */
     abstract string description();
@@ -111,10 +119,15 @@ class CommandTable
     void add(Command c)
     {
 	list_[c.name] = c;
+	auto s = c.shortName;
+	if (s)
+	    shortNames_[s] = c.name;
     }
 
     Command lookup(string name, out string message)
     {
+	if (name in shortNames_)
+	    name = shortNames_[name];
 	auto cp = (name in list_);
 	if (cp) {
 	    return *cp;
@@ -151,6 +164,7 @@ class CommandTable
     }
 
     Command[string] list_;
+    string[string] shortNames_;
 }
 
 private class Breakpoint
@@ -470,7 +484,7 @@ class Debugger: TargetListener
 	LineEntry[] le;
 	DebugInfo di;
 
-	if (findDebugInfo(t.state, di)) {
+	if (findDebugInfo(s, di)) {
 	    Location loc;
 	    Function func;
 	    if (di.findFrameBase(s, loc) && (func = di.findFunction(s.pc)) !is null) {
@@ -503,6 +517,10 @@ class Debugger: TargetListener
 		commands_.onStopped(this, sf, le[0].line);
 		infoCommands_.onStopped(this, sf, le[0].line);
 	    }
+	} else {
+	    ulong tpc = s.pc;
+	    writefln("%s:\t%s", lookupAddress(s.pc),
+		     s.disassemble(tpc, &lookupAddress));
 	}
     }
 
@@ -556,7 +574,7 @@ class Debugger: TargetListener
 
 		Function func = di.findFunction(pc);
 		if (func) {
-		    s = func.toString(null, state);
+		    s = func.toString(null, state) ~ ": ";
 		}
 
 		s ~= le[0].fullname ~ ":" ~ .toString(le[0].line);
@@ -1079,6 +1097,11 @@ class NextCommand: Command
 	    return "next";
 	}
 
+	string shortName()
+	{
+	    return "n";
+	}
+
 	string description()
 	{
 	    return "step the program being debugged, stepping over function calls";
@@ -1104,6 +1127,11 @@ class StepCommand: Command
 	    return "step";
 	}
 
+	string shortName()
+	{
+	    return "s";
+	}
+
 	string description()
 	{
 	    return "step the program being debugged, stepping into function calls";
@@ -1116,17 +1144,22 @@ class StepCommand: Command
     }
 }
 
-class IStepCommand: Command
+class StepICommand: Command
 {
     static this()
     {
-	Debugger.registerCommand(new IStepCommand);
+	Debugger.registerCommand(new StepICommand);
     }
 
     override {
 	string name()
 	{
-	    return "istep";
+	    return "stepi";
+	}
+
+	string shortName()
+	{
+	    return "si";
 	}
 
 	string description()
@@ -1141,17 +1174,17 @@ class IStepCommand: Command
     }
 }
 
-class INextCommand: Command
+class NextICommand: Command
 {
     static this()
     {
-	Debugger.registerCommand(new INextCommand);
+	Debugger.registerCommand(new NextICommand);
     }
 
     override {
 	string name()
 	{
-	    return "inext";
+	    return "nexti";
 	}
 
 	string description()
@@ -1236,7 +1269,7 @@ class FinishCommand: Command
 		 */
 		MachineState s = db.threads_[0].state;
 		Location loc = new RegisterLocation(0, s.grWidth(0));
-		Value val = Value(loc, rTy);
+		Value val = new Value(loc, rTy);
 		writefln("Value returned is %s", val.toString(null, s));
 	    }
 	    db.stopped();
@@ -1640,6 +1673,7 @@ class PrintCommand: Command
 		    }
 		}
 		sc.addScope(f.func_);
+		sc.addScope(f.di_);
 		sc.addScope(s);
 	    } else {
 		lang = new CLikeLanguage;
@@ -1647,8 +1681,8 @@ class PrintCommand: Command
 
 	    try {
 		auto e = lang.parseExpr(join(args[1..$], " "));
-		auto v = e.eval(sc, s);
-		writefln("%s", v.toString(fmt, s));
+		auto v = e.eval(sc, s).toValue;
+		writefln("(%s) %s", v.type.toString, v.toString(fmt, s));
 	    } catch (Exception ex) {
 		writefln("%s", ex.msg);
 	    }

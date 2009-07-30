@@ -56,6 +56,9 @@ struct LineEntry
 
 interface DebugItem
 {
+    string toString();
+    string toString(string, MachineState);
+    Value toValue();
 }
 
 interface Type: DebugItem
@@ -80,6 +83,14 @@ class TypeBase: Type
     {
 	return lang_;
     }
+    string toString(string, MachineState)
+    {
+	return toString;
+    }
+    Value toValue()
+    {
+	throw new Exception(format("%s is not a value", toString));
+    }
     abstract string toString();
     abstract string valueToString(string, MachineState, Location);
     abstract size_t byteWidth();
@@ -99,6 +110,41 @@ class TypeBase: Type
 private:
     Language lang_;
     Type[uint] ptrTypes_;
+}
+
+interface Scope
+{
+    string[] contents();
+    bool lookup(string, out DebugItem);
+}
+
+class UnionScope: Scope
+{
+    void addScope(Scope sc)
+    {
+	subScopes_ ~= sc;
+    }
+
+    override {
+	string[] contents()
+	{
+	    string[] res;
+	    foreach (sc; subScopes_)
+		res ~= sc.contents;
+	    return res;
+	}
+	bool lookup(string name, out DebugItem val)
+	{
+	    foreach (sc; subScopes_) {
+		if (sc.lookup(name, val))
+		    return true;
+	    }
+	    return false;
+	}
+    }
+
+private:
+    Scope[] subScopes_;
 }
 
 ulong
@@ -309,7 +355,7 @@ class PointerType: TypeBase
 	    string v;
 	    ulong p = readInteger(loc.readValue(state));
 	    v = std.string.format("0x%x", p);
-	    if (lang_.isStringType(this))
+	    if (lang_.isStringType(this) && p)
 		v ~= " " ~ lang_.stringConstant(state, this, loc);
 	    return v;
 	}
@@ -337,7 +383,7 @@ class PointerType: TypeBase
 
     Value dereference(MachineState state, Location loc)
     {
-	return Value(new MemoryLocation(
+	return new Value(new MemoryLocation(
 			 readInteger(loc.readValue(state)),
 			 baseType.byteWidth),
 		     baseType);
@@ -505,9 +551,14 @@ class CompoundType: TypeBase
 	byteWidth_ = byteWidth;
     }
 
-    void addField(string name, Type type, Location loc)
+    void addField(Variable field)
     {
-	fields_ ~= field(name, type, loc);
+	if (field) fields_ ~= field;
+    }
+
+    void addFunction(Function func)
+    {
+	if (func) functions_ ~= func;
     }
 
     override
@@ -522,18 +573,19 @@ class CompoundType: TypeBase
 	string valueToString(string fmt, MachineState state, Location loc)
 	{
 	    bool first = true;
-	    string v;
+	    string s;
 
 	    foreach (f; fields_) {
+		auto v = f.value;
 		if (!first) {
-		    v ~= std.string.format(", ");
+		    s ~= std.string.format(", ");
 		}
 		first = false;
-		v ~= f.name ~ " = ";
-		v ~= f.type.valueToString(fmt, state,
-					  f.loc.fieldLocation(loc, state));
+		s ~= f.name ~ " = ";
+		s ~= v.type.valueToString(fmt, state,
+					  v.loc.fieldLocation(loc, state));
 	    }
-	    return lang_.structConstant(v);
+	    return lang_.structConstant(s);
 	}
 	size_t byteWidth()
 	{
@@ -554,7 +606,7 @@ class CompoundType: TypeBase
 	return fields_.length;
     }
 
-    field opIndex(size_t i)
+    Variable opIndex(size_t i)
     {
 	return fields_[i];
     }
@@ -562,8 +614,10 @@ class CompoundType: TypeBase
     Value fieldValue(string fieldName, Location loc, MachineState state)
     {
 	foreach (f; fields_) {
-	    if (f.name == fieldName)
-		return Value(f.loc.fieldLocation(loc, state), f.type);
+	    if (f.name == fieldName) {
+		auto v = f.value;
+		return new Value(v.loc.fieldLocation(loc, state), v.type);
+	    }
 	}
 	throw new Exception(format("Field %s not found", fieldName));
     }
@@ -572,7 +626,8 @@ private:
     string kind_;
     string name_;
     uint byteWidth_;
-    field[] fields_;
+    Variable[] fields_;
+    Function[] functions_;
 }
 
 class CompoundScope: Scope
@@ -590,12 +645,12 @@ class CompoundScope: Scope
 	    res ~= f.name;
 	return res;
     }
-    bool lookup(string name, out Variable var)
+    bool lookup(string name, out DebugItem val)
     {
 	foreach (f; type_.fields_) {
 	    if (f.name == name) {
-		var.name = name;
-		var.value = Value(f.loc.fieldLocation(base_, state_), f.type);
+		Value v = f.value;
+		val = new Value(v.loc.fieldLocation(base_, state_), v.type);
 		return true;
 	    }
 	}
@@ -751,6 +806,86 @@ class DArrayType: TypeBase
 private:
     Type baseType_;
     size_t byteWidth_;
+}
+
+class FunctionType: TypeBase
+{
+    this(Language lang)
+    {
+	super(lang);
+    }
+
+    Type returnType()
+    {
+	return returnType_;
+    }
+
+    void returnType(Type returnType)
+    {
+	returnType_ = returnType;
+    }
+
+    void addArgumentType(Type at)
+    {
+	argumentTypes_ ~= at;
+    }
+
+    void varargs(bool v)
+    {
+	varargs_ = v;
+    }
+
+    bool varargs()
+    {
+	return varargs_;
+    }
+
+    override
+    {
+	string toString()
+	{
+	    string s;
+
+	    if (returnType_)
+		s = returnType_.toString;
+	    else
+		s = "void";
+	    s ~= " (";
+	    foreach (i, at; argumentTypes_) {
+		if (i > 0)
+		    s ~= ", ";
+		s ~= at.toString;
+	    }
+	    if (varargs_) {
+		if (argumentTypes_.length > 0)
+		    s ~= ", ";
+		s ~= "...";
+	    }
+	    s ~= ")";
+
+	    return s;
+	}
+	string valueToString(string, MachineState, Location)
+	{
+	    return "{}";
+	}
+	size_t byteWidth()
+	{
+	    return 1;
+	}
+	bool isCharType()
+	{
+	    return false;
+	}
+	bool isIntegerType()
+	{
+	    return false;
+	}
+    }
+private:
+    Type returnType_;
+    Type[] argumentTypes_;
+    bool varargs_;
 }
 
 class VoidType: TypeBase
@@ -926,6 +1061,48 @@ class MemoryLocation: Location
     size_t length_;
 }
 
+class NoLocation: Location
+{
+    override {
+	bool valid(MachineState)
+	{
+	    return false;
+	}
+
+	size_t length()
+	{
+	    return 0;
+	}
+
+	ubyte[] readValue(MachineState state)
+	{
+	    assert(false);
+	    return null;
+	}
+
+	void writeValue(MachineState state, ubyte[] value)
+	{
+	    assert(false);
+	}
+
+	bool hasAddress(MachineState)
+	{
+	    return true;
+	}
+
+	ulong address(MachineState)
+	{
+	    assert(false);
+	    return 0;
+	}
+
+	Location fieldLocation(Location baseLoc, MachineState state)
+	{
+	    return null;
+	}
+    }
+}
+
 /**
  * A field location that describes a field at the exact start of a compound.
  * Typically used for union field locations.
@@ -1033,7 +1210,7 @@ interface Expr
 {
     Language language();
     string toString();
-    Value eval(Scope sc, MachineState state);
+    DebugItem eval(Scope sc, MachineState state);
 }
 
 class ExprBase: Expr
@@ -1047,7 +1224,7 @@ class ExprBase: Expr
 	return lang_;
     }
     abstract string toString();
-    abstract Value eval(Scope sc, MachineState state);
+    abstract DebugItem eval(Scope sc, MachineState state);
     Language lang_;
 }
 
@@ -1058,16 +1235,17 @@ class VariableExpr: ExprBase
 	super(lang);
 	name_ = name;
     }
+
     override {
 	string toString()
 	{
 	    return name_;
 	}
-	Value eval(Scope sc, MachineState state)
+	DebugItem eval(Scope sc, MachineState state)
 	{
-	    Variable var;
-	    if (sc.lookup(name_, var))
-		return var.value;
+	    DebugItem val;
+	    if (sc.lookup(name_, val))
+		return val;
 	    throw new Exception(format("Variable %s not found", name_));
 	}
     }
@@ -1093,7 +1271,7 @@ class NumericExpr: ExprBase
 	{
 	    return std.string.toString(num_);
 	}
-	Value eval(Scope sc, MachineState state)
+	DebugItem eval(Scope sc, MachineState state)
 	{
 	    ubyte val[4];
 	    long n = num_;
@@ -1106,7 +1284,7 @@ class NumericExpr: ExprBase
 		writeInteger(unum_, val);
 		ty = new IntegerType(lang_, "uint", false, 4);
 	    }
-	    return Value(new ConstantLocation(val), ty);
+	    return new Value(new ConstantLocation(val), ty);
 	}
     }
 private:
@@ -1125,7 +1303,7 @@ class UnaryExpr: ExprBase
 	expr_ = e;
     }
     abstract string toString();
-    abstract Value eval(Scope sc, MachineState state);
+    abstract DebugItem eval(Scope sc, MachineState state);
 private:
     Expr expr_;
 }
@@ -1142,15 +1320,15 @@ class AddressOfExpr: UnaryExpr
 	{
 	    return "&" ~ expr_.toString();
 	}
-	Value eval(Scope sc, MachineState state)
+	DebugItem eval(Scope sc, MachineState state)
 	{
-	    Value expr = expr_.eval(sc, state);
+	    Value expr = expr_.eval(sc, state).toValue;
 	    if (expr.loc.hasAddress(state)) {
 		ulong addr = expr.loc.address(state);
 		ubyte[] val;
 		val.length = state.pointerWidth;
 		writeInteger(addr, val);
-		return Value(new ConstantLocation(val),
+		return new Value(new ConstantLocation(val),
 			     expr.type.pointerType(state.pointerWidth));
 	    } else {
 		throw new Exception("Can't take the address of a value which is not in memory");
@@ -1171,9 +1349,9 @@ class DereferenceExpr: UnaryExpr
 	{
 	    return "*" ~ expr_.toString();
 	}
-	Value eval(Scope sc, MachineState state)
+	DebugItem eval(Scope sc, MachineState state)
 	{
-	    Value expr = expr_.eval(sc, state);
+	    Value expr = expr_.eval(sc, state).toValue;
 	    PointerType ptrTy = cast(PointerType) expr.type.underlyingType;
 	    if (!ptrTy)
 		throw new Exception("Attempting to dereference a non-pointer");
@@ -1196,9 +1374,9 @@ template IntegerUnaryExpr(string op, string name)
 	    {
 		return op ~ expr_.toString;
 	    }
-	    Value eval(Scope sc, MachineState state)
+	    DebugItem eval(Scope sc, MachineState state)
 	    {
-		Value expr = expr_.eval(sc, state);
+		Value expr = expr_.eval(sc, state).toValue;
 		if (!expr.type.isIntegerType)
 		    throw new Exception(
 			format("Attempting to %s a value of type %s",
@@ -1208,7 +1386,7 @@ template IntegerUnaryExpr(string op, string name)
 		ulong val = readInteger(v);
 		mixin("val = " ~ op ~ "val;");
 		writeInteger(val, v);
-		return Value(new ConstantLocation(v), expr.type);
+		return new Value(new ConstantLocation(v), expr.type);
 	    }
 	}
     }
@@ -1229,9 +1407,9 @@ class LogicalNegateExpr: IntegerUnaryExpr!("!", "logically negate")
 	super(lang, e);
     }
     override {
-	Value eval(Scope sc, MachineState state)
+	DebugItem eval(Scope sc, MachineState state)
 	{
-	    Value expr = expr_.eval(sc, state);
+	    Value expr = expr_.eval(sc, state).toValue;
 	    PointerType ptrTy = cast(PointerType) expr.type.underlyingType;
 	    if (!ptrTy)
 		return super.eval(sc, state);
@@ -1239,7 +1417,7 @@ class LogicalNegateExpr: IntegerUnaryExpr!("!", "logically negate")
 	    Type ty = new IntegerType(lang_, "int", true, 4);
 	    ubyte v[4];
 	    writeInteger(ptr ? 0 : 1, v);
-	    return Value(new ConstantLocation(v), ty);
+	    return new Value(new ConstantLocation(v), ty);
 	}
     }
 }
@@ -1264,9 +1442,9 @@ class PreIncrementExpr: UnaryExpr
 	{
 	    return op_ ~ expr_.toString;
 	}
-	Value eval(Scope sc, MachineState state)
+	DebugItem eval(Scope sc, MachineState state)
 	{
-	    return Value(null, new VoidType(lang_));
+	    return new Value(null, new VoidType(lang_));
 	}
     }
     string op_;
@@ -1284,9 +1462,9 @@ class PostIncrementExpr: UnaryExpr
 	{
 	    return expr_.toString() ~ op_;
 	}
-	Value eval(Scope sc, MachineState state)
+	DebugItem eval(Scope sc, MachineState state)
 	{
-	    return Value(null, new VoidType(lang_));
+	    return new Value(null, new VoidType(lang_));
 	}
     }
     string op_;
@@ -1306,9 +1484,9 @@ class BinopExpr: ExprBase
 	{
 	    return left_.toString ~ " " ~ op_ ~ " " ~ right_.toString;
 	}
-	Value eval(Scope sc, MachineState state)
+	DebugItem eval(Scope sc, MachineState state)
 	{
-	    return Value(null, new VoidType(lang_)); // XXX
+	    return new Value(null, new VoidType(lang_)); // XXX
 	}
     }
 private:
@@ -1334,7 +1512,7 @@ class BinaryExpr: ExprBase
 	right_ = r;
     }
     abstract string toString();
-    abstract Value eval(Scope sc, MachineState state);
+    abstract DebugItem eval(Scope sc, MachineState state);
 private:
     Expr left_;
     Expr right_;
@@ -1354,9 +1532,9 @@ template IntegerBinaryExpr(string op, string name)
 	    {
 		return left_.toString ~ " " ~ op ~ " " ~ right_.toString;
 	    }
-	    Value eval(Scope sc, MachineState state)
+	    DebugItem eval(Scope sc, MachineState state)
 	    {
-		Value left = left_.eval(sc, state);
+		Value left = left_.eval(sc, state).toValue;
 		if (!left.type.isIntegerType)
 		    throw new Exception(
 			format("Attempting to %s a value of type %s",
@@ -1364,7 +1542,7 @@ template IntegerBinaryExpr(string op, string name)
 			       left.type.toString));
 		ulong lval = readInteger(left.loc.readValue(state));
 
-		Value right = right_.eval(sc, state);
+		Value right = right_.eval(sc, state).toValue;
 		if (!right.type.isIntegerType)
 		    throw new Exception(
 			format("Attempting to %s a value of type %s",
@@ -1381,7 +1559,7 @@ template IntegerBinaryExpr(string op, string name)
 		ubyte[] v;
 		v.length = left.loc.length;
 		writeInteger(lval, v);
-		return Value(new ConstantLocation(v), left.type);
+		return new Value(new ConstantLocation(v), left.type);
 	    }
 	}
     }
@@ -1398,10 +1576,10 @@ class CommaExpr: BinaryExpr
 	{
 	    return left_.toString ~ ", " ~ right_.toString;
 	}
-	Value eval(Scope sc, MachineState state)
+	DebugItem eval(Scope sc, MachineState state)
 	{
-	    Value left = left_.eval(sc, state);
-	    Value right = right_.eval(sc, state);
+	    Value left = left_.eval(sc, state).toValue;
+	    Value right = right_.eval(sc, state).toValue;
 	    return right;
 	}
     }
@@ -1414,14 +1592,14 @@ class AddExpr: IntegerBinaryExpr!("+", "add")
 	super(lang, l, r);
     }
     override {
-	Value eval(Scope sc, MachineState state)
+	DebugItem eval(Scope sc, MachineState state)
 	{
-	    Value left = left_.eval(sc, state);
+	    Value left = left_.eval(sc, state).toValue;
 	    PointerType ptrTy = cast(PointerType) left.type.underlyingType;
 	    if (!ptrTy)
 		return super.eval(sc, state);
 
-	    Value right = right_.eval(sc, state);
+	    Value right = right_.eval(sc, state).toValue;
 	    if (!right.type.isIntegerType)
 		throw new Exception("Pointer arithmetic with non-integer");
 
@@ -1431,7 +1609,7 @@ class AddExpr: IntegerBinaryExpr!("+", "add")
 	    ubyte[] val;
 	    val.length = ptrTy.byteWidth;
 	    writeInteger(ptr, val);
-	    return Value(new ConstantLocation(val), ptrTy);
+	    return new Value(new ConstantLocation(val), ptrTy);
 	}
     }
 }
@@ -1443,14 +1621,14 @@ class SubtractExpr: IntegerBinaryExpr!("-", "add")
 	super(lang, l, r);
     }
     override {
-	Value eval(Scope sc, MachineState state)
+	DebugItem eval(Scope sc, MachineState state)
 	{
-	    Value left = left_.eval(sc, state);
+	    Value left = left_.eval(sc, state).toValue;
 	    PointerType ptrTy = cast(PointerType) left.type.underlyingType;
 	    if (!ptrTy)
 		return super.eval(sc, state);
 
-	    Value right = right_.eval(sc, state);
+	    Value right = right_.eval(sc, state).toValue;
 	    PointerType rptrTy = cast(PointerType) right.type.underlyingType;
 	    if (!rptrTy && !right.type.isIntegerType)
 		throw new Exception("Pointer arithmetic with non-integer or non-pointer");
@@ -1464,14 +1642,14 @@ class SubtractExpr: IntegerBinaryExpr!("-", "add")
 		ubyte[] val;
 		val.length = ptrTy.byteWidth;
 		writeInteger(diff, val);
-		return Value(new ConstantLocation(val),
+		return new Value(new ConstantLocation(val),
 			     new IntegerType(lang_, "int", true, ptrTy.byteWidth));
 	    } else {
 		ulong ptr = lval - rval * ptrTy.baseType.byteWidth;
 		ubyte[] val;
 		val.length = ptrTy.byteWidth;
 		writeInteger(ptr, val);
-		return Value(new ConstantLocation(val), ptrTy);
+		return new Value(new ConstantLocation(val), ptrTy);
 	    }
 	}
     }
@@ -1490,9 +1668,9 @@ class IndexExpr: ExprBase
 	{
 	    return base_.toString ~ "[" ~ index_.toString ~ "]";
 	}
-	Value eval(Scope sc, MachineState state)
+	DebugItem eval(Scope sc, MachineState state)
 	{
-	    Value base = base_.eval(sc, state);
+	    Value base = base_.eval(sc, state).toValue;
 
 	    ArrayType aTy = cast(ArrayType) base.type.underlyingType;
 	    DArrayType daTy = cast(DArrayType) base.type.underlyingType;
@@ -1536,7 +1714,7 @@ class IndexExpr: ExprBase
 		throw new Exception("Expected array or pointer for index expression");
 	    }
 
-	    Value index = index_.eval(sc, state);
+	    Value index = index_.eval(sc, state).toValue;
 	    IntegerType intTy = cast(IntegerType) index.type.underlyingType;
 	    if (!index.type.isIntegerType) {
 		throw new Exception("Expected integer for index expression");
@@ -1551,7 +1729,7 @@ class IndexExpr: ExprBase
 		+ i * elementType.byteWidth, 
 		elementType.byteWidth);
 
-	    return Value(elementLoc, elementType);
+	    return new Value(elementLoc, elementType);
 	}
     }
 private:
@@ -1572,9 +1750,9 @@ class MemberExpr: ExprBase
 	{
 	    return base_.toString ~ "." ~ member_;
 	}
-	Value eval(Scope sc, MachineState state)
+	DebugItem eval(Scope sc, MachineState state)
 	{
-	    Value base = base_.eval(sc, state);
+	    Value base = base_.eval(sc, state).toValue;
 	    CompoundType cTy = cast(CompoundType) base.type.underlyingType;
 	    if (!cTy)
 		throw new Exception("Not a compound type");
@@ -1600,9 +1778,9 @@ class PointsToExpr: ExprBase
 	{
 	    return base_.toString ~ "->" ~ member_;
 	}
-	Value eval(Scope sc, MachineState state)
+	DebugItem eval(Scope sc, MachineState state)
 	{
-	    Value base = base_.eval(sc, state);
+	    Value base = base_.eval(sc, state).toValue;
 	    PointerType ptrTy = cast(PointerType) base.type.underlyingType;
 	    if (!ptrTy)
 		throw new Exception("Not a pointer");
@@ -1636,9 +1814,9 @@ class IfElseExpr: ExprBase
 	    return cond_.toString ~ " ? " ~ trueExp_.toString
 		~ " : " ~ falseExp_.toString;
 	}
-	Value eval(Scope sc, MachineState state)
+	DebugItem eval(Scope sc, MachineState state)
 	{
-	    Value cond = cond_.eval(sc, state);
+	    Value cond = cond_.eval(sc, state).toValue;
 	    if (!cond.type.isIntegerType)
 		throw new Exception("Condition value is not an integer");
 	    if (readInteger(cond.loc.readValue(state)))
@@ -1653,76 +1831,92 @@ private:
     Expr falseExp_;
 }
 
-struct Value
+class Value: DebugItem
 {
-    Location loc;
-    Type type;
-
-    string toString(string fmt, MachineState state)
+    this(Location loc, Type type)
     {
-	if (!loc.valid(state))
-	    return "<invalid>";
-	return type.valueToString(fmt, state, loc);
-    }
-}
-
-struct Variable
-{
-    string name;
-    Value value;
-
-    string toString()
-    {
-	return value.type.toString ~ " " ~ name;
+	loc_ = loc;
+	type_ = type;
     }
 
-    string toString(string fmt, MachineState state)
+    Location loc()
     {
-	if (state)
-	    return toString ~ " = " ~ valueToString(fmt, state);
-	else
-	    return toString;
+	return loc_;
     }
 
-    string valueToString(string fmt, MachineState state)
+    Type type()
     {
-	return value.toString(fmt, state);
-    }
-}
-
-interface Scope
-{
-    string[] contents();
-    bool lookup(string, out Variable);
-}
-
-class UnionScope: Scope
-{
-    void addScope(Scope sc)
-    {
-	subScopes_ ~= sc;
+	return type_;
     }
 
     override {
-	string[] contents()
+	string toString()
 	{
-	    string[] res;
-	    foreach (sc; subScopes_)
-		res ~= sc.contents;
-	    return res;
+	    return toString(null, null);
 	}
-	bool lookup(string name, out Variable var)
+	string toString(string fmt, MachineState state)
 	{
-	    foreach (sc; subScopes_) {
-		if (sc.lookup(name, var))
-		    return true;
-	    }
-	    return false;
+	    if (!loc.valid(state))
+		return "<invalid>";
+	    return type.valueToString(fmt, state, loc);
+	}
+	Value toValue()
+	{
+	    return this;
 	}
     }
 
 private:
-    Scope[] subScopes_;
+    Location loc_;
+    Type type_;
+}
+
+class Variable: DebugItem
+{
+    this(string name, Value value)
+    {
+	name_ = name;
+	value_ = value;
+    }
+
+    string name()
+    {
+	return name_;
+    }
+
+    Value value()
+    {
+	return value_;
+    }
+
+
+    override {
+	string toString()
+	{
+	    return value.type.toString ~ " " ~ name;
+	}
+
+	string toString(string fmt, MachineState state)
+	{
+	    if (state)
+		return toString ~ " = " ~ valueToString(fmt, state);
+	    else
+		return toString;
+	}
+
+	Value toValue()
+	{
+	    return value_;
+	}
+    }
+
+    string valueToString(string fmt, MachineState state)
+    {
+	return value_.toString(fmt, state);
+    }
+private:
+    string name_;
+    Value value_;
 }
 
 class Function: DebugItem, Scope
@@ -1732,26 +1926,79 @@ class Function: DebugItem, Scope
 	name_ = name;
 	returnType_ = new VoidType(lang);
 	containingType_ = null;
+	lang_ = lang;
+	address_ = 0;
     }
 
-    string toString(string fmt, MachineState state)
-    {
-	string s;
-
-	s = returnType_.toString ~ " ";
-	if (containingType_)
-	    s ~= containingType_.toString ~ lang_.namespaceSeparator;
-	s ~= std.string.format("%s(", name_);
-	bool first = true;
-	foreach (a; arguments_) {
-	    if (!first) {
-		s ~= std.string.format(", ");
-	    }
-	    first = false;
-	    s ~= std.string.format("%s", a.toString(fmt, state));
+    override {
+	string toString()
+	{
+	    return toString(null, null);
 	}
-	s ~= "): ";
-	return s;
+	string toString(string fmt, MachineState state)
+	{
+	    string s;
+
+	    s = returnType_.toString ~ " ";
+	    if (containingType_)
+		s ~= containingType_.toString ~ lang_.namespaceSeparator;
+	    s ~= std.string.format("%s(", name_);
+	    bool first = true;
+	    foreach (a; arguments_) {
+		if (!first) {
+		    s ~= std.string.format(", ");
+		}
+		first = false;
+		s ~= std.string.format("%s", a.toString(fmt, state));
+	    }
+	    if (varargs_) {
+		if (arguments_.length > 0)
+		    s ~= ", ";
+		s ~= "...";
+	    }
+	    s ~= ")";
+	    return s;
+	}
+	Value toValue()
+	{
+	    FunctionType ft = new FunctionType(lang_);
+	    ft.returnType(returnType_);
+	    foreach (a; arguments_)
+		ft.addArgumentType(a.value.type);
+	    ft.varargs(varargs_);
+	    Type pt = ft.pointerType(4);
+
+	    ubyte[4] ptrVal;	// XXX pointerWidth
+	    writeInteger(address_, ptrVal);
+	    return new Value(new ConstantLocation(ptrVal), pt);
+	}
+	string[] contents()
+	{
+	    string[] res;
+	    foreach (v; arguments_ ~ variables_)
+		res ~= v.name;
+	    return res;
+	}
+	bool lookup(string name, out DebugItem val)
+	{
+	    foreach (v; arguments_ ~ variables_) {
+		if (name == v.name) {
+		    val = v.value;
+		    return true;
+		}
+	    }
+	    return false;
+	}
+    }
+
+    void varargs(bool v)
+    {
+	varargs_ = v;
+    }
+
+    bool varargs()
+    {
+	return varargs_;
     }
 
     void addArgument(Variable var)
@@ -1808,39 +2055,31 @@ class Function: DebugItem, Scope
 	return variables_;
     }
 
-    override {
-	string[] contents()
-	{
-	    string[] res;
-	    foreach (v; arguments_ ~ variables_)
-		res ~= v.name;
-	    return res;
-	}
-	bool lookup(string name, out Variable var)
-	{
-	    foreach (v; arguments_ ~ variables_) {
-		if (name == v.name) {
-		    var = v;
-		    return true;
-		}
-	    }
-	    return false;
-	}
+    ulong address()
+    {
+	return address_;
+    }
+
+    void address(ulong address)
+    {
+	address_ = address;
     }
 
     string name_;
     Language lang_;
+    bool varargs_;
     Type returnType_;
     Type containingType_;
     Variable[] arguments_;
     Variable[] variables_;
+    ulong address_;
 }
 
 /**
  * We use this interface to work with debug info for a particular
  * module.
  */
-interface DebugInfo
+interface DebugInfo: Scope
 {
     /**
      * Return a Language object that matches the compilation unit

@@ -257,7 +257,7 @@ class X86State: MachineState
 	    return X86RegNames[];
 	}
 
-	bool lookup(string reg, out Variable var)
+	bool lookup(string reg, out DebugItem val)
 	{
 	    foreach (i, s; X86RegNames) {
 		if (s == reg) {
@@ -265,8 +265,7 @@ class X86State: MachineState
 		    Type ty =
 			new IntegerType(new CLikeLanguage,
 					"uint32_t", false, grWidth(i));
-		    var.name = reg;
-		    var.value = Value(loc, ty);
+		    val = new Value(loc, ty);
 		    return true;
 		}
 	    }

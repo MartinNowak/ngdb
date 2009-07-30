@@ -943,6 +943,34 @@ class DwarfFile: public DebugInfo
 
     // DebugInfo compliance
     override {
+	string[] contents()
+	{
+	    string[] res;
+	    foreach (ns; pubnames_) {
+		if (ns.cuOffset in compilationUnits_) {
+		    res ~= ns.names.keys;
+		}
+	    }
+	    return res;
+	}
+	bool lookup(string name, out DebugItem val)
+	{
+	    foreach (ns; pubnames_) {
+		if (ns.cuOffset in compilationUnits_) {
+		    CompilationUnit cu = compilationUnits_[ns.cuOffset];
+		    if (name in ns.names) {
+			cu.loadDIE;
+			foreach (dieOff; ns.names[name]) {
+			    DIE die = cu.dieMap[dieOff];
+			    val = die.debugItem;
+			    if (val)
+				return true;
+			}
+		    }
+		}
+	    }
+	    return false;
+	}
 	Language findLanguage(ulong address)
 	{
 	    CompilationUnit cu;
@@ -1054,7 +1082,8 @@ class DwarfFile: public DebugInfo
 			    DIE die = cu.dieMap[dieOff];
 			    if (die.tag == DW_TAG_subprogram) {
 				LineEntry[] le;
-				auto lpc = die.attrs[DW_AT_low_pc].ul;
+				Function f = cast(Function) die.debugItem;
+				auto lpc = f.address;
 				if (findLineByAddress(lpc, le))
 				    res ~= le[1];
 			    }
@@ -1113,25 +1142,8 @@ class DwarfFile: public DebugInfo
 	{
 	    CompilationUnit cu;
 	    DIE func;
-	    if (findSubprogram(pc, cu, func)) {
-		if (func.item)
-		    return cast(Function) func.item;
-
-		auto lang = cu.lang;
-		Function f = new Function(func.name, lang);
-		auto rt = func[DW_AT_type];
-		if (rt)
-		    f.returnType = cu[rt].toType;
-		f.containingType = func.containingType;
-		foreach (v; findVars(cu, func, DW_TAG_formal_parameter)) {
-		    f.addArgument(v);
-		}
-		foreach (v; findVars(cu, func, DW_TAG_variable)) {
-		    f.addVariable(v);
-		}
-		func.item = f;
-		return f;
-	    }
+	    if (findSubprogram(pc, cu, func))
+		return cast(Function) func.debugItem;
 	    return null;
 	}
 
@@ -1243,28 +1255,6 @@ private:
 	cu.die = new DIE(cu, null, base, p, abbrevCode,
 			 abbrevTable, addrlen, strtab_);
 	cu.dieMap[off] = cu.die;
-
-	auto  lang = cu.die[DW_AT_language];
-	if (!lang) {
-	    cu.lang = new CLikeLanguage;
-	} else {
-	    switch (lang.ul) {
-	    case DW_LANG_C:
-	    case DW_LANG_C89:
-	    case DW_LANG_C99:
-	    default:
-		cu.lang = new CLikeLanguage;
-		break;
-
-	    case DW_LANG_C_plus_plus:
-		cu.lang = new CPlusPlusLanguage;
-		break;
-
-	    case DW_LANG_D:
-		cu.lang = new DLanguage;
-		break;
-	    }
-	}
     }
 
     void parseLineTable(ref char* p, bool delegate(LineEntry*) dg)
@@ -1560,29 +1550,6 @@ private:
 	return false;
     }
 
-    Variable[] findVars(CompilationUnit cu, DIE func, int tag)
-    {
-	Variable[] vars;
-	Variable var;
-	Expr e;
-	foreach (die; func.children) {
-	    if (die.tag != tag)
-		continue;
-
-	    auto n = die[DW_AT_name];
-	    auto t = die[DW_AT_type];
-	    auto l = die[DW_AT_location];
-	    if (n && t && l) {
-		var.name = n.toString;
-		var.value.type = cu[t].toType;
-		var.value.loc = new DwarfLocation(cu, l,
-		    var.value.type.byteWidth);
-		vars ~= var;
-	    }
-	}
-	return vars;
-    }
-
     Objfile obj_;
     char[] debugSections_[string];
     char[] strtab_;
@@ -1605,6 +1572,8 @@ class DwarfLocation: Location
     override {
 	bool valid(MachineState state)
 	{
+	    if (!state)
+		return false;
 	    Location loc;
 	    return av_.evalLocation(cu_, state, length_, loc);
 	}
@@ -2424,7 +2393,7 @@ class DIE
     AttributeValue attrs[int];
     DIE[] children;
     AddressRange[] addresses; // set of address ranges for this DIE
-    DebugItem item;
+    DebugItem debugItem_;
 
     this(CompilationUnit cu, DIE parent, char* base, ref char* diep,
 	 uint abbrevCode, char*[int] abbrevTable,
@@ -2561,16 +2530,25 @@ class DIE
 	    return "<unknown>";
     }
 
-    Type toTypeHard()
+    DebugItem debugItem()
     {
-	auto t = this[DW_AT_type];
-	Type subType = null;
-	auto lang = cu_.lang;
+	if (debugItem_)
+	    return debugItem_;
 
+	auto lang = cu_.lang;
+	auto t = this[DW_AT_type];
+	Type ty = null;
 	if (t)
-	    subType = cu_[t].toType;
-	else
-	    subType = new VoidType(lang);
+	    ty = cu_[t].toType;
+
+	Type subType()
+	{
+	    if (ty)
+		return ty;
+	    return new VoidType(lang);
+	}
+
+	AttributeValue l;
 
 	switch (tag) {
 	case DW_TAG_base_type:
@@ -2628,12 +2606,15 @@ class DIE
 	    return new ModifierType(lang, name, "volatile", subType);
 
 	case DW_TAG_structure_type:
+	case DW_TAG_class_type:
 	case DW_TAG_union_type:
 	{
 	    ulong sz = this[DW_AT_byte_size] ? this[DW_AT_byte_size].ul: 0;
 	    string kind;
 	    if (tag == DW_TAG_structure_type)
 		kind = "struct";
+	    else if (tag == DW_TAG_class_type)
+		kind = "class";
 	    else
 		kind = "union";
 	    CompoundType ct = new CompoundType(lang, kind, name, sz);
@@ -2642,21 +2623,12 @@ class DIE
 	     * Set our memoized type so that we can avoid recursion
 	     * when structures reference each other.
 	     */
-	    item = ct;
+	    debugItem_ = ct;
 	    foreach (elem; children) {
-		if (elem.tag == DW_TAG_member) {
-		    auto at = elem[DW_AT_type];
-		    if (at) {
-			Type type = cu_[at].toType;
-			auto mloc = elem[DW_AT_data_member_location];
-			Location loc;
-			if (mloc)
-			    loc = new DwarfLocation(cu_, mloc, type.byteWidth);
-			else
-			    loc = new FirstFieldLocation(type.byteWidth);
-			ct.addField(elem[DW_AT_name].toString, type, loc);
-		    }
-		}
+		if (elem.tag == DW_TAG_member)
+		    ct.addField(cast(Variable) elem.debugItem);
+		else if (elem.tag == DW_TAG_subprogram)
+		    ct.addFunction(cast(Function) elem.debugItem);
 	    }
 	    return ct;
 	}
@@ -2669,7 +2641,7 @@ class DIE
 	     * Set our memoized type so that we can avoid recursion
 	     * when structures reference each other.
 	     */
-	    item = at;
+	    debugItem_ = at;
 	    foreach (elem; children) {
 		if (elem.tag == DW_TAG_subrange_type) {
 		    uint lb, ub, count;
@@ -2696,17 +2668,89 @@ class DIE
 	case DW_TAG_typedef:
 	    return new TypedefType(lang, name, subType);
 
+	case DW_TAG_formal_parameter:
+	case DW_TAG_variable:
+	    l = this[DW_AT_location];
+	    Location loc;
+	    if (l)
+		loc = new DwarfLocation(cu_, l, ty.byteWidth);
+	    else
+		loc = new NoLocation;
+	    Value val = new Value(loc, ty);
+	    debugItem_ = new Variable(name, val);
+	    break;
+
+	case DW_TAG_member:
+	    l = this[DW_AT_data_member_location];
+	    Location loc;
+	    if (l)
+		loc = new DwarfLocation(cu_, l, ty.byteWidth);
+	    else
+		loc = new FirstFieldLocation(ty.byteWidth);
+	    Value val = new Value(loc, ty);
+	    debugItem_ = new Variable(name, val);
+	    break;
+
+	case DW_TAG_subroutine_type:
+	    auto ft = new FunctionType(lang);
+	    if (ty)
+		ft.returnType = ty;
+	    foreach (d; children) {
+		if (d.tag == DW_TAG_formal_parameter) {
+		    if (d[DW_AT_type])
+			ft.addArgumentType(cu_[d[DW_AT_type]].toType);
+		} else if (d.tag == DW_TAG_unspecified_parameters) {
+		    ft.varargs = true;
+		}
+	    }
+	    debugItem_ = ft;
+	    break;
+
+	case DW_TAG_subprogram:
+	    Function f = new Function(name, cu_.lang);
+	    if (ty)
+		f.returnType = ty;
+	    f.containingType = this.containingType;
+	    foreach (v; findVars(DW_TAG_formal_parameter)) {
+		f.addArgument(v);
+	    }
+	    foreach (v; findVars(DW_TAG_variable)) {
+		f.addVariable(v);
+	    }
+	    foreach (d; children)
+		if (d.tag == DW_TAG_unspecified_parameters)
+		    f.varargs = true;
+	    if (this[DW_AT_entry_pc])
+		f.address = this[DW_AT_entry_pc].ul;
+	    else if (this[DW_AT_low_pc])
+		f.address = this[DW_AT_low_pc].ul;
+	    debugItem_ = f;
+	    break;
+
 	default:
-	    return new VoidType(lang);
+	    writefln("Unsupported Dwarf tag %s", tagNames[tag]);
+	    debugItem_ = new VoidType(lang); // XXX not really what is needed
 	}
+	return debugItem_;
+    }
+
+    Variable[] findVars(int tag)
+    {
+	Variable[] vars;
+	Variable var;
+	foreach (die; children) {
+	    if (die.tag != tag)
+		continue;
+	    var = cast(Variable) die.debugItem;
+	    if (var)
+		vars ~= var;
+	}
+	return vars;
     }
 
     Type toType()
     {
-	if (!item)
-	    item = toTypeHard;
-
-	return cast(Type) item;
+	return cast(Type) debugItem;
     }
 
     void print(int indent)
@@ -2730,6 +2774,34 @@ class CompilationUnit
     this(DwarfFile df)
     {
 	parent = df;
+    }
+
+    Language lang()
+    {
+	if (lang_)
+	    return lang_;
+	auto l = die[DW_AT_language];
+	if (!l) {
+	    lang_ = new CLikeLanguage;
+	} else {
+	    switch (l.ul) {
+	    case DW_LANG_C:
+	    case DW_LANG_C89:
+	    case DW_LANG_C99:
+	    default:
+		lang_ = new CLikeLanguage;
+		break;
+
+	    case DW_LANG_C_plus_plus:
+		lang_ = new CPlusPlusLanguage;
+		break;
+
+	    case DW_LANG_D:
+		lang_ = new DLanguage;
+		break;
+	    }
+	}
+	return lang_;
     }
 
     bool contains(ulong pc)
@@ -2804,7 +2876,7 @@ class CompilationUnit
     AddressRange[] addresses; // set of address ranges for this CU
     DIE die;		// top-level DIE for this CU
     DIE[ulong] dieMap;	// map DIE offset to loaded DIE
-    Language lang;
+    Language lang_;
 }
 
 class CIE
