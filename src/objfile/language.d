@@ -871,7 +871,7 @@ class Lexer
 	    c = nextChar;
 	} while (isspace(c));
 	    
-	if (isalpha(c)) {
+	if (isalpha(c) || c == '_') {
 	    for (;;) {
 		if (next_ == source_.length)
 		    break;
@@ -945,11 +945,11 @@ class Lexer
 	    }
 
 	    /*
-	     * If nothing matches, the previous set should have
-	     * exactly one member with length equal to opindex - thats
-	     * our match.
+	     * If nothing matches and we have already matched at least
+	     * one character, the previous set should have exactly one
+	     * member with length equal to opindex - thats our match.
 	     */
-	    if (matchingToks.length == 0) {
+	    if (opindex > 0 && matchingToks.length == 0) {
 		foreach (t; toks) {
 		    if (opindex == t.length)
 			matchingToks ~= t;
