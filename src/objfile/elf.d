@@ -1097,14 +1097,18 @@ private:
 
     Symbol* _lookupSymbol(uintptr_t addr, Symbol[] syms)
     {
+	Symbol* best = null;
 	for (int i = 0; i < syms.length; i++) {
 	    Symbol* s = &syms[i];
 	    if (s.type != STT_FUNC)
 		continue;
 	    if (addr >= s.value && addr < s.value + s.size)
 		return s;
+	    if (addr >= s.value
+		&& (!best || addr - s.value < addr - best.value))
+		best = s;
 	}
-	return null;
+	return best;
     }
 
     Symbol* _lookupSymbol(string name, Symbol[] syms)
