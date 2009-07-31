@@ -141,6 +141,7 @@ interface TargetModule
 enum TargetState {
     STOPPED,
     RUNNING,
+    EXIT
 }
 
 /**
