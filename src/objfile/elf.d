@@ -56,6 +56,7 @@ version (GDC)
 import std.c.unix.unix;
 else
 import std.c.freebsd.freebsd;
+import std.c.string;
 
 import objfile.objfile;
 
@@ -934,6 +935,10 @@ class Elffile: Objfile
     abstract bool hasSection(string name);
 
     abstract char[] readSection(string name);
+
+    abstract void enumerateProgramHeaders(void delegate(ulong, ulong) dg);
+
+    abstract ubyte[] readProgram(ulong addr, size_t len);
 }
 
 template ElfFileBase()
@@ -1051,6 +1056,43 @@ template ElfFileBase()
 	if (i < 0)
 	    throw new Exception("no such section");
 	return readSection(i);
+    }
+
+    void enumerateProgramHeaders(void delegate(ulong, ulong) dg)
+    {
+	foreach (ph; ph_) {
+	    if (ph.p_type == PT_LOAD)
+		dg(ph.p_vaddr, ph.p_vaddr + ph.p_memsz);
+	}
+    }
+
+    ubyte[] readProgram(ulong addr, size_t len)
+    {
+	ubyte[] res;
+	res.length = len;
+	memset(&res[0], 0, len);
+
+	ulong sa = addr;
+	ulong ea = addr + len;
+	foreach (ph; ph_) {
+	    if (ph.p_type == PT_LOAD) {
+		ulong psa = ph.p_vaddr;
+		ulong pea = ph.p_vaddr + ph.p_filesz;
+		if (ea > psa && sa < pea) {
+		    /*
+		     * Some bytes are in this section.
+		     */
+		    ulong s = psa;
+		    if (sa > s) s = sa;
+		    ulong e = pea;
+		    if (ea < e) e = ea;
+		    if (pread(fd_, &res[s - sa], e - s,
+			ph.p_offset + s - psa) != e - s)
+			throw new Exception("Can't read from file");
+		}
+	    }
+	}
+	return res;
     }
 
 private:
