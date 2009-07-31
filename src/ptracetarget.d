@@ -655,6 +655,7 @@ private:
 
     void stopped()
     {
+	bool checkBreakpoints = breakpointsActive_;
 	if (breakpointsActive_) {
 	    foreach (pbp; breakpoints_)
 		pbp.deactivate();
@@ -673,15 +674,17 @@ private:
 	 * Figure out if any threads hit a breakpoint and if so, back
 	 * them up and inform the listener.
 	 */
-	foreach (t; threads_) {
-	    foreach (pbp; breakpoints_.values) {
-		if (t.state.pc == pbp.address + 1) {
-		    t.pc = pbp.address;
-		    foreach (id; pbp.ids) {
-			debug(breakpoints)
-			    writefln("hit breakpoint at 0x%x for 0x%x",
-				     t.state.pc, id);
-			listener_.onBreakpoint(this, t, id);
+	if (checkBreakpoints) {
+	    foreach (t; threads_) {
+		foreach (pbp; breakpoints_.values) {
+		    if (t.state.pc == pbp.address + 1) {
+			t.pc = pbp.address;
+			foreach (id; pbp.ids) {
+			    debug(breakpoints)
+				writefln("hit breakpoint at 0x%x for 0x%x",
+					 t.state.pc, id);
+			    listener_.onBreakpoint(this, t, id);
+			}
 		    }
 		}
 	    }
