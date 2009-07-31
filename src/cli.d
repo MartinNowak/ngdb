@@ -223,15 +223,20 @@ private class Breakpoint
 
     void disable()
     {
-	db_.target_.clearBreakpoint(cast(void*) this);
-	enabled_ = false;
+	if (enabled_) {
+	    if (addresses_.length > 0)
+		db_.target_.clearBreakpoint(cast(void*) this);
+	    enabled_ = false;
+	}
     }
 
     void enable()
     {
-	foreach (address; addresses_)
-	    db_.target_.setBreakpoint(address, cast(void*) this);
-	enabled_ = true;
+	if (!enabled_) {
+	    foreach (address; addresses_)
+		db_.target_.setBreakpoint(address, cast(void*) this);
+	    enabled_ = true;
+	}
     }
 
     void onExit()
@@ -249,26 +254,30 @@ private class Breakpoint
 	return id_;
     }
 
+    bool enabled()
+    {
+	return enabled_;
+    }
+
+    ulong[] addresses()
+    {
+	return addresses_;
+    }
+
+    string expr()
+    {
+	if (sf_)
+	    return format("%s:%d", sf_.filename, line_);
+	else
+	    return func_;
+    }
+
     bool matches(ulong pc)
     {
 	foreach (addr; addresses_)
 	    if (pc == addr)
 		return true;
 	return false;
-    }
-
-    string[] describe()
-    {
-	string[] res;
-	foreach (addr; addresses_)
-	    res ~= format("%#x: %s", addr, db_.describeAddress(addr, null));
-	if (res.length == 0) {
-	    if (sf_)
-		res ~= format("%s:%d", sf_.filename, line_);
-	    else
-		res ~= func_;
-	}
-	return res;
     }
 
     SourceFile sf_;
@@ -577,7 +586,7 @@ class Debugger: TargetListener
 		    s = func.toString(null, state) ~ ": ";
 		}
 
-		s ~= le[0].fullname ~ ":" ~ .toString(le[0].line);
+		s ~= le[0].name ~ ":" ~ .toString(le[0].line);
 		return s;
 	    }
 	}
@@ -818,6 +827,59 @@ class Debugger: TargetListener
 	stopped();
     }
 
+    void setBreakpoint(string bploc)
+    {
+	SourceFile sf;
+	string func;
+	uint line;
+	if (bploc) {
+	    string file;
+	    if (!parseSourceLine(bploc, sf, line))
+		func = bploc;
+	} else {
+	    sf = currentSourceFile_;
+	    line = currentSourceLine_;
+	    if (!sf) {
+		writefln("no current source file");
+		return;
+	    }
+	}
+	Breakpoint bp;
+	if (sf)
+	    bp = new Breakpoint(this, nextBPID_++, sf, line);
+	else
+	    bp = new Breakpoint(this, nextBPID_++, func);
+	breakpoints_ ~= bp;
+	if (target_)
+	    foreach (mod; modules_)
+		bp.activate(mod);
+    }
+
+    void enableBreakpoint(uint bpid)
+    {
+	foreach (bp; breakpoints_)
+	    if (bp.id == bpid)
+		bp.enable;
+    }
+
+    void disableBreakpoint(uint bpid)
+    {
+	foreach (bp; breakpoints_)
+	    if (bp.id == bpid)
+		bp.disable;
+    }
+
+    void deleteBreakpoint(uint bpid)
+    {
+	Breakpoint[] newBreakpoints;
+	foreach (bp; breakpoints_)
+	    if (bp.id == bpid)
+		bp.disable;
+	    else
+		newBreakpoints ~= bp;
+	breakpoints_ = newBreakpoints;
+    }
+
     Frame currentFrame()
     {
 	if (frames_.length > currentFrame_)
@@ -832,6 +894,19 @@ class Debugger: TargetListener
 	return null;
     }
 
+    bool findDebugInfo(MachineState s, out DebugInfo di)
+    {
+	Location loc;
+	foreach (mod; modules_) {
+	    di = mod.debugInfo;
+	    if (di && di.findFrameBase(s, loc)) {
+		di = mod.debugInfo;
+		return true;
+	    }
+	}
+	return false;
+    }
+
     static void registerCommand(Command c)
     {
 	if (!commands_)
@@ -844,19 +919,6 @@ class Debugger: TargetListener
 	if (!infoCommands_)
 	    infoCommands_ = new CommandTable;
 	infoCommands_.add(c);
-    }
-
-    bool findDebugInfo(MachineState s, out DebugInfo di)
-    {
-	Location loc;
-	foreach (mod; modules_) {
-	    di = mod.debugInfo;
-	    if (di && di.findFrameBase(s, loc)) {
-		di = mod.debugInfo;
-		return true;
-	    }
-	}
-	return false;
     }
 
     override
@@ -904,7 +966,7 @@ class Debugger: TargetListener
 	    } else {
 		foreach (i, bp; breakpoints_) {
 		    if (id == cast(void*) bp) {
-			writefln("Breakpoint %d, %s", i + 1, describeAddress(t.state.pc, t.state));
+			writefl("Breakpoint %d, %s", i + 1, describeAddress(t.state.pc, t.state));
 		    }
 		}
 	    }
@@ -1301,30 +1363,111 @@ class BreakCommand: Command
 		writefln("usage: break [<function or line>]");
 		return;
 	    }
-	    SourceFile sf;
-	    string func;
-	    uint line;
-	    if (args.length == 2) {
-		string file;
-		if (!db.parseSourceLine(args[1], sf, line))
-		    func = args[1];
-	    } else {
-		sf = db.currentSourceFile_;
-		line = db.currentSourceLine_;
-		if (!sf) {
-		    writefln("no current source file");
-		    return;
-		}
+	    db.setBreakpoint(args.length == 2 ? args[1] : null);
+	}
+    }
+}
+
+class EnableCommand: Command
+{
+    static this()
+    {
+	Debugger.registerCommand(new EnableCommand);
+    }
+
+    override {
+	string name()
+	{
+	    return "enable";
+	}
+
+	string description()
+	{
+	    return "Enable a breakpoint";
+	}
+
+	void run(Debugger db, string, string[] args)
+	{
+	    if (args.length != 2) {
+		writefln("usage: enable <id>");
+		return;
 	    }
-	    Breakpoint bp;
-	    if (sf)
-		bp = new Breakpoint(db, db.nextBPID_++, sf, line);
-	    else
-		bp = new Breakpoint(db, db.nextBPID_++, func);
-	    db.breakpoints_ ~= bp;
-	    if (db.target_)
-		foreach (mod; db.modules_)
-		    bp.activate(mod);
+	    try {
+		db.enableBreakpoint(toUint(args[1]));
+	    } catch (ConvError ce) {
+		writefln("Can't parse breakpoint ID");
+	    }
+	}
+    }
+}
+
+class DisableCommand: Command
+{
+    static this()
+    {
+	Debugger.registerCommand(new DisableCommand);
+    }
+
+    override {
+	string name()
+	{
+	    return "disable";
+	}
+
+	string description()
+	{
+	    return "Disable a breakpoint";
+	}
+
+	void run(Debugger db, string, string[] args)
+	{
+	    if (args.length != 2) {
+		writefln("usage: disable <id>");
+		return;
+	    }
+	    try {
+		db.disableBreakpoint(toUint(args[1]));
+	    } catch (ConvError ce) {
+		writefln("Can't parse breakpoint ID");
+	    }
+	}
+    }
+}
+
+class DeleteCommand: Command
+{
+    static this()
+    {
+	Debugger.registerCommand(new DeleteCommand);
+    }
+
+    override {
+	string name()
+	{
+	    return "delete";
+	}
+
+	string shortName()
+	{
+	    return "d";
+	}
+
+	string description()
+	{
+	    return "Delete a breakpoint";
+	}
+
+	void run(Debugger db, string, string[] args)
+	{
+	    if (args.length != 2) {
+		writefln("usage: delete <id>");
+		return;
+	    }
+	    try {
+		db.deleteBreakpoint(toUint(args[1]));
+	    } catch (ConvError ce) {
+		writefln("Can't parse breakpoint ID");
+	    }
 	}
     }
 }
@@ -1349,21 +1492,30 @@ class InfoBreakCommand: Command
 
 	void run(Debugger db, string, string[] args)
 	{
+	    if (db.breakpoints_.length == 0) {
+		writefln("No breakpoints");
+		return;
+	    }
+	    writefln("%-3s %-3s %-18s %s",
+		     "Id", "Enb", "Address", "Where");
 	    foreach (b; db.breakpoints_) {
-		string[] desc = b.describe;
-		bool first = true;
-		foreach (s; desc) {
-		    if (first)
-			writef("%d:\t", b.id);
-		    else
-			writef("\n\t");
-		    first = false;
-		    writef("%s", s);
+		ulong[] addrs = b.addresses;
+			
+		if (addrs.length > 0) {
+		    bool first = true;
+		    foreach (addr; addrs) {
+			if (first)
+			    writef("%-3d %-3s %#-18x ",
+				   b.id, b.enabled ? "y" : "n", addr);
+			else
+			    writef("        %#-18x ", addr);
+			first = false;
+			writefln("%s", db.describeAddress(addr, null));
+		    }
+		} else {
+		    writefln("%-3d %-3s %-18s %s",
+			     b.id,  b.enabled ? "y" : "n", " ", b.expr);
 		}
-		if (b.active)
-		    writefln(" (active)");
-		else
-		    writefln(" (inactive)");
 	    }
 	}
     }
