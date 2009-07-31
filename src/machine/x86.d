@@ -259,18 +259,25 @@ class X86State: MachineState
 
 	bool lookup(string reg, out DebugItem val)
 	{
+	    if (reg.length > 0 && reg[0] == '$')
+		reg = reg[1..$];
+	    if (reg == "pc") reg = "eip";
 	    foreach (i, s; X86RegNames) {
 		if (s == reg) {
-		    Location loc = new RegisterLocation(i, grWidth(i));
-		    Type ty =
-			new IntegerType(new CLikeLanguage,
-					"uint32_t", false, grWidth(i));
-		    val = new Value(loc, ty);
+		    val = regAsValue(i);
 		    return true;
 		}
 	    }
 	    return false;
 	}
+    }
+
+    Value regAsValue(uint i)
+    {
+	auto loc = new RegisterLocation(i, grWidth(i));
+	auto ty = new IntegerType(new CLikeLanguage,
+			    	   "uint32_t", false, grWidth(i));
+	return new Value(loc, ty);
     }
 
     int nameToGRegno(string regname)
