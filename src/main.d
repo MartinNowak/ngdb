@@ -41,8 +41,8 @@ main(char[][] args)
     }
 
     cli.Debugger cli = new cli.Debugger(args[1]);
-    if (getBaseName(args[1]) == "qdebug")
-	cli.prompt = "(topdebug)";
+    if (getBaseName(args[1]) == "ngdb")
+	cli.prompt = "(topdb)";
 
     cli.run();
     return 0;

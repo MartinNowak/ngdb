@@ -352,13 +352,13 @@ class Debugger: TargetListener
     this(string prog)
     {
 	prog_ = prog;
-	prompt_ = "(qdebug)";
+	prompt_ = "(ngdb)";
 
 	HistEvent ev;
 	hist_ = history_init();
 	history(hist_, &ev, H_SETSIZE, 100);
 
-	el_ = el_init(toStringz("qdebug"), stdin, stdout, stderr);
+	el_ = el_init(toStringz("ngdb"), stdin, stdout, stderr);
 	el_set(el_, EL_EDITOR, toStringz("emacs"));
 	el_set(el_, EL_SIGNAL, 1);
 	el_set(el_, EL_PROMPT, &el_prompt);
