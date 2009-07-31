@@ -1041,13 +1041,10 @@ class DwarfFile: public DebugInfo
 		return false;
 	    }
 
-	    foreach (cu; compilationUnits_) {
-		cu.loadDIE;
-		uint lineOffset = cu.die.attrs[DW_AT_stmt_list].ul;
-		char[] lines = debugSection(".debug_line");
-		char* p = &lines[lineOffset];
+	    char[] lines = debugSection(".debug_line");
+	    char* p = &lines[0], pEnd = p + lines.length;
+	    while (p < pEnd)
 		parseLineTable(p, &processEntry);
-	    }
 	    return found;
 	}
 
@@ -1085,7 +1082,7 @@ class DwarfFile: public DebugInfo
 				Function f = cast(Function) die.debugItem;
 				auto lpc = f.address;
 				if (findLineByAddress(lpc, le))
-				    res ~= le[1];
+				    res ~= le[0];
 			    }
 			}
 		    }
@@ -2488,6 +2485,7 @@ class DIE
 	    for (int i = 0; i < addresses.length; i++)
 		if (addresses[i].contains(pc))
 		    return true;
+	    return false;
 	} else {
 	    if (this[DW_AT_low_pc]
 		&& this[DW_AT_high_pc]) {
@@ -2683,12 +2681,14 @@ class DIE
 	case DW_TAG_member:
 	    l = this[DW_AT_data_member_location];
 	    Location loc;
-	    if (l)
-		loc = new DwarfLocation(cu_, l, ty.byteWidth);
-	    else
-		loc = new FirstFieldLocation(ty.byteWidth);
-	    Value val = new Value(loc, ty);
-	    debugItem_ = new Variable(name, val);
+	    if (ty) {
+		if (l)
+		    loc = new DwarfLocation(cu_, l, ty.byteWidth);
+		else
+		    loc = new FirstFieldLocation(ty.byteWidth);
+		Value val = new Value(loc, ty);
+		debugItem_ = new Variable(name, val);
+	    }
 	    break;
 
 	case DW_TAG_subroutine_type:
