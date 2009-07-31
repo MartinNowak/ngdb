@@ -871,7 +871,7 @@ class Lexer
 	    c = nextChar;
 	} while (isspace(c));
 	    
-	if (isalpha(c) || c == '_') {
+	if (isalpha(c) || c == '_' || c == '$') {
 	    for (;;) {
 		if (next_ == source_.length)
 		    break;
