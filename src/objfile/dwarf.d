@@ -922,6 +922,7 @@ class DwarfFile: public DebugInfo
 	    auto len = parseInitialLength(p, is64);
 	    auto pNext = p + len;
 	    auto ver = parseUShort(p);
+	    parseOffset(p, is64);
 	    cu.addressSize = parseUByte(p);
 	    cu.segmentSize = 0;
 	    if (!(cu.offset in compilationUnits_))
@@ -2776,6 +2777,27 @@ class CompilationUnit
 	parent = df;
     }
 
+    uint addressSize()
+    {
+	return addressSize_;
+    }
+
+    void addressSize(uint v)
+    {
+	assert(v == 4 || v == 8);
+	addressSize_ = v;
+    }
+
+    uint segmentSize()
+    {
+	return segmentSize_;
+    }
+
+    void segmentSize(uint v)
+    {
+	segmentSize_ = v;
+    }
+
     Language lang()
     {
 	if (lang_)
@@ -2870,12 +2892,12 @@ class CompilationUnit
 
     DwarfFile parent;
     ulong offset;		// Offset in .debug_info
-    bool is64;		// CU uses 64bit dwarf
-    uint addressSize;	// size in bytes of an address
-    uint segmentSize;	// size in bytes of a segment
-    AddressRange[] addresses; // set of address ranges for this CU
-    DIE die;		// top-level DIE for this CU
-    DIE[ulong] dieMap;	// map DIE offset to loaded DIE
+    bool is64;			// CU uses 64bit dwarf
+    uint addressSize_;		// size in bytes of an address
+    uint segmentSize_;		// size in bytes of a segment
+    AddressRange[] addresses;	// set of address ranges for this CU
+    DIE die;			// top-level DIE for this CU
+    DIE[ulong] dieMap;		// map DIE offset to loaded DIE
     Language lang_;
 }
 
