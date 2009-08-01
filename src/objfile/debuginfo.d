@@ -1921,13 +1921,14 @@ private:
 
 class Function: DebugItem, Scope
 {
-    this(string name, Language lang)
+    this(string name, Language lang, size_t byteWidth)
     {
 	name_ = name;
 	returnType_ = new VoidType(lang);
 	containingType_ = null;
 	lang_ = lang;
 	address_ = 0;
+	byteWidth_ = byteWidth;
     }
 
     override {
@@ -1966,9 +1967,10 @@ class Function: DebugItem, Scope
 	    foreach (a; arguments_)
 		ft.addArgumentType(a.value.type);
 	    ft.varargs(varargs_);
-	    Type pt = ft.pointerType(4);
+	    Type pt = ft.pointerType(byteWidth_);
 
-	    ubyte[4] ptrVal;	// XXX pointerWidth
+	    ubyte[] ptrVal;
+	    ptrVal.length = byteWidth_;
 	    writeInteger(address_, ptrVal);
 	    return new Value(new ConstantLocation(ptrVal), pt);
 	}
@@ -2073,6 +2075,7 @@ class Function: DebugItem, Scope
     Variable[] arguments_;
     Variable[] variables_;
     ulong address_;
+    size_t byteWidth_;
 }
 
 /**

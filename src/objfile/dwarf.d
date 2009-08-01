@@ -889,7 +889,7 @@ class DwarfFile: public DebugInfo
 
 		// Undocumented: need to align to next multiple of
 		// 2 * address size
-		ulong a = is64 ? 16 : 8;
+		ulong a = cu.addressSize * 2;
 		if ((p - &aranges[0]) % a) {
 		    p += a - ((p - &aranges[0]) % a);
 		}
@@ -1691,7 +1691,7 @@ struct Expr
     char* evalExpr(CompilationUnit cu, MachineState state, ref ValueStack stack)
     {
 	long v, v1;
-	int addrlen = is64 ? 8 : 4;
+	int addrlen = cu.addressSize;
 	ubyte[] t;
 	char* pp;
 
@@ -2584,7 +2584,7 @@ class DIE
 	    }
 
 	case DW_TAG_pointer_type:
-	    return subType.pointerType(is64 ? 8 : 4);
+	    return subType.pointerType(cu_.addressSize);
 
 	case DW_TAG_const_type:
 	    return new ModifierType(lang, name, "const", subType);
@@ -2593,7 +2593,7 @@ class DIE
 	    return new ModifierType(lang, name, "packed", subType);
 
 	case DW_TAG_reference_type:
-	    return new ReferenceType(lang, name, subType, is64 ? 8 : 4);
+	    return new ReferenceType(lang, name, subType, cu_.addressSize);
 
 	case DW_TAG_restrict_type:
 	    return new ModifierType(lang, name, "restrict", subType);
@@ -2708,7 +2708,7 @@ class DIE
 	    break;
 
 	case DW_TAG_subprogram:
-	    Function f = new Function(name, cu_.lang);
+	    Function f = new Function(name, cu_.lang, cu_.addressSize);
 	    if (ty)
 		f.returnType = ty;
 	    f.containingType = this.containingType;
