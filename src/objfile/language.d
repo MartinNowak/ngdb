@@ -180,7 +180,7 @@ class CLikeLanguage: Language
 	for (uint i = tok.start; i < tok.end; i++)
 	    writef("^");
 	writefln("");
-	throw new Exception(format("Unexpected token '%s'", tok.value));
+	throw new EvalException(format("Unexpected token '%s'", tok.value));
 	return null;
     }
     Expr expr(Lexer lex)

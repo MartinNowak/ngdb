@@ -2074,7 +2074,7 @@ class PrintCommand: Command
 		auto v = e.eval(sc, s).toValue(s);
 		db.pagefln("$%s = (%s) %s", db.valueHistory_.length, v.type.toString, v.toString(fmt, s));
 		db.valueHistory_ ~= v;
-	    } catch (Exception ex) {
+	    } catch (EvalException ex) {
 		db.pagefln("%s", ex.msg);
 	    }
 	}
@@ -2164,7 +2164,7 @@ class ExamineCommand: Command
 		    auto e = lang.parseExpr(expr);
 		    auto v = e.eval(sc, s).toValue(s);
 		    addr = s.readInteger(v.loc.readValue(s));
-		} catch (Exception ex) {
+		} catch (EvalException ex) {
 		    db.pagefln("%s", ex.msg);
 		    return;
 		}

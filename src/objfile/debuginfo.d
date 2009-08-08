@@ -73,6 +73,14 @@ interface Type: DebugItem
     bool isIntegerType();
 }
 
+class EvalException: Exception
+{
+    this(string s)
+    {
+	super(s);
+    }
+}
+
 class TypeBase: Type
 {
     this(Language lang)
@@ -89,7 +97,7 @@ class TypeBase: Type
     }
     Value toValue(MachineState)
     {
-	throw new Exception(format("%s is not a value", toString));
+	throw new EvalException(format("%s is not a value", toString));
     }
     abstract string toString();
     abstract string valueToString(string, MachineState, Location);
@@ -594,7 +602,7 @@ class CompoundType: TypeBase
 		return new Value(v.loc.fieldLocation(loc, state), v.type);
 	    }
 	}
-	throw new Exception(format("Field %s not found", fieldName));
+	throw new EvalException(format("Field %s not found", fieldName));
     }
 
 private:
@@ -1221,7 +1229,7 @@ class VariableExpr: ExprBase
 	    DebugItem val;
 	    if (sc.lookup(name_, val))
 		return val;
-	    throw new Exception(format("Variable %s not found", name_));
+	    throw new EvalException(format("Variable %s not found", name_));
 	}
     }
 private:
@@ -1306,7 +1314,7 @@ class AddressOfExpr: UnaryExpr
 		return new Value(new ConstantLocation(val),
 			     expr.type.pointerType(state.pointerWidth));
 	    } else {
-		throw new Exception("Can't take the address of a value which is not in memory");
+		throw new EvalException("Can't take the address of a value which is not in memory");
 	    }
 	}
     }
@@ -1329,7 +1337,7 @@ class DereferenceExpr: UnaryExpr
 	    Value expr = expr_.eval(sc, state).toValue(state);
 	    PointerType ptrTy = cast(PointerType) expr.type.underlyingType;
 	    if (!ptrTy)
-		throw new Exception("Attempting to dereference a non-pointer");
+		throw new EvalException("Attempting to dereference a non-pointer");
 	    return ptrTy.dereference(state, expr.loc);
 	}
     }
@@ -1353,7 +1361,7 @@ template IntegerUnaryExpr(string op, string name)
 	    {
 		Value expr = expr_.eval(sc, state).toValue(state);
 		if (!expr.type.isIntegerType)
-		    throw new Exception(
+		    throw new EvalException(
 			format("Attempting to %s a value of type %s",
 			       name,
 			       expr.type.toString));
@@ -1511,7 +1519,7 @@ template IntegerBinaryExpr(string op, string name)
 	    {
 		Value left = left_.eval(sc, state).toValue(state);
 		if (!left.type.isIntegerType)
-		    throw new Exception(
+		    throw new EvalException(
 			format("Attempting to %s a value of type %s",
 			       name,
 			       left.type.toString));
@@ -1519,7 +1527,7 @@ template IntegerBinaryExpr(string op, string name)
 
 		Value right = right_.eval(sc, state).toValue(state);
 		if (!right.type.isIntegerType)
-		    throw new Exception(
+		    throw new EvalException(
 			format("Attempting to %s a value of type %s",
 			       name,
 			       right.type.toString));
@@ -1527,7 +1535,7 @@ template IntegerBinaryExpr(string op, string name)
 		
 		static if (op == "/" || op == "%") {
 		    if (!rval)
-			throw new Exception("Divide or remainder with zero");
+			throw new EvalException("Divide or remainder with zero");
 		}
 		
 		mixin("lval = lval " ~ op ~ "rval;");
@@ -1576,7 +1584,7 @@ class AddExpr: IntegerBinaryExpr!("+", "add")
 
 	    Value right = right_.eval(sc, state).toValue(state);
 	    if (!right.type.isIntegerType)
-		throw new Exception("Pointer arithmetic with non-integer");
+		throw new EvalException("Pointer arithmetic with non-integer");
 
 	    ulong ptr = state.readInteger(left.loc.readValue(state));
 	    ulong off = state.readInteger(right.loc.readValue(state));
@@ -1606,9 +1614,9 @@ class SubtractExpr: IntegerBinaryExpr!("-", "add")
 	    Value right = right_.eval(sc, state).toValue(state);
 	    PointerType rptrTy = cast(PointerType) right.type.underlyingType;
 	    if (!rptrTy && !right.type.isIntegerType)
-		throw new Exception("Pointer arithmetic with non-integer or non-pointer");
+		throw new EvalException("Pointer arithmetic with non-integer or non-pointer");
 	    if (rptrTy && rptrTy != ptrTy)
-		throw new Exception("Pointer arithmetic with differing pointer types");
+		throw new EvalException("Pointer arithmetic with differing pointer types");
 
 	    ulong lval = state.readInteger(left.loc.readValue(state));
 	    ulong rval  = state.readInteger(right.loc.readValue(state));
@@ -1686,17 +1694,17 @@ class IndexExpr: ExprBase
 		maxIndex = ~0;
 		baseLoc = new MemoryLocation(addr, 0);
 	    } else {
-		throw new Exception("Expected array or pointer for index expression");
+		throw new EvalException("Expected array or pointer for index expression");
 	    }
 
 	    Value index = index_.eval(sc, state).toValue(state);
 	    IntegerType intTy = cast(IntegerType) index.type.underlyingType;
 	    if (!index.type.isIntegerType) {
-		throw new Exception("Expected integer for index expression");
+		throw new EvalException("Expected integer for index expression");
 	    }
 	    long i = state.readInteger(index.loc.readValue(state));
 	    if (i < minIndex || i >= maxIndex)
-		throw new Exception(format("Index %d out of array bounds", i));
+		throw new EvalException(format("Index %d out of array bounds", i));
 	    i -= minIndex;
 
 	    auto elementLoc = new MemoryLocation(
@@ -1730,7 +1738,7 @@ class MemberExpr: ExprBase
 	    Value base = base_.eval(sc, state).toValue(state);
 	    CompoundType cTy = cast(CompoundType) base.type.underlyingType;
 	    if (!cTy)
-		throw new Exception("Not a compound type");
+		throw new EvalException("Not a compound type");
 	    return cTy.fieldValue(member_, base.loc, state);
 	}
     }
@@ -1758,11 +1766,11 @@ class PointsToExpr: ExprBase
 	    Value base = base_.eval(sc, state).toValue(state);
 	    PointerType ptrTy = cast(PointerType) base.type.underlyingType;
 	    if (!ptrTy)
-		throw new Exception("Not a pointer");
+		throw new EvalException("Not a pointer");
 
 	    CompoundType cTy = cast(CompoundType) ptrTy.baseType.underlyingType;
 	    if (!cTy)
-		throw new Exception("Not a pointer to a compound type");
+		throw new EvalException("Not a pointer to a compound type");
 	    ulong ptr = state.readInteger(base.loc.readValue(state));
 	    return cTy.fieldValue(member_,
 				  new MemoryLocation(ptr, cTy.byteWidth),
@@ -1793,7 +1801,7 @@ class IfElseExpr: ExprBase
 	{
 	    Value cond = cond_.eval(sc, state).toValue(state);
 	    if (!cond.type.isIntegerType)
-		throw new Exception("Condition value is not an integer");
+		throw new EvalException("Condition value is not an integer");
 	    if (state.readInteger(cond.loc.readValue(state)))
 		return trueExp_.eval(sc, state);
 	    else
