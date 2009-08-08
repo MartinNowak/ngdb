@@ -322,11 +322,14 @@ private class SourceFile
 
 private class Frame
 {
-    this(Debugger db, uint index,
+    this(Debugger db, uint index, Frame inner,
 	 DebugInfo di, Function func, MachineState state)
     {
 	db_ = db;
 	index_ = index;
+	inner_ = inner;
+	if (inner_)
+	    inner_.outer_ = this;
 	di_ = di;
 	func_ = func;
 	state_ = state;
@@ -341,8 +344,46 @@ private class Frame
 		      db_.describeAddress(state_.pc, state_));
     }
 
+    /**
+     * Return the index of this frame.
+     */
+    uint index()
+    {
+	return index_;
+    }
+
+    /**
+     * Return the next outer stack frame, if any
+     */
+    Frame outer()
+    {
+	if (outer_)
+	    return outer_;
+
+	auto s = di_.unwind(state_);
+	if (!s)
+	    return null;
+	DebugInfo di;
+	if (!db_.findDebugInfo(s, di))
+	    return null;
+	auto func = di.findFunction(s.pc);
+	if (!func)
+	    return null;
+	return new Frame(db_, index_ + 1, this, di, func, s);
+    }
+
+    /**
+     * Return the next inner stack frame, if any
+     */
+    Frame inner()
+    {
+	return inner_;
+    }
+
     Debugger db_;
     uint index_;
+    Frame inner_;
+    Frame outer_;
     DebugInfo di_;
     Function func_;
     Language lang_;
@@ -552,25 +593,11 @@ class Debugger: TargetListener, Scope
 	    Location loc;
 	    Function func;
 	    if (di.findFrameBase(s, loc) && (func = di.findFunction(s.pc)) !is null) {
-		if (frames_.length == 0 || frames_[0].func_ != func
-		    || frames_[0].addr_ != loc.address(s)) {
+		if (!topFrame_ || topFrame_.func_ != func
+		    || topFrame_.addr_ != loc.address(s)) {
 		    writefln("%s", describeAddress(s.pc, s));
-		    frames_.length = 0;
-		    MachineState fs = s;
-		    DebugInfo fdi = di;
-		    uint fi = 0;
-		    for (;;) {
-			frames_ ~= new Frame(this, fi++, fdi, func, fs);
-			fs = di.unwind(fs);
-			if (!fs)
-			    break;
-			if (!findDebugInfo(fs, fdi))
-			    break;
-			func = di.findFunction(fs.pc);
-			if (!func)
-			    break;
-		    }
-		    currentFrame_ = 0;
+		    currentFrame_ = topFrame_ =
+			new Frame(this, 0, null, di, func, s);
 		}
 	    }
 	    if (di.findLineByAddress(s.pc, le)) {
@@ -942,18 +969,23 @@ class Debugger: TargetListener, Scope
 	breakpoints_ = newBreakpoints;
     }
 
+    Frame topFrame()
+    {
+	return topFrame_;
+    }
+
     Frame currentFrame()
     {
-	if (frames_.length > currentFrame_)
-	    return frames_[currentFrame_];
-	return null;
+	return currentFrame_;
     }
 
     Frame getFrame(uint frameIndex)
     {
-	if (frames_.length > frameIndex)
-	    return frames_[frameIndex];
-	return null;
+	Frame f;
+	for (f = topFrame_; f; f = f.outer)
+	    if (f.index == frameIndex)
+		break;
+	return f;
     }
 
     bool findDebugInfo(MachineState s, out DebugInfo di)
@@ -1094,8 +1126,8 @@ private:
     Target target_;
     TargetModule[] modules_;
     TargetThread[] threads_;
-    Frame[] frames_;
-    uint currentFrame_;
+    Frame topFrame_;
+    Frame currentFrame_;
     Breakpoint[] breakpoints_;
     SourceFile[string] sourceFiles_;
     SourceFile[string] sourceFilesBasename_;
@@ -1428,7 +1460,7 @@ class FinishCommand: Command
 
 	void run(Debugger db, string[] args)
 	{
-	    if (db.frames_.length < 2) {
+	    if (!db.topFrame.outer) {
 		writefln("Already in outermost stack frame");
 		return;
 	    }
@@ -1793,11 +1825,12 @@ class FrameCommand: Command
 		} catch (ConvError ce) {
 		    frameIndex = ~0;
 		}
-		if (frameIndex >= db.frames_.length) {
+		Frame f = db.getFrame(frameIndex);
+		if (!f) {
 		    writefln("Invalid frame number %s", args[1]);
 		    return;
 		}
-		db.currentFrame_ = frameIndex;
+		db.currentFrame_ = f;
 	    }
 	    auto f = db.currentFrame;
 	    if (!f) {
@@ -1839,13 +1872,10 @@ class UpCommand: Command
 		writefln("stack frame information unavailable");
 		return;
 	    }
-	    if (f.index_ + 1 < db.frames_.length) {
-		db.currentFrame_ = f.index_ + 1;
-		f = db.currentFrame;
-	    }
+	    if (f.outer)
+		db.currentFrame_ = f = f.outer;
 	    writefln("%s", f.toString);
 	    db.displaySourceLine(f.state_);
-	    
 	}
     }
 }
@@ -1879,10 +1909,8 @@ class DownCommand: Command
 		writefln("stack frame information unavailable");
 		return;
 	    }
-	    if (f.index_ > 0) {
-		db.currentFrame_ = f.index_ - 1;
-		f = db.currentFrame;
-	    }
+	    if (f.inner)
+		db.currentFrame_ = f = f.inner;
 	    writefln("%s", f.toString);
 	    db.displaySourceLine(f.state_);
 	}
@@ -1909,7 +1937,7 @@ class WhereCommand: Command
 
 	void run(Debugger db, string[] args)
 	{
-	    foreach (f; db.frames_)
+	    for (Frame f = db.topFrame; f; f = f.outer)
 		writefln("%d: %s", f.index_,
 		    db.describeAddress(f.state_.pc, f.state_));
 	}
