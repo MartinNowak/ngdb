@@ -81,9 +81,10 @@ class Command
     abstract void run(Debugger db, string[] args);
 
     /**
-     * Called when the program stops with the current source file and line
+     * Called when an action which sets the current source file and
+     * line happens.
      */
-    void onStopped(Debugger db, SourceFile sf, uint line)
+    void onSourceLine(Debugger db, SourceFile sf, uint line)
     {
     }
 }
@@ -153,10 +154,10 @@ class CommandTable
 	}
     }
 
-    void onStopped(Debugger db, SourceFile sf, uint line)
+    void onSourceLine(Debugger db, SourceFile sf, uint line)
     {
 	foreach (c; list_)
-	    c.onStopped(db, sf, line);
+	    c.onSourceLine(db, sf, line);
     }
 
     Command[string] list_;
@@ -577,8 +578,8 @@ class Debugger: TargetListener, Scope
 		currentSourceFile_ = stoppedSourceFile_ = sf;
 		currentSourceLine_ = stoppedSourceLine_ = le[0].line;
 		displaySourceLine(sf, currentSourceLine_);
-		commands_.onStopped(this, sf, le[0].line);
-		infoCommands_.onStopped(this, sf, le[0].line);
+		commands_.onSourceLine(this, sf, le[0].line);
+		infoCommands_.onSourceLine(this, sf, le[0].line);
 	    }
 	} else {
 	    ulong tpc = s.pc;
@@ -596,6 +597,7 @@ class Debugger: TargetListener, Scope
 	    if (di.findLineByAddress(s.pc, le)) {
 		SourceFile sf = findFile(le[0].fullname);
 		displaySourceLine(sf, le[0].line);
+		setCurrentSourceLine(sf, le[0].line);
 	    }
 	}
     }
@@ -625,6 +627,14 @@ class Debugger: TargetListener, Scope
 		a = "=>";
 	    writefln("%s%4d%s%s", a, line, bpmark, expandtabs(s));
 	}
+    }
+
+    void setCurrentSourceLine(SourceFile sf, int line)
+    {
+	currentSourceFile_ = sf;
+	currentSourceLine_ = line;
+	commands_.onSourceLine(this, sf, line);
+	infoCommands_.onSourceLine(this, sf, line);
     }
 
     string describeAddress(ulong pc, MachineState state)
@@ -1835,6 +1845,7 @@ class UpCommand: Command
 	    }
 	    writefln("%s", f.toString);
 	    db.displaySourceLine(f.state_);
+	    
 	}
     }
 }
@@ -2186,12 +2197,11 @@ class ListCommand: Command
 	    el = sl + 10;
 	    for (uint ln = sl; ln < el; ln++)
 		db.displaySourceLine(sf, ln);
+	    db.setCurrentSourceLine(sf, line);
 	    sourceFile_ = sf;
 	    sourceLine_ = el + 5;
-	    db.currentSourceFile_ = sf;
-	    db.currentSourceLine_ = line;
 	}
-	void onStopped(Debugger db, SourceFile sf, uint line)
+	void onSourceLine(Debugger db, SourceFile sf, uint line)
 	{
 	    sourceFile_ = sf;
 	    sourceLine_ = line;
