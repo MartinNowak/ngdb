@@ -424,7 +424,7 @@ class PtraceTarget: Target
 	    }
 	}
 
-	void cont()
+	void cont(int signo)
 	{
 	    assert(state_ == TargetState.STOPPED);
 
@@ -456,7 +456,7 @@ class PtraceTarget: Target
 		foreach (pbp; breakpoints_)
 		    pbp.activate;
 		breakpointsActive_ = true;
-		ptrace(PT_CONTINUE, pid_, cast(char*) 1, 0);
+		ptrace(PT_CONTINUE, pid_, cast(char*) 1, signo);
 		state_ = TargetState.RUNNING;
 	    } catch (PtraceException pte) {
 		if (pte.errno_ == ESRCH)

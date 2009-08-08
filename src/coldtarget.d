@@ -211,7 +211,7 @@ class ColdTarget: Target
 	{
 	}
 
-	void cont()
+	void cont(int)
 	{
 	}
 

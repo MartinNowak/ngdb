@@ -1219,6 +1219,38 @@ class RunCommand: Command
     string[] runArgs_;
 }
 
+class KillCommand: Command
+{
+    static this()
+    {
+	Debugger.registerCommand(new KillCommand);
+    }
+
+    override {
+	string name()
+	{
+	    return "kill";
+	}
+
+	string description()
+	{
+	    return "kill the program being debugged";
+	}
+
+	void run(Debugger db, string[] args)
+	{
+	    if (db.target_ && db.target_.state == TargetState.EXIT) {
+		writefln("Program is not running");
+		return;
+	    }
+	    
+	    db.target_.cont(SIGKILL);
+	    db.target_.wait;
+	}
+    }
+    string[] runArgs_;
+}
+
 class NextCommand: Command
 {
     static this()

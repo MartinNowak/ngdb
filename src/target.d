@@ -188,9 +188,10 @@ interface Target
     /**
      * Allow a target in state STOPPED to continue. The target's state
      * changes to RUNNING. Call wait() to pause until the target stops
-     * again (e.g. at a breakpoint).
+     * again (e.g. at a breakpoint). If signo is non-zero, deliver a
+     * signal to the target before resuming.
      */
-    void cont();
+    void cont(int signo = 0);
 
     /**
      * Wait for the target to receive an event which causes it to stop.
