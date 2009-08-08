@@ -48,19 +48,9 @@ interface MachineState: Scope
     void setGR(uint gregno, ulong val);
 
     /**
-     * Set a general register by register name.
-     */
-    void setGR(string gregname, ulong val);
-
-    /**
      * Get a general register by register number.
      */
     ulong getGR(uint gregno);
-
-    /**
-     * Get a general register by register name.
-     */
-    ulong getGR(string gregname);
 
     /**
      * Read raw register bytes in target byte order

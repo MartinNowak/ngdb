@@ -161,19 +161,9 @@ class X86State: MachineState
 	    gregs_[gregno] = val;
 	}
 
-	void setGR(string gregname, ulong val)
-	{
-	    return setGR(nameToGRegno(gregname), val);
-	}
-
 	ulong getGR(uint gregno)
 	{
 	    return gregs_[gregno];
-	}
-
-	ulong getGR(string gregname)
-	{
-	    return getGR(nameToGRegno(gregname));
 	}
 
 	ubyte[] readGR(uint gregno)
@@ -298,14 +288,6 @@ class X86State: MachineState
 	auto ty = new IntegerType(new CLikeLanguage,
 			    	   "uint32_t", false, grWidth(i));
 	return new Value(loc, ty);
-    }
-
-    int nameToGRegno(string regname)
-    {
-	foreach (i, name; X86RegNames)
-	    if (regname == name)
-		return i;
-	throw new Exception("no such register");
     }
 
 private:
