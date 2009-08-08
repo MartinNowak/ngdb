@@ -405,9 +405,10 @@ class PagerQuit: Exception
  */
 class Debugger: TargetListener, Scope
 {
-    this(string prog)
+    this(string prog, string core)
     {
 	prog_ = prog;
+	core_ = core;
 	prompt_ = "(ngdb)";
 
 	HistEvent ev;
@@ -452,6 +453,10 @@ class Debugger: TargetListener, Scope
 	sa.sa_flags = 0;
 	sigaction(SIGINT, &sa, null);
 
+	target_ = new ColdTarget(this, prog_, core_);
+	if (core_)
+	    stopped();
+
 	staticPrompt_ = prompt_;
 	while (!quit_ && (buf = el_gets(el_, &num)) != null && num != 0) {
 	    int ac;
@@ -463,8 +468,11 @@ class Debugger: TargetListener, Scope
 	     * exitted or we disconnected), switch back to a cold
 	     * target.
 	     */
-	    if (!target_)
-		target_ = new ColdTarget(this, prog_);
+	    if (!target_) {
+		target_ = new ColdTarget(this, prog_, core_);
+		if (core_)
+		    stopped();
+	    }
 
 	    li = el_line(el_);
 
@@ -1163,6 +1171,7 @@ private:
     bool quit_ = false;
 
     string prog_;
+    string core_;
     string prompt_;
     uint pageline_;
     uint pagemaxline_ = 24;
@@ -1759,6 +1768,10 @@ class InfoRegistersCommand: Command
 	void run(Debugger db, string[] args)
 	{
 	    auto f = db.currentFrame;
+	    if (!f) {
+		db.pagefln("No current stack frame");
+		return;
+	    }
 	    db.pagefln("%s", f.toString);
 	    auto s = f.state_;
 	    s.dumpState;

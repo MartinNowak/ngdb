@@ -33,6 +33,8 @@ import objfile.debuginfo;
 import objfile.dwarf;
 import machine.machine;
 import machine.x86;
+import sys.reg;
+import ptracetarget;		// XXX signame
 
 import std.stdint;
 import std.stdio;
@@ -138,10 +140,13 @@ private:
 
 class ColdThread: TargetThread
 {
-    this(ColdTarget target)
+    this(ColdTarget target, ubyte* p)
     {
 	target_ = target;
 	state_ = new X86State(target_);
+	if (p)
+	    foreach (map; regmap_)
+		state_.setGR(map.gregno, *cast(uint32_t*) (p + map.regoff));
     }
 
     override {
@@ -155,20 +160,76 @@ class ColdThread: TargetThread
 	}
     }
 
+    struct regmap {
+	int gregno;		// machine gregno
+	size_t regoff;		// offset struct reg
+    }
+    static regmap[] regmap_ = [
+	{ X86Reg.EAX, reg.r_eax.offsetof },
+	{ X86Reg.ECX, reg.r_ecx.offsetof },
+	{ X86Reg.EDX, reg.r_edx.offsetof },
+	{ X86Reg.EBX, reg.r_ebx.offsetof },
+	{ X86Reg.ESP, reg.r_esp.offsetof },
+	{ X86Reg.EBP, reg.r_ebp.offsetof },
+	{ X86Reg.ESI, reg.r_esi.offsetof },
+	{ X86Reg.EDI, reg.r_edi.offsetof },
+	{ X86Reg.EIP, reg.r_eip.offsetof },
+	{ X86Reg.EFLAGS, reg.r_eflags.offsetof },
+	{ X86Reg.CS, reg.r_cs.offsetof },
+	{ X86Reg.SS, reg.r_ss.offsetof },
+	{ X86Reg.DS, reg.r_ds.offsetof },
+	{ X86Reg.ES, reg.r_es.offsetof },
+	{ X86Reg.FS, reg.r_fs.offsetof },
+	{ X86Reg.GS, reg.r_gs.offsetof },
+	];
+
     ColdTarget target_;
     MachineState state_;
 }
 
+struct prstatus32
+{
+    int32_t pr_version;		// must be 1
+    uint32_t pr_statussz;
+    uint32_t pr_gregsetsz;
+    uint32_t pr_fpregsetsz;
+    int32_t pr_osreldate;
+    int32_t pr_cursig;
+    int32_t pr_pid;
+}
+
 class ColdTarget: Target
 {
-    this(TargetListener listener, string execname)
+    this(TargetListener listener, string execname, string corename)
     {
 	listener_ = listener;
 	execname_ = execname;
+	corename_ = corename;
+	if (corename_)
+	    core_ = cast(Elffile) Objfile.open(corename_);
+
 	listener.onTargetStarted(this);
 	getModules();
-	threads_ ~= new ColdThread(this);
-	listener_.onThreadCreate(this, threads_[0]);
+
+	if (core_) {
+	    void getThread(uint type, string name, ubyte* desc)
+	    {
+		if (type != NT_PRSTATUS)
+		    return;
+		prstatus32* pr = cast(prstatus32*) desc;
+		auto t = new ColdThread(this, desc + prstatus32.sizeof);
+		threads_ ~= t;
+		listener_.onThreadCreate(this, t);
+		if (pr.pr_cursig)
+		    listener_.onSignal(this, pr.pr_cursig,
+				       signame(pr.pr_cursig));
+	    }
+
+	    core_.enumerateNotes(&getThread);
+	} else {
+	    threads_ ~= new ColdThread(this, null);
+	    listener_.onThreadCreate(this, threads_[0]);
+	}
     }
 
     override
@@ -200,7 +261,10 @@ class ColdTarget: Target
 
 	ubyte[] readMemory(ulong targetAddress, size_t bytes)
 	{
-	    return modules_[0].readMemory(targetAddress, bytes);
+	    if (core_)
+		return core_.readProgram(targetAddress, bytes);
+	    else
+		return modules_[0].readMemory(targetAddress, bytes);
 	}
 
 	void writeMemory(ulong targetAddress, ubyte[] toWrite)
@@ -234,6 +298,8 @@ private:
     ColdThread[] threads_;
     TargetListener listener_;
     string execname_;
+    string corename_;
+    Elffile core_;
 
     void getModules()
     {

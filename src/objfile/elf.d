@@ -938,6 +938,8 @@ class Elffile: Objfile
 
     abstract void enumerateProgramHeaders(void delegate(ulong, ulong) dg);
 
+    abstract void enumerateNotes(void delegate(uint, string, ubyte*) dg);
+
     abstract ubyte[] readProgram(ulong addr, size_t len);
 }
 
@@ -971,8 +973,6 @@ template ElfFileBase()
 
 	if (eh.e_shstrndx != SHN_UNDEF) {
 	    shStrings_ = readSection(eh.e_shstrndx);
-	} else {
-	    throw new Exception("No section strings?");
 	}
 
 	debug (elf)
@@ -1063,6 +1063,35 @@ template ElfFileBase()
 	foreach (ph; ph_) {
 	    if (ph.p_type == PT_LOAD)
 		dg(ph.p_vaddr, ph.p_vaddr + ph.p_memsz);
+	}
+    }
+
+    void enumerateNotes(void delegate(uint, string, ubyte*) dg)
+    {
+	foreach (ph; ph_) {
+	    if (ph.p_type == PT_NOTE) {
+		ubyte[] notes;
+		notes.length = ph.p_filesz;
+		if (pread(fd_, &notes[0], ph.p_filesz, ph.p_offset)
+		    != ph.p_filesz)
+		    throw new Exception("Can't read from file");
+
+		size_t roundup(size_t n, size_t sz = Size.sizeof)
+		{
+		    return (n + sz - 1) & ~(sz - 1);
+		}
+
+		size_t i = 0;
+		while (i < notes.length) {
+		    Note* n = cast(Note*) &notes[i];
+		    char* name = cast(char*) (n + 1);
+		    ubyte* desc = cast(ubyte*) (name + roundup(n.n_namesz));
+
+		    dg(n.n_type, .toString(name), desc);
+		    i += Note.sizeof;
+		    i += roundup(n.n_namesz) + roundup(n.n_descsz);
+		}
+	    }
 	}
     }
 
