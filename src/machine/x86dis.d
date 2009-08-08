@@ -2065,7 +2065,8 @@ struct DecodeState
 	{
 	    string s;
 
-	    if (havedisp_ && disp_) {
+	    if (havedisp_
+		&& (disp_ || (indexReg_ < 0 && baseReg_ < 0))) {
 		if (disp_ > -50 && disp_ < 50)
 		    s = std.string.format("%d", disp_);
 		else
