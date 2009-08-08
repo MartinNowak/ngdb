@@ -2016,8 +2016,8 @@ struct Expr
 	 * Loop over the expression finding pieces to compose into the
 	 * final object.
 	 */
-	ubyte[] obj;
 	Location loc;
+	CompositeLocation cloc;
 	char* p = start;
 	while (p < end) {
 	    /*
@@ -2050,49 +2050,54 @@ struct Expr
 		/*
 		 * Composite - add up the pieces
 		 */
+		if (!cloc) {
+		    cloc = new CompositeLocation;
+		    result = cloc;
+		}
 		op = *p++;
 		ubyte[] t;
 		switch (op) {
 		case DW_OP_piece:
-		    t.length = parseULEB128(p);
-		    t[] = loc.readValue(state)[0..t.length];
-		    obj ~= t;
+		    cloc.addPiece(loc, parseULEB128(p));
 		    break;
 
 		case DW_OP_bit_piece:
-		    auto nbits = parseULEB128(p);
-		    auto boff = parseULEB128(p);
+		    static if (false) {
+			auto nbits = parseULEB128(p);
+			auto boff = parseULEB128(p);
 
-		    ulong getVal(ubyte[] t)
-		    {
-			// XXX assume LE for now.
-			ulong v = 0;
-			int shift;
-			foreach (b; t) {
-			    v |= b << shift;
-			    shift += 8;
+			ulong getVal(ubyte[] t)
+			{
+			    // XXX assume LE for now.
+			    ulong v = 0;
+			    int shift;
+			    foreach (b; t) {
+				v |= b << shift;
+				shift += 8;
+			    }
+			    return v;
 			}
-			return v;
+
+			size_t len = (nbits + 7) / 8;
+			t = loc.readValue(state);
+			ulong pv = 0;
+			uint i, b;
+			for (i = 0, b = 0; len > 0; i++, b += 8, len--)
+			    pv |= t[i] << b;
+
+			pv = (pv >>> boff) & ((1 << nbits) - 1);
+			// XXX not sure how to compose into obj - need example
+			//obj.length = 8; // XXX not correct
+			//*cast(long*) obj = pv;
+			break;
 		    }
-
-		    size_t len = (nbits + 7) / 8;
-		    t = loc.readValue(state);
-		    ulong pv = 0;
-		    uint i, b;
-		    for (i = 0, b = 0; len > 0; i++, b += 8, len--)
-			pv |= t[i] << b;
-
-		    pv = (pv >>> boff) & ((1 << nbits) - 1);
-		    // XXX not sure how to compose into obj - need example
-		    //obj.length = 8; // XXX not correct
-		    //*cast(long*) obj = pv;
-		    break;
 
 		defaut:
 		    throw new Exception("Expected DW_OP_piece or DW_OP_bit_piece");
 		}
 	    }
 	}
+	return true;
     }
 }
 

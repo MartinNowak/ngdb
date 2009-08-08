@@ -1044,6 +1044,72 @@ class MemoryLocation: Location
     size_t length_;
 }
 
+class CompositeLocation: Location
+{
+    void addPiece(Location loc, size_t len)
+    {
+	pieces_ ~= piece(loc, len);
+    }
+
+    override {
+	bool valid(MachineState state)
+	{
+	    foreach (p; pieces_)
+		if (!p.loc.valid(state))
+		    return false;
+	    return true;
+	}
+
+	size_t length()
+	{
+	    size_t len = 0;
+	    foreach (p; pieces_)
+		len += p.len;
+	    return len;
+	}
+
+	ubyte[] readValue(MachineState state)
+	{
+	    ubyte[] v;
+	    foreach (p; pieces_)
+		v ~= p.loc.readValue(state)[0..p.len];
+	    return v;
+	}
+
+	void writeValue(MachineState state, ubyte[] value)
+	{
+	    size_t off = 0;
+	    foreach (p; pieces_) {
+		p.loc.writeValue(state, value[off..off+p.len]);
+		off += p.len;
+	    }
+	}
+
+	bool hasAddress(MachineState)
+	{
+	    return false;
+	}
+
+	ulong address(MachineState)
+	{
+	    assert(false);
+	    return 0;
+	}
+
+	Location fieldLocation(Location baseLoc, MachineState state)
+	{
+	    return null;
+	}
+    }
+private:
+    struct piece
+    {
+	Location loc;
+	size_t len;
+    }
+    piece[] pieces_;
+}
+
 class NoLocation: Location
 {
     override {
@@ -1070,7 +1136,7 @@ class NoLocation: Location
 
 	bool hasAddress(MachineState)
 	{
-	    return true;
+	    return false;
 	}
 
 	ulong address(MachineState)
