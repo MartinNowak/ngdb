@@ -935,6 +935,11 @@ interface Location
     size_t length();
 
     /**
+     * Resize an object
+     */
+    void length(size_t len);
+
+    /**
      * Read the object value
      */
     ubyte[] readValue(MachineState);
@@ -984,6 +989,11 @@ class RegisterLocation: Location
 	size_t length()
 	{
 	    return length_;
+	}
+
+	void length(size_t length)
+	{
+	    length_ = length;
 	}
 
 	ubyte[] readValue(MachineState state)
@@ -1039,6 +1049,11 @@ class MemoryLocation: Location
 	size_t length()
 	{
 	    return length_;
+	}
+
+	void length(size_t length)
+	{
+	    length_ = length;
 	}
 
 	ubyte[] readValue(MachineState state)
@@ -1101,6 +1116,11 @@ class CompositeLocation: Location
 	    return len;
 	}
 
+	void length(size_t length)
+	{
+	    assert(false);
+	}
+
 	ubyte[] readValue(MachineState state)
 	{
 	    ubyte[] v;
@@ -1161,6 +1181,11 @@ class NoLocation: Location
 	    return 0;
 	}
 
+	void length(size_t length)
+	{
+	    assert(false);
+	}
+
 	ubyte[] readValue(MachineState state)
 	{
 	    assert(false);
@@ -1217,6 +1242,11 @@ class FirstFieldLocation: Location
 	    return length_;
 	}
 
+	void length(size_t length)
+	{
+	    assert(false);
+	}
+
 	ubyte[] readValue(MachineState state)
 	{
 	    assert(false);
@@ -1270,6 +1300,11 @@ class ConstantLocation: Location
 	size_t length()
 	{
 	    return value_.length;
+	}
+
+	void length(size_t length)
+	{
+	    assert(false);
 	}
 
 	ubyte[] readValue(MachineState state)

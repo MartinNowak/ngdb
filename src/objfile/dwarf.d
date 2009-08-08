@@ -1582,6 +1582,11 @@ class DwarfLocation: Location
 	    return length_;
 	}
 
+	void length(size_t length)
+	{
+	    length_ = length;
+	}
+
 	ubyte[] readValue(MachineState state)
 	{
 	    Location loc;
@@ -2066,7 +2071,9 @@ struct Expr
 		ubyte[] t;
 		switch (op) {
 		case DW_OP_piece:
-		    cloc.addPiece(loc, parseULEB128(p));
+		    auto l = parseULEB128(p);
+		    loc.length = l;
+		    cloc.addPiece(loc, l);
 		    break;
 
 		case DW_OP_bit_piece:
