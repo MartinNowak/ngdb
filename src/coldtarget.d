@@ -261,10 +261,18 @@ class ColdTarget: Target
 
 	ubyte[] readMemory(ulong targetAddress, size_t bytes)
 	{
-	    if (core_)
-		return core_.readProgram(targetAddress, bytes);
-	    else
-		return modules_[0].readMemory(targetAddress, bytes);
+	    if (core_) {
+		bool readcore = false;
+		void checkAddress(ulong s, ulong e)
+		{
+		    if (targetAddress + bytes > s && targetAddress < e)
+			readcore = true;
+		}
+		core_.enumerateProgramHeaders(&checkAddress);
+		if (readcore)
+		    return core_.readProgram(targetAddress, bytes);
+	    }
+	    return modules_[0].readMemory(targetAddress, bytes);
 	}
 
 	void writeMemory(ulong targetAddress, ubyte[] toWrite)
