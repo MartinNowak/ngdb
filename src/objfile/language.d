@@ -80,7 +80,7 @@ class CLikeLanguage: Language
 	{
 	    PointerType pt = cast(PointerType) type;
 	    if (pt) {
-		ulong p = readInteger(loc.readValue(state));
+		ulong p = state.readInteger(loc.readValue(state));
 		return _stringConstant(state, p, 0);
 	    }
 	    return "";
@@ -747,9 +747,10 @@ class DLanguage: CLikeLanguage
 	     * quantities - the length followed by the base pointer.
 	     */
 	    ubyte[] val = loc.readValue(state);
-	    return _stringConstant(state,
-				   readInteger(val[state.pointerWidth..$]),
-				   readInteger(val[0..state.pointerWidth]));
+	    return _stringConstant(
+		state,
+		state.readInteger(val[state.pointerWidth..$]),
+		state.readInteger(val[0..state.pointerWidth]));
 	}
         string namespaceSeparator()
 	{

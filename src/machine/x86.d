@@ -212,6 +212,26 @@ class X86State: MachineState
 	    return 4;
 	}
 
+	ulong readInteger(ubyte[] bytes)
+	{
+	    uint bit = 0;
+	    ulong value = 0;
+
+	    foreach (b; bytes) {
+		value |= b << bit;
+		bit += 8;
+	    }
+	    return value;
+	}
+
+	void writeInteger(ulong val, ubyte[] bytes)
+	{
+	    for (int i = 0; i < bytes.length; i++) {
+		bytes[i] = val & 0xff;
+		val >>= 8;
+	    }
+	}
+
 	ubyte[] readMemory(ulong address, size_t bytes)
 	{
 	    return target_.readMemory(address, bytes);

@@ -88,6 +88,16 @@ interface MachineState: Scope
     uint pointerWidth();
 
     /**
+     * Convert an integer in machine-native format to host format.
+     */
+    ulong readInteger(ubyte[] bytes);
+
+    /**
+     * Convert an integer in host format to machine-native format.
+     */
+    void writeInteger(ulong val, ubyte[] bytes);
+
+    /**
      * Read from the machine's memory.
      */
     ubyte[] readMemory(ulong address, size_t bytes);

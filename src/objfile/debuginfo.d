@@ -58,7 +58,7 @@ interface DebugItem
 {
     string toString();
     string toString(string, MachineState);
-    Value toValue();
+    Value toValue(MachineState);
 }
 
 interface Type: DebugItem
@@ -87,7 +87,7 @@ class TypeBase: Type
     {
 	return toString;
     }
-    Value toValue()
+    Value toValue(MachineState)
     {
 	throw new Exception(format("%s is not a value", toString));
     }
@@ -147,31 +147,6 @@ private:
     Scope[] subScopes_;
 }
 
-ulong
-readInteger(ubyte[] bytes)
-{
-    // XXX endian
-    uint bit = 0;
-    ulong value = 0;
-
-    foreach (b; bytes) {
-	value |= b << bit;
-	bit += 8;
-    }
-    return value;
-}
-
-void
-writeInteger(ulong val, ubyte[] bytes)
-{
-    // XXX endian
-
-    for (int i = 0; i < bytes.length; i++) {
-	bytes[i] = val & 0xff;
-	val >>= 8;
-    }
-}
-
 class IntegerType: TypeBase
 {
     this(Language lang, string name, bool isSigned, uint byteWidth)
@@ -202,7 +177,7 @@ class IntegerType: TypeBase
 		fmt = "%d";
 
 	    if (isSigned) {
-		long val = readInteger(loc.readValue(state));
+		long val = state.readInteger(loc.readValue(state));
 		switch (byteWidth_) {
 		case 1:
 		    return format(fmt, cast(byte) val);
@@ -214,7 +189,7 @@ class IntegerType: TypeBase
 		    return format(fmt, val);
 		}
 	    } else {
-		ulong val = readInteger(loc.readValue(state));
+		ulong val = state.readInteger(loc.readValue(state));
 		switch (byteWidth_) {
 		case 1:
 		    return format(fmt, cast(ubyte) val);
@@ -266,11 +241,11 @@ class CharType: IntegerType
 		return super.valueToString(fmt, state, loc);
 
 	    if (isSigned) {
-		long val = readInteger(loc.readValue(state));
+		long val = state.readInteger(loc.readValue(state));
 		return super.valueToString(fmt, state, loc)
 		    ~ lang_.charConstant(val);
 	    } else {
-		ulong val = readInteger(loc.readValue(state));
+		ulong val = state.readInteger(loc.readValue(state));
 		return super.valueToString(fmt, state, loc)
 		    ~ lang_.charConstant(val);
 	    }		
@@ -307,7 +282,7 @@ class BooleanType: TypeBase
 	string valueToString(string, MachineState state, Location loc)
 	{
 	    ubyte[] val = loc.readValue(state);
-	    return readInteger(val) ? "true" : "false";
+	    return state.readInteger(val) ? "true" : "false";
 	}
 
 	uint byteWidth()
@@ -353,7 +328,7 @@ class PointerType: TypeBase
 	string valueToString(string, MachineState state, Location loc)
 	{
 	    string v;
-	    ulong p = readInteger(loc.readValue(state));
+	    ulong p = state.readInteger(loc.readValue(state));
 	    v = std.string.format("0x%x", p);
 	    if (lang_.isStringType(this) && p)
 		v ~= " " ~ lang_.stringConstant(state, this, loc);
@@ -384,7 +359,7 @@ class PointerType: TypeBase
     Value dereference(MachineState state, Location loc)
     {
 	return new Value(new MemoryLocation(
-			 readInteger(loc.readValue(state)),
+			 state.readInteger(loc.readValue(state)),
 			 baseType.byteWidth),
 		     baseType);
     }
@@ -417,7 +392,7 @@ class ReferenceType: TypeBase
 	string valueToString(string, MachineState state, Location loc)
 	{
 	    string v;
-	    ulong p = readInteger(loc.readValue(state));
+	    ulong p = state.readInteger(loc.readValue(state));
 	    v = std.string.format("0x%x", p);
 	    return v;
 	}
@@ -777,8 +752,8 @@ class DArrayType: TypeBase
 		return lang_.stringConstant(state, this, loc);
 
 	    ubyte[] val = loc.readValue(state);
-	    ulong len = readInteger(val[0..state.pointerWidth]);
-	    ulong addr = readInteger(val[state.pointerWidth..$]);
+	    ulong len = state.readInteger(val[0..state.pointerWidth]);
+	    ulong addr = state.readInteger(val[state.pointerWidth..$]);
 	    string v;
 	    for (auto i = 0; i < len; i++) {
 		if (i > 0)
@@ -1278,10 +1253,10 @@ class NumericExpr: ExprBase
 	    
 	    Type ty;
 	    if (isSigned_) {
-		writeInteger(num_, val);
+		state.writeInteger(num_, val);
 		ty = new IntegerType(lang_, "int", true, 4);
 	    } else {
-		writeInteger(unum_, val);
+		state.writeInteger(unum_, val);
 		ty = new IntegerType(lang_, "uint", false, 4);
 	    }
 	    return new Value(new ConstantLocation(val), ty);
@@ -1322,12 +1297,12 @@ class AddressOfExpr: UnaryExpr
 	}
 	DebugItem eval(Scope sc, MachineState state)
 	{
-	    Value expr = expr_.eval(sc, state).toValue;
+	    Value expr = expr_.eval(sc, state).toValue(state);
 	    if (expr.loc.hasAddress(state)) {
 		ulong addr = expr.loc.address(state);
 		ubyte[] val;
 		val.length = state.pointerWidth;
-		writeInteger(addr, val);
+		state.writeInteger(addr, val);
 		return new Value(new ConstantLocation(val),
 			     expr.type.pointerType(state.pointerWidth));
 	    } else {
@@ -1351,7 +1326,7 @@ class DereferenceExpr: UnaryExpr
 	}
 	DebugItem eval(Scope sc, MachineState state)
 	{
-	    Value expr = expr_.eval(sc, state).toValue;
+	    Value expr = expr_.eval(sc, state).toValue(state);
 	    PointerType ptrTy = cast(PointerType) expr.type.underlyingType;
 	    if (!ptrTy)
 		throw new Exception("Attempting to dereference a non-pointer");
@@ -1376,16 +1351,16 @@ template IntegerUnaryExpr(string op, string name)
 	    }
 	    DebugItem eval(Scope sc, MachineState state)
 	    {
-		Value expr = expr_.eval(sc, state).toValue;
+		Value expr = expr_.eval(sc, state).toValue(state);
 		if (!expr.type.isIntegerType)
 		    throw new Exception(
 			format("Attempting to %s a value of type %s",
 			       name,
 			       expr.type.toString));
 		ubyte[] v = expr.loc.readValue(state);
-		ulong val = readInteger(v);
+		ulong val = state.readInteger(v);
 		mixin("val = " ~ op ~ "val;");
-		writeInteger(val, v);
+		state.writeInteger(val, v);
 		return new Value(new ConstantLocation(v), expr.type);
 	    }
 	}
@@ -1409,14 +1384,14 @@ class LogicalNegateExpr: IntegerUnaryExpr!("!", "logically negate")
     override {
 	DebugItem eval(Scope sc, MachineState state)
 	{
-	    Value expr = expr_.eval(sc, state).toValue;
+	    Value expr = expr_.eval(sc, state).toValue(state);
 	    PointerType ptrTy = cast(PointerType) expr.type.underlyingType;
 	    if (!ptrTy)
 		return super.eval(sc, state);
-	    ulong ptr = readInteger(expr.loc.readValue(state));
+	    ulong ptr = state.readInteger(expr.loc.readValue(state));
 	    Type ty = new IntegerType(lang_, "int", true, 4);
 	    ubyte v[4];
-	    writeInteger(ptr ? 0 : 1, v);
+	    state.writeInteger(ptr ? 0 : 1, v);
 	    return new Value(new ConstantLocation(v), ty);
 	}
     }
@@ -1534,21 +1509,21 @@ template IntegerBinaryExpr(string op, string name)
 	    }
 	    DebugItem eval(Scope sc, MachineState state)
 	    {
-		Value left = left_.eval(sc, state).toValue;
+		Value left = left_.eval(sc, state).toValue(state);
 		if (!left.type.isIntegerType)
 		    throw new Exception(
 			format("Attempting to %s a value of type %s",
 			       name,
 			       left.type.toString));
-		ulong lval = readInteger(left.loc.readValue(state));
+		ulong lval = state.readInteger(left.loc.readValue(state));
 
-		Value right = right_.eval(sc, state).toValue;
+		Value right = right_.eval(sc, state).toValue(state);
 		if (!right.type.isIntegerType)
 		    throw new Exception(
 			format("Attempting to %s a value of type %s",
 			       name,
 			       right.type.toString));
-		ulong rval = readInteger(right.loc.readValue(state));
+		ulong rval = state.readInteger(right.loc.readValue(state));
 		
 		static if (op == "/" || op == "%") {
 		    if (!rval)
@@ -1558,7 +1533,7 @@ template IntegerBinaryExpr(string op, string name)
 		mixin("lval = lval " ~ op ~ "rval;");
 		ubyte[] v;
 		v.length = left.loc.length;
-		writeInteger(lval, v);
+		state.writeInteger(lval, v);
 		return new Value(new ConstantLocation(v), left.type);
 	    }
 	}
@@ -1578,8 +1553,8 @@ class CommaExpr: BinaryExpr
 	}
 	DebugItem eval(Scope sc, MachineState state)
 	{
-	    Value left = left_.eval(sc, state).toValue;
-	    Value right = right_.eval(sc, state).toValue;
+	    Value left = left_.eval(sc, state).toValue(state);
+	    Value right = right_.eval(sc, state).toValue(state);
 	    return right;
 	}
     }
@@ -1594,21 +1569,21 @@ class AddExpr: IntegerBinaryExpr!("+", "add")
     override {
 	DebugItem eval(Scope sc, MachineState state)
 	{
-	    Value left = left_.eval(sc, state).toValue;
+	    Value left = left_.eval(sc, state).toValue(state);
 	    PointerType ptrTy = cast(PointerType) left.type.underlyingType;
 	    if (!ptrTy)
 		return super.eval(sc, state);
 
-	    Value right = right_.eval(sc, state).toValue;
+	    Value right = right_.eval(sc, state).toValue(state);
 	    if (!right.type.isIntegerType)
 		throw new Exception("Pointer arithmetic with non-integer");
 
-	    ulong ptr = readInteger(left.loc.readValue(state));
-	    ulong off = readInteger(right.loc.readValue(state));
+	    ulong ptr = state.readInteger(left.loc.readValue(state));
+	    ulong off = state.readInteger(right.loc.readValue(state));
 	    ptr += off * ptrTy.baseType.byteWidth;
 	    ubyte[] val;
 	    val.length = ptrTy.byteWidth;
-	    writeInteger(ptr, val);
+	    state.writeInteger(ptr, val);
 	    return new Value(new ConstantLocation(val), ptrTy);
 	}
     }
@@ -1623,32 +1598,32 @@ class SubtractExpr: IntegerBinaryExpr!("-", "add")
     override {
 	DebugItem eval(Scope sc, MachineState state)
 	{
-	    Value left = left_.eval(sc, state).toValue;
+	    Value left = left_.eval(sc, state).toValue(state);
 	    PointerType ptrTy = cast(PointerType) left.type.underlyingType;
 	    if (!ptrTy)
 		return super.eval(sc, state);
 
-	    Value right = right_.eval(sc, state).toValue;
+	    Value right = right_.eval(sc, state).toValue(state);
 	    PointerType rptrTy = cast(PointerType) right.type.underlyingType;
 	    if (!rptrTy && !right.type.isIntegerType)
 		throw new Exception("Pointer arithmetic with non-integer or non-pointer");
 	    if (rptrTy && rptrTy != ptrTy)
 		throw new Exception("Pointer arithmetic with differing pointer types");
 
-	    ulong lval = readInteger(left.loc.readValue(state));
-	    ulong rval  = readInteger(right.loc.readValue(state));
+	    ulong lval = state.readInteger(left.loc.readValue(state));
+	    ulong rval  = state.readInteger(right.loc.readValue(state));
 	    if (rptrTy) {
 		ulong diff = (lval - rval) / ptrTy.baseType.byteWidth;
 		ubyte[] val;
 		val.length = ptrTy.byteWidth;
-		writeInteger(diff, val);
+		state.writeInteger(diff, val);
 		return new Value(new ConstantLocation(val),
 			     new IntegerType(lang_, "int", true, ptrTy.byteWidth));
 	    } else {
 		ulong ptr = lval - rval * ptrTy.baseType.byteWidth;
 		ubyte[] val;
 		val.length = ptrTy.byteWidth;
-		writeInteger(ptr, val);
+		state.writeInteger(ptr, val);
 		return new Value(new ConstantLocation(val), ptrTy);
 	    }
 	}
@@ -1670,7 +1645,7 @@ class IndexExpr: ExprBase
 	}
 	DebugItem eval(Scope sc, MachineState state)
 	{
-	    Value base = base_.eval(sc, state).toValue;
+	    Value base = base_.eval(sc, state).toValue(state);
 
 	    ArrayType aTy = cast(ArrayType) base.type.underlyingType;
 	    DArrayType daTy = cast(DArrayType) base.type.underlyingType;
@@ -1698,15 +1673,15 @@ class IndexExpr: ExprBase
 		elementType = daTy.baseType;
 		ubyte[] val = base.loc.readValue(state);
 		minIndex = 0;
-		maxIndex = readInteger(val[0..state.pointerWidth]);
-		ulong addr = readInteger(val[state.pointerWidth..$]);
+		maxIndex = state.readInteger(val[0..state.pointerWidth]);
+		ulong addr = state.readInteger(val[state.pointerWidth..$]);
 		baseLoc = new MemoryLocation(addr, 0);
 	    } else if (ptrTy) {
 		elementType = ptrTy.baseType;
 		/*
 		 * Dereference the pointer to get the array base
 		 */
-		ulong addr = readInteger(base.loc.readValue(state));
+		ulong addr = state.readInteger(base.loc.readValue(state));
 		minIndex = 0;
 		maxIndex = ~0;
 		baseLoc = new MemoryLocation(addr, 0);
@@ -1714,12 +1689,12 @@ class IndexExpr: ExprBase
 		throw new Exception("Expected array or pointer for index expression");
 	    }
 
-	    Value index = index_.eval(sc, state).toValue;
+	    Value index = index_.eval(sc, state).toValue(state);
 	    IntegerType intTy = cast(IntegerType) index.type.underlyingType;
 	    if (!index.type.isIntegerType) {
 		throw new Exception("Expected integer for index expression");
 	    }
-	    long i = readInteger(index.loc.readValue(state));
+	    long i = state.readInteger(index.loc.readValue(state));
 	    if (i < minIndex || i >= maxIndex)
 		throw new Exception(format("Index %d out of array bounds", i));
 	    i -= minIndex;
@@ -1752,7 +1727,7 @@ class MemberExpr: ExprBase
 	}
 	DebugItem eval(Scope sc, MachineState state)
 	{
-	    Value base = base_.eval(sc, state).toValue;
+	    Value base = base_.eval(sc, state).toValue(state);
 	    CompoundType cTy = cast(CompoundType) base.type.underlyingType;
 	    if (!cTy)
 		throw new Exception("Not a compound type");
@@ -1780,7 +1755,7 @@ class PointsToExpr: ExprBase
 	}
 	DebugItem eval(Scope sc, MachineState state)
 	{
-	    Value base = base_.eval(sc, state).toValue;
+	    Value base = base_.eval(sc, state).toValue(state);
 	    PointerType ptrTy = cast(PointerType) base.type.underlyingType;
 	    if (!ptrTy)
 		throw new Exception("Not a pointer");
@@ -1788,7 +1763,7 @@ class PointsToExpr: ExprBase
 	    CompoundType cTy = cast(CompoundType) ptrTy.baseType.underlyingType;
 	    if (!cTy)
 		throw new Exception("Not a pointer to a compound type");
-	    ulong ptr = readInteger(base.loc.readValue(state));
+	    ulong ptr = state.readInteger(base.loc.readValue(state));
 	    return cTy.fieldValue(member_,
 				  new MemoryLocation(ptr, cTy.byteWidth),
 				  state);
@@ -1816,10 +1791,10 @@ class IfElseExpr: ExprBase
 	}
 	DebugItem eval(Scope sc, MachineState state)
 	{
-	    Value cond = cond_.eval(sc, state).toValue;
+	    Value cond = cond_.eval(sc, state).toValue(state);
 	    if (!cond.type.isIntegerType)
 		throw new Exception("Condition value is not an integer");
-	    if (readInteger(cond.loc.readValue(state)))
+	    if (state.readInteger(cond.loc.readValue(state)))
 		return trueExp_.eval(sc, state);
 	    else
 		return falseExp_.eval(sc, state);
@@ -1860,7 +1835,7 @@ class Value: DebugItem
 		return "<invalid>";
 	    return type.valueToString(fmt, state, loc);
 	}
-	Value toValue()
+	Value toValue(MachineState)
 	{
 	    return this;
 	}
@@ -1904,7 +1879,7 @@ class Variable: DebugItem
 		return toString;
 	}
 
-	Value toValue()
+	Value toValue(MachineState)
 	{
 	    return value_;
 	}
@@ -1960,7 +1935,7 @@ class Function: DebugItem, Scope
 	    s ~= ")";
 	    return s;
 	}
-	Value toValue()
+	Value toValue(MachineState state)
 	{
 	    FunctionType ft = new FunctionType(lang_);
 	    ft.returnType(returnType_);
@@ -1971,7 +1946,7 @@ class Function: DebugItem, Scope
 
 	    ubyte[] ptrVal;
 	    ptrVal.length = byteWidth_;
-	    writeInteger(address_, ptrVal);
+	    state.writeInteger(address_, ptrVal);
 	    return new Value(new ConstantLocation(ptrVal), pt);
 	}
 	string[] contents()

@@ -1049,7 +1049,8 @@ class Debugger: TargetListener, Scope
 	    if (name.length == 0 || name[0] != '$')
 		return false;
 	    try {
-		uint num = name.length > 1 ? toUint(name[1..$]) : 0;
+		uint num = name.length > 1
+		    ? toUint(name[1..$]) : valueHistory_.length - 1;
 		if (num >= valueHistory_.length)
 		    return false;
 		val = valueHistory_[num];
@@ -1956,7 +1957,7 @@ class PrintCommand: Command
 
 	    try {
 		auto e = lang.parseExpr(expr);
-		auto v = e.eval(sc, s).toValue;
+		auto v = e.eval(sc, s).toValue(s);
 		writefln("$%s = (%s) %s", db.valueHistory_.length, v.type.toString, v.toString(fmt, s));
 		db.valueHistory_ ~= v;
 	    } catch (Exception ex) {
@@ -2047,8 +2048,8 @@ class ExamineCommand: Command
 
 		try {
 		    auto e = lang.parseExpr(expr);
-		    auto v = e.eval(sc, s).toValue;
-		    addr = readInteger(v.loc.readValue(s));
+		    auto v = e.eval(sc, s).toValue(s);
+		    addr = s.readInteger(v.loc.readValue(s));
 		} catch (Exception ex) {
 		    writefln("%s", ex.msg);
 		    return;
@@ -2066,7 +2067,7 @@ class ExamineCommand: Command
 		while (count > 0) {
 		    ubyte[] mem = db.target_.readMemory(addr, width_);
 		    addr += width_;
-		    ulong val = readInteger(mem);
+		    ulong val = s.readInteger(mem);
 		    if (width_ < 8)
 			val &= (1UL << width_ * 8) - 1;
 		    string fmt = format("%%0%d%s ", 2*width_, fmt_);

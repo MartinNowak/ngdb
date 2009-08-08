@@ -1125,7 +1125,8 @@ class DwarfFile: public DebugInfo
 			     * return the register value as a memory
 			     * location.
 			     */
-			    ulong regval = readInteger(rloc.readValue(state));
+			    ulong regval =
+				state.readInteger(rloc.readValue(state));
 			    loc = new MemoryLocation(regval, 1);
 			}
 			return true;
