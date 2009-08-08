@@ -509,6 +509,8 @@ class Debugger: TargetListener, Scope
 		try {
 		    commands_.run(this, args, "");
 		} catch (PagerQuit pq) {
+		} catch (TargetException te) {
+		    writefln("%s", te.msg);
 		}
 	    }
 	}

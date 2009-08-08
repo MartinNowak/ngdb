@@ -29,6 +29,14 @@ import objfile.debuginfo;
 import machine.machine;
 version(tangobos) import std.compat;
 
+class TargetException: Exception
+{
+    this(string msg)
+    {
+	super(msg);
+    }
+}
+
 /**
  * This interface is used to allow a target to notify a user of
  * changes in the target state.

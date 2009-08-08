@@ -269,6 +269,7 @@ class ColdTarget: Target
 
 	void writeMemory(ulong targetAddress, ubyte[] toWrite)
 	{
+	    throw new TargetException("Can't write memory");
 	}
 
 	void step(TargetThread t)
