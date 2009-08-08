@@ -963,6 +963,9 @@ class Debugger: TargetListener, Scope
 	    }
 	}
 	stopped();
+	ulong tpc = s.pc;
+	pagefln("%s:\t%s", lookupAddress(s.pc),
+		s.disassemble(tpc, &lookupAddress));
     }
 
     void setBreakpoint(string bploc)
