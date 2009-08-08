@@ -618,7 +618,13 @@ class CLikeLanguage: Language
 	auto tok = lex.nextToken;
 	if (tok.id == "++" || tok.id == "--") {
 	    auto e = unaryExpr(lex);
-	    return new PreIncrementExpr(this, tok.id, e);
+	    auto one = new NumericExpr(this, "1");
+	    Expr e2;
+	    if (tok.id == "++")
+		e2 = new AddExpr(this, e, one);
+	    else
+		e2 = new SubtractExpr(this, e, one);
+	    return new AssignExpr(this, e, e2);
 	}
 	if (tok.id == "&"
 	    || tok.id == "*" || tok.id == "-" || tok.id == "+"
@@ -682,6 +688,11 @@ class CLikeLanguage: Language
 		    unexpected(tok);
 		e = new PointsToExpr(this, e, (cast(IdentifierToken) tok).value);
 	    } else if (tok.id == "++" || tok.id == "--") {
+		auto one = new NumericExpr(this, "1");
+		if (tok.id == "++")
+		    e = new AddExpr(this, e, one);
+		else
+		    e = new SubtractExpr(this, e, one);
 		e = new PostIncrementExpr(this, tok.id, e);
 	    } else if (tok.id == "[") {
 		auto e2 = assignExpr(lex);

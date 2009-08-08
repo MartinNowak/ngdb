@@ -955,6 +955,11 @@ interface Location
     ulong address(MachineState);
 
     /**
+     * Return true if the object is an l-value (i.e. implements writeValue).
+     */
+    bool isLval(MachineState);
+
+    /**
      * Assuming this location represents the address of a field within
      * a compound type, return a location that can access that field
      * of the compound object located at base.
@@ -1000,6 +1005,11 @@ class RegisterLocation: Location
 	{
 	    assert(false);
 	    return 0;
+	}
+
+	bool isLval(MachineState)
+	{
+	    return true;
 	}
 
 	Location fieldLocation(Location baseLoc, MachineState state)
@@ -1050,6 +1060,11 @@ class MemoryLocation: Location
 	ulong address(MachineState)
 	{
 	    return address_;
+	}
+
+	bool isLval(MachineState)
+	{
+	    return true;
 	}
 
 	Location fieldLocation(Location baseLoc, MachineState state)
@@ -1114,6 +1129,11 @@ class CompositeLocation: Location
 	    return 0;
 	}
 
+	bool isLval(MachineState)
+	{
+	    return true;
+	}
+
 	Location fieldLocation(Location baseLoc, MachineState state)
 	{
 	    return null;
@@ -1161,6 +1181,11 @@ class NoLocation: Location
 	{
 	    assert(false);
 	    return 0;
+	}
+
+	bool isLval(MachineState)
+	{
+	    return false;
 	}
 
 	Location fieldLocation(Location baseLoc, MachineState state)
@@ -1214,6 +1239,11 @@ class FirstFieldLocation: Location
 	    return 0;
 	}
 
+	bool isLval(MachineState)
+	{
+	    return false;
+	}
+
 	Location fieldLocation(Location baseLoc, MachineState state)
 	{
 	    return baseLoc;
@@ -1262,6 +1292,11 @@ class ConstantLocation: Location
 	{
 	    assert(false);
 	    return 0;
+	}
+
+	bool isLval(MachineState)
+	{
+	    return false;
 	}
 
 	Location fieldLocation(Location baseLoc, MachineState state)
@@ -1497,26 +1532,6 @@ class ComplementExpr: IntegerUnaryExpr!("~", "complement")
     }
 }
 
-class PreIncrementExpr: UnaryExpr
-{
-    this(Language lang, string op, Expr e)
-    {
-	super(lang, e);
-	op_ = op;
-    }
-    override {
-	string toString()
-	{
-	    return op_ ~ expr_.toString;
-	}
-	DebugItem eval(Scope sc, MachineState state)
-	{
-	    return new Value(null, new VoidType(lang_));
-	}
-    }
-    string op_;
-}
-
 class PostIncrementExpr: UnaryExpr
 {
     this(Language lang, string op, Expr e)
@@ -1531,7 +1546,21 @@ class PostIncrementExpr: UnaryExpr
 	}
 	DebugItem eval(Scope sc, MachineState state)
 	{
-	    return new Value(null, new VoidType(lang_));
+	    /**
+	     * Our expr is either 'a + 1' or 'a - 1'. We read the
+	     * initial value of a before overwriting with the new
+	     * value.
+	     */
+	    BinaryExpr b = cast(BinaryExpr) expr_;
+	    assert(b);
+	    Value left = b.left_.eval(sc, state).toValue(state);
+	    if (!left.loc.isLval(state))
+		throw new EvalException("Not an l-value in post-increment");
+	    Value res = left.dup(state);
+	    Value newval = b.eval(sc, state).toValue(state);
+	    ubyte[] v = newval.loc.readValue(state);
+	    left.loc.writeValue(state, v);
+	    return res;
 	}
     }
     string op_;
@@ -1574,11 +1603,13 @@ class AssignExpr: ExprBase
     override {
 	string toString()
 	{
-	    return left_.toString ~ " = " ~ right_.toString;
+	    return "(" ~ left_.toString ~ " = " ~ right_.toString ~ ")";
 	}
 	DebugItem eval(Scope sc, MachineState state)
 	{
 	    Value left = left_.eval(sc, state).toValue(state);
+	    if (!left.loc.isLval(state))
+		throw new EvalException("Not an l-value in assignment");
 	    Value right = right_.eval(sc, state).toValue(state);
 	    if (left.type != right.type) {
 		if (!left.type.coerce(state, right))
@@ -1623,7 +1654,7 @@ template IntegerBinaryExpr(string op, string name)
 	override {
 	    string toString()
 	    {
-		return left_.toString ~ " " ~ op ~ " " ~ right_.toString;
+		return "(" ~ left_.toString ~ " " ~ op ~ " " ~ right_.toString ~ ")";
 	    }
 	    DebugItem eval(Scope sc, MachineState state)
 	    {
@@ -1940,6 +1971,12 @@ class Value: DebugItem
     Type type()
     {
 	return type_;
+    }
+
+    Value dup(MachineState state)
+    {
+	ubyte[] v = loc_.readValue(state);
+	return new Value(new ConstantLocation(v), type_);
     }
 
     override {

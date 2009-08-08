@@ -1613,6 +1613,14 @@ class DwarfLocation: Location
 	    return 0;
 	}
 
+	bool isLval(MachineState state)
+	{
+	    Location loc;
+	    if (av_.evalLocation(cu_, state, length_, loc))
+		return loc.isLval(state);
+	    return false;
+	}
+
 	Location fieldLocation(Location baseLoc, MachineState state)
 	{
 	    assert(baseLoc.hasAddress(state));
