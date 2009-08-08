@@ -230,7 +230,43 @@ class CLikeLanguage: Language
 	    auto e2 = assignExpr(lex);
 	    if (!e2)
 		return null;
-	    return new AssignExpr(this, tok.id, e, e2);
+	    switch (tok.id) {
+	    case "=":
+		return new AssignExpr(this, e, e2);
+	    case "+=":
+		e2 = new AddExpr(this, e, e2);
+		break;
+	    case "-=":
+		e2 = new SubtractExpr(this, e, e2);
+		break;
+	    case "*=":
+		e2 = new IntegerBinaryExpr!("*", "multiply")(this, e, e2);
+		break;
+	    case "/=":
+		e2 = new IntegerBinaryExpr!("/", "divide")(this, e, e2);
+		break;
+	    case "%=":
+		e2 = new IntegerBinaryExpr!("%", "modulus")(this, e, e2);
+		break;
+	    case "&=":
+		e2 = new IntegerBinaryExpr!("&", "bitwise and")(this, e, e2);
+		break;
+	    case "|=":
+		e2 = new IntegerBinaryExpr!("|", "bitwise or")(this, e, e2);
+		break;
+	    case "^=":
+		e2 = new IntegerBinaryExpr!("^", "bitwise exclusive or")(this, e, e2);
+		break;
+	    case "<<=":
+		e2 = new IntegerBinaryExpr!("<<", "left shift")(this, e, e2);
+		break;
+	    case ">>=":
+		e2 = new IntegerBinaryExpr!(">>", "right shift")(this, e, e2);
+		break;
+	    default:
+		return unexpected(tok);
+	    }
+	    return new AssignExpr(this, e, e2);
 	}
 	lex.pushBack(tok);
 	return e;

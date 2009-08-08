@@ -65,6 +65,7 @@ interface Type: DebugItem
 {
     Language language();
     string toString();
+    bool coerce(MachineState, ref Value);
     string valueToString(string, MachineState, Location);
     size_t byteWidth();
     Type underlyingType();
@@ -100,6 +101,10 @@ class TypeBase: Type
 	throw new EvalException(format("%s is not a value", toString));
     }
     abstract string toString();
+    bool coerce(MachineState, ref Value val)
+    {
+	return false;
+    }
     abstract string valueToString(string, MachineState, Location);
     abstract size_t byteWidth();
     Type underlyingType()
@@ -175,6 +180,19 @@ class IntegerType: TypeBase
 	string toString()
 	{
 	    return name_;
+	}
+
+	bool coerce(MachineState state, ref Value val)
+	{
+	    if (!val.type.isIntegerType)
+		return false;
+
+	    ulong i = state.readInteger(val.loc.readValue(state));
+	    ubyte[] v;
+	    v.length = byteWidth_;
+	    state.writeInteger(i, v);
+	    val = new Value(new ConstantLocation(v), this);
+	    return true;
 	}
 
 	string valueToString(string fmt, MachineState state, Location loc)
@@ -1544,13 +1562,39 @@ private:
     Expr right_;
 }
 
-class AssignExpr: BinopExpr
+class AssignExpr: ExprBase
 {
-    this(Language lang, string op, Expr l, Expr r)
+    this(Language lang, Expr l, Expr r)
     {
-	super(lang, op, l, r);
+	super(lang);
+	left_ = l;
+	right_ = r;
     }
+
+    override {
+	string toString()
+	{
+	    return left_.toString ~ " = " ~ right_.toString;
+	}
+	DebugItem eval(Scope sc, MachineState state)
+	{
+	    Value left = left_.eval(sc, state).toValue(state);
+	    Value right = right_.eval(sc, state).toValue(state);
+	    if (left.type != right.type) {
+		if (!left.type.coerce(state, right))
+		    throw new EvalException("Incompatible types in assignment");
+	    }
+		
+	    ubyte[] v = right.loc.readValue(state);
+	    left.loc.writeValue(state, v);
+	    return left;
+	}
+    }
+
+    Expr left_;
+    Expr right_;
 }
+
 
 class BinaryExpr: ExprBase
 {
