@@ -1177,7 +1177,7 @@ private:
     string core_;
     string prompt_;
     uint pageline_;
-    uint pagemaxline_ = 24;
+    uint pagemaxline_ = 23;
     Target target_;
     TargetModule[] modules_;
     TargetThread[] threads_;
