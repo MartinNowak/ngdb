@@ -2575,19 +2575,24 @@ class DIE
 	    auto sz = this[DW_AT_byte_size].ui;
 	    switch (this[DW_AT_encoding].ul) {
 	    case DW_ATE_signed:
-		return new IntegerType(lang, name, true, sz);
+		debugItem_ = new IntegerType(lang, name, true, sz);
+		break;
 
 	    case DW_ATE_unsigned:
-		return new IntegerType(lang, name, false, sz);
+		debugItem_ = new IntegerType(lang, name, false, sz);
+		break;
 
 	    case DW_ATE_boolean:
-		return new BooleanType(lang, name, sz);
+		debugItem_ = new BooleanType(lang, name, sz);
+		break;
 
 	    case DW_ATE_signed_char:
-		return new CharType(lang, name, true, sz);
+		debugItem_ = new CharType(lang, name, true, sz);
+		break;
 
 	    case DW_ATE_unsigned_char:
-		return new CharType(lang, name, false, sz);
+		debugItem_ = new CharType(lang, name, false, sz);
+		break;
 
 	    case DW_ATE_address:
 	    case DW_ATE_complex_float:
@@ -2601,29 +2606,38 @@ class DIE
 	    case DW_ATE_decimal_float:
 		writefln("Unsupported base type encoding %d - using integer",
 			 this[DW_AT_encoding].ul);
-		return new IntegerType(lang, name, false, sz);
+		debugItem_ = new IntegerType(lang, name, false, sz);
+		break;
 	    }
+	    break;
 
 	case DW_TAG_pointer_type:
-	    return subType.pointerType(cu_.addressSize);
+	    debugItem_ = subType.pointerType(cu_.addressSize);
+	    break;
 
 	case DW_TAG_const_type:
-	    return new ModifierType(lang, name, "const", subType);
+	    debugItem_ = new ModifierType(lang, name, "const", subType);
+	    break;
 
 	case DW_TAG_packed_type:
-	    return new ModifierType(lang, name, "packed", subType);
+	    debugItem_ = new ModifierType(lang, name, "packed", subType);
+	    break;
 
 	case DW_TAG_reference_type:
-	    return new ReferenceType(lang, name, subType, cu_.addressSize);
+	    debugItem_ = new ReferenceType(lang, name, subType, cu_.addressSize);
+	    break;
 
 	case DW_TAG_restrict_type:
-	    return new ModifierType(lang, name, "restrict", subType);
+	    debugItem_ = new ModifierType(lang, name, "restrict", subType);
+	    break;
 
 	case DW_TAG_shared_type:
-	    return new ModifierType(lang, name, "shared", subType);
+	    debugItem_ = new ModifierType(lang, name, "shared", subType);
+	    break;
 
 	case DW_TAG_volatile_type:
-	    return new ModifierType(lang, name, "volatile", subType);
+	    debugItem_ = new ModifierType(lang, name, "volatile", subType);
+	    break;
 
 	case DW_TAG_enumeration_type:
 	{
@@ -2634,7 +2648,8 @@ class DIE
 		    continue;
 		et.addTag(elem.name, elem[DW_AT_const_value].ul);
 	    }
-	    return et;
+	    debugItem_ = et;
+	    break;
 	}
 
 	case DW_TAG_structure_type:
@@ -2662,7 +2677,7 @@ class DIE
 		else if (elem.tag == DW_TAG_subprogram)
 		    ct.addFunction(cast(Function) elem.debugItem);
 	    }
-	    return ct;
+	    break;
 	}
 
 	case DW_TAG_array_type:
@@ -2691,14 +2706,17 @@ class DIE
 		    at.addDim(lb, count);
 		}
 	    }
-	    return at;
+	    break;
 	}
 
 	case DW_TAG_darray_type:
-	    return new DArrayType(lang, subType, this[DW_AT_byte_size].ui);
+	    debugItem_ = new DArrayType(lang, subType,
+					this[DW_AT_byte_size].ui);
+	    break;
 
 	case DW_TAG_typedef:
-	    return new TypedefType(lang, name, subType);
+	    debugItem_ = new TypedefType(lang, name, subType);
+	    break;
 
 	case DW_TAG_formal_parameter:
 	case DW_TAG_variable:
