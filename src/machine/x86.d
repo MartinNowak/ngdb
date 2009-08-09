@@ -128,13 +128,6 @@ private string[] X86_64RegNames =
     "ss",
 ];
 
-private static uint32_t readle32(ubyte* p)
-{
-    uint32_t v;
-    v = p[0] + (p[1] << 8) + (p[2] << 16) + (p[3] << 24);
-    return v;
-}
-
 class X86State: MachineState
 {
     this(Target target)
