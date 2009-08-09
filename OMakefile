@@ -1,5 +1,5 @@
 ROOT= $(dir .)
 
-.SUBDIRS: src # gtkD
+.SUBDIRS: src tests # gtkD
 
-Program(hello, hello foo)
+DProgram(hello, hello foo)

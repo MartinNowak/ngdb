@@ -45,7 +45,7 @@ ScanD(name) =
 	default
 	println($"$(oname): $(deps)")
 
-Objfile(name) =
+DObjfile(name) =
 	ofile = $(name).o
 	dfile = $(name).d
 
@@ -56,17 +56,17 @@ Objfile(name) =
 
 	return $(ofile)
 
-Objfiles(files) =
+DObjfiles(files) =
 	ofiles =
 
 	foreach (i, $(files))
-		ofiles += $(Objfile $i)
+		ofiles += $(DObjfile $i)
 		export
 
 	return $(ofiles)
 
-Program(name, files) =
-	ofiles = $(Objfiles $(files))
+DProgram(name, files) =
+	ofiles = $(DObjfiles $(files))
 	$(name): $(ofiles) $(LIBS)
 		$(DMD) $(LDFLAGS) -of$@ \
 			$(filter %.o, $^) \
@@ -78,9 +78,9 @@ Program(name, files) =
 
 	return $(name)
 
-Library(name, files) =
+DLibrary(name, files) =
 	libname = lib$(name).a
-	$(libname): $(Objfiles $(files))
+	$(libname): $(DObjfiles $(files))
 		rm -f $@
 		ar cr $@ $&
 

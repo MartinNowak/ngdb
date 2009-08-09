@@ -31,4 +31,4 @@ DFLAGS+= -I$(dir $(ROOT)/gtkD/src)
 LIBS[]= # $(file $(ROOT)/gtkD/src/libgtkD.a)
 ELIBS[] = edit
 
-.DEFAULT: $(Program ngdb.new, $(objs))
+.DEFAULT: $(DProgram ngdb.new, $(objs))
