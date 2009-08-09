@@ -1,0 +1,10 @@
+tests[]=
+	hello1
+	recursive
+	segfault
+
+.DEFAULT: $(tests)
+
+CProgram(hello1, hello1)
+CProgram(recursive, recursive)
+CProgram(segfault, segfault)
