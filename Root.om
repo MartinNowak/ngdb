@@ -3,7 +3,10 @@
 .PHONY:	clean
 
 CC=cc
-CFLAGS=
+CFLAGS=-g
+
+CXX=c++
+CXXFLAGS=-g
 
 if $(not $(defined comp))
 	comp = ldc
@@ -113,6 +116,39 @@ CProgram(name, files) =
 	ofiles = $(CObjfiles $(files))
 	$(name): $(ofiles) $(LIBS)
 		$(CC) $(LDFLAGS) -o $@ \
+			$(filter %.o, $^) \
+			$(LIBS) \
+			$(addprefix -l, $(ELIBS))
+
+	clean::
+		rm -f $(name) $(ofiles)
+
+	return $(name)
+
+CXXObjfile(name) =
+	ofile = $(name).o
+	cxxfile = $(name).cpp
+
+	.SCANNER: scan-cxx-$(basename $(cxxfile)): $(cxxfile) :value: $(digest-in-path-optional $(INCLUDES), $&)
+		$(CXX) $(CXXFLAGS) -MM $<
+	$(ofile): $(cxxfile) :scanner: scan-cxx-$(basename $(cxxfile))
+		$(CXX) -c $(CXXFLAGS) -o $@ $(absname $^)
+
+	return $(ofile)
+
+CXXObjfiles(files) =
+	ofiles =
+
+	foreach (i, $(files))
+		ofiles += $(CXXObjfile $i)
+		export
+
+	return $(ofiles)
+
+CXXProgram(name, files) =
+	ofiles = $(CXXObjfiles $(files))
+	$(name): $(ofiles) $(LIBS)
+		$(CXX) $(LDFLAGS) -o $@ \
 			$(filter %.o, $^) \
 			$(LIBS) \
 			$(addprefix -l, $(ELIBS))
