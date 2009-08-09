@@ -168,16 +168,6 @@ interface Target
     TargetThread focusThread();
 
     /**
-     * Return a set of all the threads in the target.
-     */
-    TargetThread[] threads();
-
-    /**
-     * Return a set of all the modules in the target.
-     */
-    TargetModule[] modules();
-
-    /**
      * Read from the target's memory.
      */
     ubyte[] readMemory(ulong targetAddress, size_t bytes);

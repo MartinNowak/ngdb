@@ -349,31 +349,6 @@ class PtraceTarget: Target
 	    return threads_[info.pl_lwpid];
 	}
 
-	TargetThread[] threads()
-	{
-	    TargetThread[] result;
-	    size_t i;
-
-	    result.length = threads_.length;
-	    i = 0;
-	    foreach (t; threads_)
-		result[i++] = t;
-
-	    return result;
-	}
-
-	TargetModule[] modules()
-	{
-	    TargetModule[] result;
-	    size_t i;
-
-	    result.length = modules_.length;
-	    foreach (mod; modules_)
-		result[i++] = mod;
-
-	    return result;
-	}
-
 	ubyte[] readMemory(ulong targetAddress, size_t bytes)
 	{
 	    return readMemory(targetAddress, bytes, true);

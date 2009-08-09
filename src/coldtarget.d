@@ -220,21 +220,6 @@ class ColdTarget: Target
 	    return threads_[0];
 	}
 
-	TargetThread[] threads()
-	{
-	    return null;
-	}
-
-	TargetModule[] modules()
-	{
-	    TargetModule[] result;
-
-	    foreach (mod; modules_)
-		result ~= mod;
-
-	    return result;
-	}
-
 	ubyte[] readMemory(ulong targetAddress, size_t bytes)
 	{
 	    if (core_) {
