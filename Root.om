@@ -24,8 +24,8 @@ case gdc
 
 case ldc
    LDCBASE=/home/dfr/src/ldc
-   DMD=$(LDCBASE)/ldc/bin/ldc
-   DFLAGS= -g -I$(LDCBASE)/tangobos -d-version=tangobos
+   DMD=$(LDCBASE)/ldc/bin/ldmd
+   DFLAGS= -gc -I$(LDCBASE)/tangobos -version=tangobos
    LDFLAGS= -g 
    export
 
