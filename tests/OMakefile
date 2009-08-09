@@ -4,8 +4,11 @@ tests[]=
 	hello3
 	recursive
 	segfault
+	thread
 
 .DEFAULT: $(tests)
+
+ELIBS = thr
 
 CTest(name) =
 	CProgram($(name), $(name))
@@ -21,3 +24,4 @@ CXXTest(hello2)
 DTest(hello3)
 CTest(recursive)
 CTest(segfault)
+CTest(thread)

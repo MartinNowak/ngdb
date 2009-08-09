@@ -635,7 +635,7 @@ class Debugger: TargetListener, Scope
 	if (!target_)
 	    return;
 
-	TargetThread t = threads_[0];	// XXX
+	TargetThread t = currentThread;
 	MachineState s = t.state;
 	LineEntry[] le;
 	DebugInfo di;
@@ -767,8 +767,7 @@ class Debugger: TargetListener, Scope
 	    return;
 	}
 
-	// XXX current thread
-	TargetThread t = threads_[0];
+	TargetThread t = currentThread;
 	MachineState s = t.state;
 	DebugInfo di;
 
@@ -910,8 +909,7 @@ class Debugger: TargetListener, Scope
 	    return;
 	}
 
-	// XXX current thread
-	TargetThread t = threads_[0];
+	TargetThread t = currentThread;
 	MachineState s = t.state;
 
 	ulong frame = 0;
@@ -1042,6 +1040,11 @@ class Debugger: TargetListener, Scope
 	return f;
     }
 
+    TargetThread currentThread()
+    {
+	return currentThread_;
+    }
+
     bool findDebugInfo(MachineState s, out DebugInfo di)
     {
 	Location loc;
@@ -1105,6 +1108,7 @@ class Debugger: TargetListener, Scope
 	}
 	void onBreakpoint(Target, TargetThread t, void* id)
 	{
+	    currentThread_ = t;
 	    /*
 	     * We use this as id for the step breakpoints.
 	     */
@@ -1120,6 +1124,7 @@ class Debugger: TargetListener, Scope
 	}
 	void onSignal(Target, int sig, string sigName)
 	{
+	    currentThread_ = target_.focusThread;
 	    writefln("Signal %d (%s)", sig, sigName);
 	}
 	void onExit(Target)
@@ -1183,6 +1188,7 @@ private:
     Target target_;
     TargetModule[] modules_;
     TargetThread[] threads_;
+    TargetThread currentThread_;
     Frame topFrame_;
     Frame currentFrame_;
     Breakpoint[] breakpoints_;
@@ -1517,12 +1523,17 @@ class FinishCommand: Command
 
 	void run(Debugger db, string[] args)
 	{
-	    if (!db.topFrame.outer) {
+	    auto f = db.topFrame;
+	    if (!f) {
+		db.pagefln("No current frame");
+		return;
+	    }
+	    if (!f.outer) {
 		db.pagefln("Already in outermost stack frame");
 		return;
 	    }
-	    auto fromFrame = db.getFrame(0);
-	    auto toFrame = db.getFrame(1);
+	    auto fromFrame = f;
+	    auto toFrame = f.outer;
 
 	    Type rTy = fromFrame.func_.returnType;
 	    db.setStepBreakpoint(toFrame.state_.pc);
@@ -1533,7 +1544,7 @@ class FinishCommand: Command
 		/*
 		 * XXX factor out calling convention details
 		 */
-		MachineState s = db.threads_[0].state;
+		MachineState s = db.currentThread.state;
 		Location loc = new RegisterLocation(0, s.grWidth(0));
 		Value val = new Value(loc, rTy);
 		db.pagefln("Value returned is %s", val.toString(null, s));
@@ -1725,6 +1736,46 @@ class InfoBreakCommand: Command
     }
 }
 
+class ThreadCommand: Command
+{
+    static this()
+    {
+	Debugger.registerCommand(new ThreadCommand);
+    }
+
+    override {
+	string name()
+	{
+	    return "thread";
+	}
+
+	string description()
+	{
+	    return "Select a thread";
+	}
+
+	void run(Debugger db, string[] args)
+	{
+	    if (args.length != 1) {
+		db.pagefln("usage: thread <number>");
+		return;
+	    }
+	    uint n = ~0;
+	    try {
+		n = toUint(args[0]);
+	    } catch (ConvError ce) {
+	    }
+	    if (n < 1 || n >= db.threads_.length) {
+		db.pagefln("Invalid thread %s", args[0]);
+		return;
+	    }
+
+	    db.currentThread_ = db.threads_[n-1];
+	    db.stopped();
+	}
+    }
+}
+
 class InfoThreadCommand: Command
 {
     static this()
@@ -1746,7 +1797,10 @@ class InfoThreadCommand: Command
 	void run(Debugger db, string[] args)
 	{
 	    foreach (i, t; db.threads_) {
-		db.pagefln("%d: stopped at 0x%08x", i + 1, t.state.pc);
+		db.pagefln("%s %-2d: %s",
+			   t == db.currentThread ? "*" : " ",
+			   i + 1,
+			   db.describeAddress(t.state.pc, t.state));
 	    }
 	}
     }
@@ -2137,7 +2191,7 @@ class ExamineCommand: Command
 	    if (f)
 		s = f.state_;
 	    else
-		s = db.threads_[0].state;
+		s = db.currentThread.state;
 
 	    if (args.length > 0 && args[0][0] == '/') {
 		if (!db.parseFormat(args[0], count_, width_, fmt_))
