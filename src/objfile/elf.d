@@ -919,6 +919,7 @@ class Elffile: Objfile
 		return null;
 	    }
 	}
+	return null;
     }
 
     static this()
