@@ -2,6 +2,9 @@
 
 .PHONY:	clean
 
+CC=cc
+CFLAGS=
+
 if $(not $(defined comp))
 	comp = ldc
 	export
@@ -85,5 +88,38 @@ DLibrary(name, files) =
 		ar cr $@ $&
 
 	return $(libname)
+
+CObjfile(name) =
+	ofile = $(name).o
+	cfile = $(name).c
+
+	.SCANNER: scan-c-$(basename $(cfile)): $(cfile) :value: $(digest-in-path-optional $(INCLUDES), $&)
+		$(CC) $(CFLAGS) -MM $<
+	$(ofile): $(cfile) :scanner: scan-c-$(basename $(cfile))
+		$(CC) -c $(CFLAGS) -o $@ $(absname $^)
+
+	return $(ofile)
+
+CObjfiles(files) =
+	ofiles =
+
+	foreach (i, $(files))
+		ofiles += $(CObjfile $i)
+		export
+
+	return $(ofiles)
+
+CProgram(name, files) =
+	ofiles = $(CObjfiles $(files))
+	$(name): $(ofiles) $(LIBS)
+		$(CC) $(LDFLAGS) -o $@ \
+			$(filter %.o, $^) \
+			$(LIBS) \
+			$(addprefix -l, $(ELIBS))
+
+	clean::
+		rm -f $(name) $(ofiles)
+
+	return $(name)
 
 .SUBDIRS:	.
