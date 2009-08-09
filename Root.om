@@ -115,7 +115,7 @@ CObjfiles(files) =
 CProgram(name, files) =
 	ofiles = $(CObjfiles $(files))
 	$(name): $(ofiles) $(LIBS)
-		$(CC) $(LDFLAGS) -o $@ \
+		$(CC) $(LDFLAGS) -static -o $@ \
 			$(filter %.o, $^) \
 			$(LIBS) \
 			$(addprefix -l, $(ELIBS))
@@ -148,7 +148,7 @@ CXXObjfiles(files) =
 CXXProgram(name, files) =
 	ofiles = $(CXXObjfiles $(files))
 	$(name): $(ofiles) $(LIBS)
-		$(CXX) $(LDFLAGS) -o $@ \
+		$(CXX) $(LDFLAGS) -static -o $@ \
 			$(filter %.o, $^) \
 			$(LIBS) \
 			$(addprefix -l, $(ELIBS))
