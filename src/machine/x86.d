@@ -29,6 +29,7 @@ import machine.machine;
 import objfile.debuginfo;
 import objfile.language;
 private import machine.x86dis;
+import sys.reg;
 import target;
 
 import std.stdio;
@@ -154,6 +155,13 @@ class X86State: MachineState
 	ulong pc()
 	{
 	    return gregs_[X86Reg.EIP];
+	}
+
+	void setGRs(ubyte* p)
+	{
+	    foreach (map; regmap_) {
+		setGR(map.gregno, *cast(uint32_t*) (p + map.regoff));
+	    }
 	}
 
 	void setGR(uint gregno, ulong val)
@@ -291,6 +299,28 @@ class X86State: MachineState
     }
 
 private:
+    struct regmap {
+	int gregno;		// machine gregno
+	size_t regoff;		// offset struct reg
+    }
+    static regmap[] regmap_ = [
+	{ X86Reg.EAX, reg.r_eax.offsetof },
+	{ X86Reg.ECX, reg.r_ecx.offsetof },
+	{ X86Reg.EDX, reg.r_edx.offsetof },
+	{ X86Reg.EBX, reg.r_ebx.offsetof },
+	{ X86Reg.ESP, reg.r_esp.offsetof },
+	{ X86Reg.EBP, reg.r_ebp.offsetof },
+	{ X86Reg.ESI, reg.r_esi.offsetof },
+	{ X86Reg.EDI, reg.r_edi.offsetof },
+	{ X86Reg.EIP, reg.r_eip.offsetof },
+	{ X86Reg.EFLAGS, reg.r_eflags.offsetof },
+	{ X86Reg.CS, reg.r_cs.offsetof },
+	{ X86Reg.SS, reg.r_ss.offsetof },
+	{ X86Reg.DS, reg.r_ds.offsetof },
+	{ X86Reg.ES, reg.r_es.offsetof },
+	{ X86Reg.FS, reg.r_fs.offsetof },
+	{ X86Reg.GS, reg.r_gs.offsetof },
+	];
     Target	target_;
     uint32_t	gregs_[X86Reg.GR_COUNT];
 }

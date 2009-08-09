@@ -43,6 +43,11 @@ interface MachineState: Scope
     ulong pc();
 
     /**
+     * Set the values of all the general registers.
+     */
+    void setGRs(ubyte* regs);
+
+    /**
      * Set a general register by register number.
      */
     void setGR(uint gregno, ulong val);
