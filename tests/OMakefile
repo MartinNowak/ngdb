@@ -1,10 +1,23 @@
 tests[]=
 	hello1
+	hello2
+	hello3
 	recursive
 	segfault
 
 .DEFAULT: $(tests)
 
-CProgram(hello1, hello1)
-CProgram(recursive, recursive)
-CProgram(segfault, segfault)
+CTest(name) =
+	CProgram($(name), $(name))
+
+CXXTest(name) =
+	CXXProgram($(name), $(name))
+
+DTest(name) =
+	DProgram($(name), $(name))
+
+CTest(hello1)
+CXXTest(hello2)
+DTest(hello3)
+CTest(recursive)
+CTest(segfault)
