@@ -36,6 +36,7 @@ import machine.machine;
 
 interface Language
 {
+    string enumType(string baseType);
     string structureType(string baseType);
     string unionType(string baseType);
     string pointerType(string baseType);
@@ -52,6 +53,10 @@ interface Language
 class CLikeLanguage: Language
 {
     override {
+	string enumType(string baseType)
+	{
+	    return "enum " ~ baseType;
+	}
 	string structureType(string baseType)
 	{
 	    return "struct " ~ baseType;

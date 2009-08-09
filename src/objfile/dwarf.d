@@ -2625,6 +2625,18 @@ class DIE
 	case DW_TAG_volatile_type:
 	    return new ModifierType(lang, name, "volatile", subType);
 
+	case DW_TAG_enumeration_type:
+	{
+	    ulong sz = this[DW_AT_byte_size] ? this[DW_AT_byte_size].ul: 1;
+	    auto et = new EnumType(lang, name, sz);
+	    foreach (elem; children) {
+		if (elem.tag != DW_TAG_enumerator)
+		    continue;
+		et.addTag(elem.name, elem[DW_AT_const_value].ul);
+	    }
+	    return et;
+	}
+
 	case DW_TAG_structure_type:
 	case DW_TAG_class_type:
 	case DW_TAG_union_type:

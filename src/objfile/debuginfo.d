@@ -631,6 +631,57 @@ private:
     Function[] functions_;
 }
 
+class EnumType: IntegerType
+{
+    struct tag {
+	string name;
+	ulong value;
+    }
+
+    this(Language lang, string name, uint byteWidth)
+    {
+	super(lang, name, false, byteWidth);
+    }
+
+    void addTag(string name, ulong value)
+    {
+	tags_ ~= tag(name, value);
+    }
+
+    override
+    {
+	string toString()
+	{
+	    return lang_.enumType(name_);
+	}
+	string valueToString(string fmt, MachineState state, Location loc)
+	{
+	    string s;
+
+	    if (fmt)
+		return super.valueToString(fmt, state, loc);
+
+	    ulong val = state.readInteger(loc.readValue(state));
+	    foreach (t; tags_) {
+		if (t.value == val)
+		    return t.name;
+	    }
+	    return super.valueToString(fmt, state, loc);
+	}
+	bool isCharType()
+	{
+	    return false;
+	}
+	bool isIntegerType()
+	{
+	    return false;
+	}
+    }
+
+private:
+    tag[] tags_;
+}
+
 class CompoundScope: Scope
 {
     this(CompoundType type, Location base, MachineState state)
