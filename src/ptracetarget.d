@@ -256,10 +256,16 @@ private:
     {
 	target_.ptrace(PT_GETREGS, lwpid_, cast(char*) &regs_, 0);
 	state_.setGRs(cast(ubyte*) &regs_);
-
-	uint32_t tp;
-	target_.ptrace(PT_GETGSBASE, lwpid_, cast(char*) &tp, 0);
-	state_.tp = tp;
+	try {
+	    uint32_t tp;
+	    target_.ptrace(PT_GETGSBASE, lwpid_, cast(char*) &tp, 0);
+	    state_.tp = tp;
+	} catch (PtraceException pte) {
+	    /*
+	     * We may get an error reading GSBASE if the kernel doesn't 
+	     * support it.
+	     */
+	}
     }
     void writeState()
     {

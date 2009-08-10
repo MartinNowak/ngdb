@@ -1575,7 +1575,9 @@ class DwarfLocation: Location
 	    if (!state)
 		return false;
 	    Location loc;
-	    return av_.evalLocation(cu_, state, length_, loc);
+	    if (av_.evalLocation(cu_, state, length_, loc))
+		return loc.valid(state);
+	    return false;
 	}
 
 	size_t length()

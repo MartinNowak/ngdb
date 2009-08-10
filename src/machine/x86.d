@@ -162,6 +162,8 @@ class X86State: MachineState
 
 	ulong tls_get_addr(uint index, ulong offset)
 	{
+	    if (!tp_)
+		return 0;
 	    ulong dtv = readInteger(readMemory(tp_ + 4, 4));
 	    ulong base = readInteger( readMemory(dtv + 4 + 4*index, 4));
 	    return base + offset;
@@ -219,6 +221,7 @@ class X86State: MachineState
 	{
 	    X86State newState = new X86State(target_);
 	    newState.gregs_[] = gregs_[];
+	    newState.tp_ = tp_;
 	    return newState;
 	}
 

@@ -1153,9 +1153,9 @@ class TLSLocation: Location
     }
 
     override {
-	bool valid(MachineState)
+	bool valid(MachineState state)
 	{
-	    return true;
+	    return state.tls_get_addr(index_, 0) != 0;
 	}
 
 	size_t length()
