@@ -199,6 +199,15 @@ private class Breakpoint
 	} else {
 	    if (di)
 		found = di.findLineByFunction(func_, lines);
+	    if (!found) {
+		TargetSymbol sym;
+		if (mod.lookupSymbol(func_, sym)) {
+		    LineEntry le;
+		    le.address = sym.value;
+		    lines ~= le;
+		    found = true;
+		}
+	    }
 	}
 	if (found) {
 	    Function func = null;
