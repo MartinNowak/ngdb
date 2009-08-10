@@ -2573,6 +2573,7 @@ class DIE
 	switch (tag) {
 	case DW_TAG_base_type:
 	    auto sz = this[DW_AT_byte_size].ui;
+	    if (sz == 0) sz = 1;
 	    switch (this[DW_AT_encoding].ul) {
 	    case DW_ATE_signed:
 		debugItem_ = new IntegerType(lang, name, true, sz);
