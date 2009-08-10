@@ -2113,6 +2113,8 @@ class PrintCommand: Command
 	    auto f = db.currentFrame;
 	    if (f)
 		s = f.state_;
+	    else
+		s = db.currentThread.state;
 
 	    if (args.length > 0 && args[0][0] == '/') {
 		uint count, width;
