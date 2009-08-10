@@ -27,10 +27,10 @@
 module objfile.debuginfo;
 
 version(tangobos) import std.compat;
-import std.conv;
 import std.ctype;
 import std.stdio;
 import std.string;
+import std.c.stdlib;
 
 import objfile.language;
 import machine.machine;
@@ -1447,10 +1447,10 @@ class NumericExpr: ExprBase
     {
 	super(lang);
 	if (num[$-1] == 'U' || num[$-1] == 'u') {
-	    unum_ = toUlong(num[0..$-1]);
+	    unum_ = strtoull(toStringz(num), null, 0);
 	    isSigned_ = false;
 	} else {
-	    num_ = toLong(num);
+	    num_ = strtoll(toStringz(num), null, 0);
 	    isSigned_ = true;
 	}
     }
