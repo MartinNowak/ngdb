@@ -1100,6 +1100,10 @@ template ElfFileBase()
     {
 	ubyte[] res;
 	res.length = len;
+
+	if (!len)
+	    return res;
+
 	memset(&res[0], 0, len);
 
 	ulong sa = addr;
