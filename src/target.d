@@ -71,7 +71,7 @@ interface TargetListener
     /**
      * Called when the target stops because of a signal
      */
-    void onSignal(Target, int sig, string sigName);
+    void onSignal(Target, TargetThread, int sig, string sigName);
 
     /**
      * Called when the target exits
@@ -94,6 +94,13 @@ interface TargetThread
      * Return the machine state for this thread
      */
     MachineState state();
+
+    /**
+     * The identifiers of this thread. Identifiers start at one for
+     * the main thread and increase by one for each new
+     * thread. Identifiers are not re-used withing a target.
+     */
+    uint id();
 }
 
 struct TargetSymbol

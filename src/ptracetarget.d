@@ -166,6 +166,7 @@ class PtraceBreakpoint
 	 * Disable by writing back our saved bytes.
 	 */
 	target_.writeMemory(addr_, save_, false);
+	stoppedThreads_.length = 0;
     }
 
     ulong address()
@@ -205,6 +206,7 @@ private:
     PtraceTarget target_;
     ulong addr_;
     void*[] ids_;
+    PtraceThread[] stoppedThreads_;
     ubyte[] save_;
     static ubyte[] break_ = [ 0xcc ]; // XXX i386 int3
 }
@@ -214,6 +216,7 @@ class PtraceThread: TargetThread
     this(PtraceTarget target, lwpid_t lwpid)
     {
 	target_ = target;
+	id_ = target.nextTid_++;
 	lwpid_ = lwpid;
 	state_ = new X86State(target_);
     }
@@ -227,6 +230,10 @@ class PtraceThread: TargetThread
 	{
 	    return state_;
 	}
+	uint id()
+	{
+	    return id_;
+	}
     }
 
     void pc(ulong addr)
@@ -237,10 +244,24 @@ class PtraceThread: TargetThread
     }
 
 private:
+    void suspend()
+    {
+	target_.ptrace(PT_SUSPEND, lwpid_, null, 0);
+    }
+    void resume()
+    {
+	target_.ptrace(PT_RESUME, lwpid_, null, 0);
+    }
     void readState()
     {
 	target_.ptrace(PT_GETREGS, lwpid_, cast(char*) &regs_, 0);
 	state_.setGRs(cast(ubyte*) &regs_);
+    }
+    void writeState()
+    {
+	state_.getGRs(cast(ubyte*) &regs_);
+	//writefln("write thread %d pc as %#x, eax as %#x", id, regs_.r_eip, regs_.r_eax);
+	target_.ptrace(PT_SETREGS, lwpid_, cast(char*) &regs_, 0);
     }
     void dumpState()
     {
@@ -263,6 +284,7 @@ private:
     static int pcRegno_ = X86Reg.EIP;
 
     PtraceTarget target_;
+    uint id_;
     lwpid_t lwpid_;
     MachineState state_;
     reg regs_;
@@ -365,9 +387,17 @@ class PtraceTarget: Target
 
 	    try {
 		PtraceThread pt = cast(PtraceThread) t;
+		foreach (pt2; threads_)
+		    if (pt2 !is pt)
+			pt2.suspend;
+		pt.writeState;
 		ptrace(PT_STEP, pt.lwpid_, cast(char*) 1, 0);
 		state_ = TargetState.RUNNING;
 		wait();
+		assert(focusThread is pt);
+		foreach (pt2; threads_)
+		    if (pt2 !is pt)
+			pt2.resume;
 	    } catch (PtraceException pte) {
 		if (pte.errno_ == ESRCH)
 		    listener_.onExit(this);
@@ -383,24 +413,19 @@ class PtraceTarget: Target
 		 * If a thread is currently sitting on a breakpoint, step
 		 * over it.
 		 */
-		foreach (t; threads_.values.dup) {
-		    foreach (pbp; breakpoints_) {
-			if (t.state.pc == pbp.address) {
-			    debug(breakpoints)
-				writefln("stepping over breakpoint at 0x%x",
-					 t.state.pc);
-			    step(t);
-			    debug(breakpoints)
-				writefln("after step, thread.pc 0x%x",
-					 t.state.pc);
-			    /*
-			     * Step each thread at most once so that we
-			     * will correctly stop at the next instruction
-			     * if that also has a breakpoint set.
-			     */
-			    break;
-			}
+		foreach (t; threads_)
+		    t.writeState;
+		foreach (pbp; breakpoints_) {
+		    foreach (t; pbp.stoppedThreads_) {
+			debug(breakpoints)
+			    writefln("stepping thread %d over breakpoint at 0x%x",
+				     t.id, t.state.pc);
+			step(t);
+			debug(breakpoints)
+			    writefln("after step, thread %d pc is 0x%x",
+				     t.id, t.state.pc);
 		    }
+		    pbp.stoppedThreads_.length = 0;
 		}
 
 		foreach (pbp; breakpoints_)
@@ -472,7 +497,7 @@ class PtraceTarget: Target
 	} catch (PtraceException pte) {
 	    if (pte.errno_ == ESRCH)
 		listener_.onExit(this);
-	    result.length = 0;
+	    throw new TargetException("Can't read target memory");
 	}
 
 	return result;
@@ -497,6 +522,7 @@ class PtraceTarget: Target
 private:
     TargetState state_ = TargetState.STOPPED;
     pid_t pid_;
+    uint nextTid_ = 1;
     int waitStatus_;
     PtraceThread[lwpid_t] threads_;
     PtraceModule[] modules_;
@@ -615,28 +641,31 @@ private:
 	foreach (t; threads_)
 	    t.readState();
 
-	if (WIFSTOPPED(waitStatus_) && WSTOPSIG(waitStatus_) != SIGTRAP) {
-	    int sig = WSTOPSIG(waitStatus_);
-	    listener_.onSignal(this, sig, signame(sig));
-	}
-
-	/*
-	 * Figure out if any threads hit a breakpoint and if so, back
-	 * them up and inform the listener.
-	 */
-	if (checkBreakpoints) {
-	    foreach (t; threads_) {
-		foreach (pbp; breakpoints_.values) {
-		    if (t.state.pc == pbp.address + 1) {
-			t.pc = pbp.address;
-			foreach (id; pbp.ids) {
-			    debug(breakpoints)
-				writefln("hit breakpoint at 0x%x for 0x%x",
-					 t.state.pc, id);
-			    listener_.onBreakpoint(this, t, id);
+	if (WIFSTOPPED(waitStatus_)) {
+	    if (WSTOPSIG(waitStatus_) == SIGTRAP) {
+		if (checkBreakpoints) {
+		    /*
+		     * A thread stopped at a breakpoint. Adjust its PC
+		     * accordingly and find out what stopped it,
+		     * informing our listener as appropriate.
+		     */
+		    PtraceThread pt = cast(PtraceThread) focusThread;
+		    pt.pc = pt.state.pc - 1; // XXX MachineState.adjustPcAfterBreak
+		    foreach (pbp; breakpoints_.values) {
+			if (pt.state.pc == pbp.address) {
+			    foreach (id; pbp.ids) {
+				debug(breakpoints)
+				    writefln("hit breakpoint at 0x%x for 0x%x",
+					     pt.state.pc, id);
+				listener_.onBreakpoint(this, pt, id);
+			    }
+			    pbp.stoppedThreads_ ~= pt;
 			}
 		    }
 		}
+	    } else {
+		int sig = WSTOPSIG(waitStatus_);
+		listener_.onSignal(this, focusThread, sig, signame(sig));
 	    }
 	}
     }

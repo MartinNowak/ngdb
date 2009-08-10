@@ -335,9 +335,14 @@ private class Frame
 	func_ = func;
 	state_ = state;
 	Location loc;
-	di.findFrameBase(state, loc);
-	addr_ = loc.address(state);
-	lang_ = di.findLanguage(state.pc);
+	if (di) {
+	    di.findFrameBase(state, loc);
+	    addr_ = loc.address(state);
+	    lang_ = di.findLanguage(state.pc);
+	} else {
+	    addr_ = 0;
+	    lang_ = new CLikeLanguage;
+	}
     }
     string toString()
     {
@@ -360,6 +365,9 @@ private class Frame
     {
 	if (outer_)
 	    return outer_;
+
+	if (!di_)
+	    return null;
 
 	auto s = di_.unwind(state_);
 	if (!s)
@@ -644,7 +652,7 @@ class Debugger: TargetListener, Scope
 	    Location loc;
 	    Function func;
 	    if (di.findFrameBase(s, loc) && (func = di.findFunction(s.pc)) !is null) {
-		if (!topFrame_ || topFrame_.func_ != func
+		if (!topFrame_ || topFrame_.func_ !is func
 		    || topFrame_.addr_ != loc.address(s)) {
 		    writefln("%s", describeAddress(s.pc, s));
 		    currentFrame_ = topFrame_ =
@@ -660,6 +668,8 @@ class Debugger: TargetListener, Scope
 		infoCommands_.onSourceLine(this, sf, le[0].line);
 	    }
 	} else {
+	    currentFrame_ = topFrame_ =
+		new Frame(this, 0, null, null, null, s);
 	    ulong tpc = s.pc;
 	    writefln("%s:\t%s", lookupAddress(s.pc),
 		     s.disassemble(tpc, &lookupAddress));
@@ -1045,6 +1055,18 @@ class Debugger: TargetListener, Scope
 	return currentThread_;
     }
 
+    void currentThread(TargetThread t)
+    {
+	if (t != currentThread_) {
+	    foreach (i, tt; threads_) {
+		if (t == tt) {
+		    pagefln("Switched to thread %d", i + 1);
+		}
+	    }
+	    currentThread_ = t;
+	}
+    }
+
     bool findDebugInfo(MachineState s, out DebugInfo di)
     {
 	Location loc;
@@ -1085,6 +1107,8 @@ class Debugger: TargetListener, Scope
 		if (t == thread)
 		    return;
 	    threads_ ~= thread;
+	    if (!currentThread_)
+		currentThread_ = thread;
 	}
 	void onThreadDestroy(Target target, TargetThread thread)
 	{
@@ -1108,7 +1132,7 @@ class Debugger: TargetListener, Scope
 	}
 	void onBreakpoint(Target, TargetThread t, void* id)
 	{
-	    currentThread_ = t;
+	    currentThread = t;
 	    /*
 	     * We use this as id for the step breakpoints.
 	     */
@@ -1122,10 +1146,10 @@ class Debugger: TargetListener, Scope
 		}
 	    }
 	}
-	void onSignal(Target, int sig, string sigName)
+	void onSignal(Target, TargetThread t, int sig, string sigName)
 	{
-	    currentThread_ = target_.focusThread;
-	    writefln("Signal %d (%s)", sig, sigName);
+	    currentThread = t;
+	    writefln("Thread %d received signal %d (%s)", t.id, sig, sigName);
 	}
 	void onExit(Target)
 	{
@@ -1134,7 +1158,9 @@ class Debugger: TargetListener, Scope
 
 	    target_ = null;
 	    threads_.length = 0;
+	    currentThread_ = null;
 	    modules_.length = 0;
+	    topFrame_ = currentFrame_ = null;
 	    foreach (bp; breakpoints_)
 		bp.onExit;
 	}
@@ -1491,7 +1517,7 @@ class ContinueCommand: Command
 
 	void run(Debugger db, string[] args)
 	{
-	    if (!db.target_) {
+	    if (db.target_.state == TargetState.EXIT) {
 		db.pagefln("Program is not being debugged");
 		return;
 	    }
@@ -1765,13 +1791,14 @@ class ThreadCommand: Command
 		n = toUint(args[0]);
 	    } catch (ConvError ce) {
 	    }
-	    if (n < 1 || n >= db.threads_.length) {
-		db.pagefln("Invalid thread %s", args[0]);
-		return;
+	    foreach (t; db.threads_) {
+		if (t.id == n) {
+		    db.currentThread = t;
+		    db.stopped();
+		    return;
+		}
 	    }
-
-	    db.currentThread_ = db.threads_[n-1];
-	    db.stopped();
+	    db.pagefln("Invalid thread %s", args[0]);
 	}
     }
 }
@@ -1799,7 +1826,7 @@ class InfoThreadCommand: Command
 	    foreach (i, t; db.threads_) {
 		db.pagefln("%s %-2d: %s",
 			   t == db.currentThread ? "*" : " ",
-			   i + 1,
+			   t.id,
 			   db.describeAddress(t.state.pc, t.state));
 	    }
 	}
@@ -2190,7 +2217,7 @@ class ExamineCommand: Command
 	    auto f = db.currentFrame;
 	    if (f)
 		s = f.state_;
-	    else
+	    else if (db.currentThread)
 		s = db.currentThread.state;
 
 	    if (args.length > 0 && args[0][0] == '/') {
@@ -2214,7 +2241,8 @@ class ExamineCommand: Command
 		    lang = f.lang_;
 
 		    Value thisvar;
-		    if (f.func_.thisArgument(thisvar)) {
+		    if (f.func_ &&
+			f.func_.thisArgument(thisvar)) {
 			PointerType ptrTy =
 			    cast (PointerType) thisvar.type.underlyingType;
 			if (ptrTy) {
@@ -2223,8 +2251,10 @@ class ExamineCommand: Command
 			    sc.addScope(new CompoundScope(cTy, v.loc, s));
 			}
 		    }
-		    sc.addScope(f.func_);
-		    sc.addScope(f.di_);
+		    if (f.func_)
+			sc.addScope(f.func_);
+		    if (f.di_)
+			sc.addScope(f.di_);
 		    sc.addScope(s);
 		} else {
 		    lang = new CLikeLanguage;

@@ -143,6 +143,7 @@ class ColdThread: TargetThread
     this(ColdTarget target, ubyte* p)
     {
 	target_ = target;
+	id_ = target.nextTid_++;
 	state_ = new X86State(target_);
 	if (p)
 	    state.setGRs(p);
@@ -157,9 +158,14 @@ class ColdThread: TargetThread
 	{
 	    return state_;
 	}
+	uint id()
+	{
+	    return id_;
+	}
     }
 
     ColdTarget target_;
+    uint id_;
     MachineState state_;
 }
 
@@ -196,9 +202,10 @@ class ColdTarget: Target
 		auto t = new ColdThread(this, desc + prstatus32.sizeof);
 		threads_ ~= t;
 		listener_.onThreadCreate(this, t);
-		if (pr.pr_cursig)
-		    listener_.onSignal(this, pr.pr_cursig,
-				       signame(pr.pr_cursig));
+		static if (false)
+		    if (pr.pr_cursig)
+			listener_.onSignal(this, t, pr.pr_cursig,
+					   signame(pr.pr_cursig));
 	    }
 
 	    core_.enumerateNotes(&getThread);
@@ -264,6 +271,7 @@ class ColdTarget: Target
 
 private:
     TargetState state_ = TargetState.EXIT;
+    uint nextTid_ = 1;
     ColdModule[] modules_;
     ColdThread[] threads_;
     TargetListener listener_;
