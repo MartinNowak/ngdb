@@ -48,6 +48,11 @@ interface MachineState: Scope
     void setGRs(ubyte* regs);
 
     /**
+     * Get the values of all the general registers.
+     */
+    void getGRs(ubyte* regs);
+
+    /**
      * Set a general register by register number.
      */
     void setGR(uint gregno, ulong val);

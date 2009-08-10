@@ -153,7 +153,14 @@ class X86State: MachineState
 	void setGRs(ubyte* p)
 	{
 	    foreach (map; regmap_) {
-		setGR(map.gregno, *cast(uint32_t*) (p + map.regoff));
+		gregs_[map.gregno] = *cast(uint32_t*) (p + map.regoff);
+	    }
+	}
+
+	void getGRs(ubyte* p)
+	{
+	    foreach (map; regmap_) {
+		*cast(uint32_t*) (p + map.regoff) = gregs_[map.gregno];
 	    }
 	}
 
