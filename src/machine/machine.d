@@ -43,6 +43,22 @@ interface MachineState: Scope
     ulong pc();
 
     /**
+     * Return the thread pointer register.
+     */
+    ulong tp();
+
+    /**
+     * Set the thread pointer register.
+     */
+    void tp(ulong);
+
+    /**
+     * Return the address of the TLS object at the given module index
+     * and offset.
+     */
+    ulong tls_get_addr(uint index, ulong offset);
+
+    /**
      * Set the values of all the general registers.
      */
     void setGRs(ubyte* regs);

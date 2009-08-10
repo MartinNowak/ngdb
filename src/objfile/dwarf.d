@@ -454,6 +454,7 @@ enum
     DW_OP_form_tls_address		= 0x9b,
     DW_OP_call_frame_cfa		= 0x9c,
     DW_OP_bit_piece			= 0x9d,
+    DW_OP_GNU_push_tls_address		= 0xe0,
     DW_OP_lo_user			= 0xe0,
     DW_OP_hi_user			= 0xff,
 }
@@ -1848,7 +1849,6 @@ struct Expr
 		throw new Exception("DW_OP_xderef_size not supported");
 
 	    case DW_OP_push_object_address:
-	    case DW_OP_form_tls_address:
 	    case DW_OP_call_frame_cfa:
 		throw new Exception("op not supported yet");
 
@@ -2014,9 +2014,15 @@ struct Expr
 	    case DW_OP_nop:
 		break;
 
+	    case DW_OP_form_tls_address:
+	    case DW_OP_GNU_push_tls_address:
 	    case DW_OP_piece:
 	    case DW_OP_bit_piece:
 		return p-1;
+
+	    default:
+		throw new Exception(format("unexpected location opcode %#x",
+			op));
 	    }
 	}
 	return p;
@@ -2050,7 +2056,15 @@ struct Expr
 		ValueStack stack;
 		Expr e = Expr(is64, p, end);
 		p = e.evalExpr(cu, state, stack);
-		loc = new MemoryLocation(stack.pop, length);
+		if (p < end
+		    && (*p == DW_OP_GNU_push_tls_address
+			|| *p == DW_OP_form_tls_address)) {
+		    p++;
+		    // XXX need to find module TLS index
+		    loc = new TLSLocation(1, stack.pop, length);
+		} else {
+		    loc = new MemoryLocation(stack.pop, length);
+		}
 	    }
 	    if (p == end) {
 		/*

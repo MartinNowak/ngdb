@@ -72,7 +72,11 @@ enum {
 	PT_SETFPREGS    = 36,	/* set floating-point registers */
 	PT_GETDBREGS    = 37,	/* get debugging registers */
 	PT_SETDBREGS    = 38,	/* set debugging registers */
-	PT_FIRSTMACH    = 64	/* for machine-specific requests */
+	PT_FIRSTMACH    = 64,	/* for machine-specific requests */
+
+	PT_GETXMMREGS	= PT_FIRSTMACH + 0,
+	PT_SETXMMREGS	= PT_FIRSTMACH + 1,
+	PT_GETGSBASE	= PT_FIRSTMACH + 2
 }
 
 struct ptrace_io_desc {

@@ -150,6 +150,23 @@ class X86State: MachineState
 	    return gregs_[X86Reg.EIP];
 	}
 
+	ulong tp()
+	{
+	    return tp_;
+	}
+
+	void tp(ulong v)
+	{
+	    tp_ = v;
+	}
+
+	ulong tls_get_addr(uint index, ulong offset)
+	{
+	    ulong dtv = readInteger(readMemory(tp_ + 4, 4));
+	    ulong base = readInteger( readMemory(dtv + 4 + 4*index, 4));
+	    return base + offset;
+	}
+
 	void setGRs(ubyte* p)
 	{
 	    foreach (map; regmap_) {
@@ -323,4 +340,5 @@ private:
 	];
     Target	target_;
     uint32_t	gregs_[X86Reg.GR_COUNT];
+    uint32_t	tp_;
 }

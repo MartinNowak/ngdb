@@ -1143,6 +1143,68 @@ class MemoryLocation: Location
     size_t length_;
 }
 
+class TLSLocation: Location
+{
+    this(uint index, ulong offset, size_t length)
+    {
+	index_ = index;
+	offset = offset;
+	length_ = length;
+    }
+
+    override {
+	bool valid(MachineState)
+	{
+	    return true;
+	}
+
+	size_t length()
+	{
+	    return length_;
+	}
+
+	void length(size_t length)
+	{
+	    length_ = length;
+	}
+
+	ubyte[] readValue(MachineState state)
+	{
+	    return state.readMemory(address(state), length_);
+	}
+
+	void writeValue(MachineState state, ubyte[] value)
+	{
+	    assert(value.length == length_);
+	    return state.writeMemory(address(state), value);
+	}
+
+	bool hasAddress(MachineState)
+	{
+	    return true;
+	}
+
+	ulong address(MachineState state)
+	{
+	    return state.tls_get_addr(index_, offset_);
+	}
+
+	bool isLval(MachineState)
+	{
+	    return true;
+	}
+
+	Location fieldLocation(Location baseLoc, MachineState state)
+	{
+	    return null;
+	}
+    }
+
+    uint index_;
+    ulong offset_;
+    size_t length_;
+}
+
 class CompositeLocation: Location
 {
     void addPiece(Location loc, size_t len)

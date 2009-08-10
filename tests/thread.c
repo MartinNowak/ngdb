@@ -5,9 +5,10 @@
 
 void* foo(void* arg)
 {
-	int n = (int) (uintptr_t) arg;
+	static __thread int n;
 	int i;
 
+	n = (int) (uintptr_t) arg;
 	for (i = 0; i < 10; i++) {
 		printf("%d: loop %d\n", n, i);
 		sleep(1);
