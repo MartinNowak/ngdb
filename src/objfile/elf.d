@@ -1176,7 +1176,7 @@ private:
 	Symbol* best = null;
 	for (int i = 0; i < syms.length; i++) {
 	    Symbol* s = &syms[i];
-	    if (s.type != STT_FUNC)
+	    if (s.type != STT_FUNC && s.type != STT_OBJECT)
 		continue;
 	    if (addr >= s.value && addr < s.value + s.size)
 		return s;

@@ -750,7 +750,10 @@ class Debugger: TargetListener, Scope
 	foreach (mod; modules_) {
 	    TargetSymbol sym;
 	    if (mod.lookupSymbol(addr, sym)) {
-		return sym.name ~ "+" ~ .toString(addr - sym.value);
+		if (addr != sym.value)
+		    return sym.name ~ "+" ~ .toString(addr - sym.value);
+		else
+		    return sym.name;
 	    }
 	}
 	return std.string.format("0x%x", addr);
@@ -2277,7 +2280,7 @@ class ExamineCommand: Command
 	    uint count = count_;
 	    if (fmt_ == "i") {
 		while (count > 0) {
-		    db.pagefln("%#-15x %s", addr, s.disassemble(addr, &db.lookupAddress));
+		    db.pagefln("%-15s %s", db.lookupAddress(addr), s.disassemble(addr, &db.lookupAddress));
 		    count--;
 		}
 	    } else {

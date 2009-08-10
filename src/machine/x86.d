@@ -287,7 +287,7 @@ class X86State: MachineState
 
 	    Disassembler dis = new Disassembler;
 	    dis.setOption("intel");
-	    return dis.disassemble(address, &readByte);
+	    return dis.disassemble(address, &readByte, lookupAddress);
 	}
 
 	string[] contents()

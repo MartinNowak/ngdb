@@ -119,7 +119,8 @@ class Disassembler
 	return false;
     }
 
-    string disassemble(ref ulong loc, char delegate(ulong) readByte)
+    string disassemble(ref ulong loc, char delegate(ulong) readByte,
+	string delegate(ulong) lookupAddress)
     {
 	DecodeState ds;
 	Instruction ip[];
@@ -202,6 +203,7 @@ class Disassembler
 	    ds.seg_ = "%" ~ ds.seg_;
 
 	ds.readByte_ = readByte;
+	ds.lookupAddress_ = lookupAddress;
 	ds.attMode_ = attMode_;
 	ds.mode_ = mode_;
 
@@ -2067,13 +2069,16 @@ struct DecodeState
 
 	    if (havedisp_
 		&& (disp_ || (indexReg_ < 0 && baseReg_ < 0))) {
-		if (disp_ > -50 && disp_ < 50)
-		    s = std.string.format("%d", disp_);
-		else
-		    s = _displayAddress(rt, disp_);
+		if (baseReg_ >= 0) {
+		    int disp = cast(int) disp_;	// XXX 64bit?
+		    if (disp > 0)
+			s = std.string.format("+%d", disp);
+		    else
+			s = std.string.format("%d", disp);
+		} else
+		    s = "+" ~ _displayAddress(rt, disp_);
 		if (baseReg_ < 0 && indexReg_ < 0)
-		    return s;
-		s = "+" ~ s;
+		    return s[1..$];
 	    }
 
 	    int mode = addressSize;
@@ -2144,7 +2149,7 @@ struct DecodeState
     {
 	if (mode_ == 32)
 	    addr &= 0xffffffff;
-	return std.string.format("%#x", addr);
+	return lookupAddress_(addr);
     }
     Operand displayAddress(int rt, ulong addr)
     {
@@ -2569,6 +2574,7 @@ struct DecodeState
     }
 
     char delegate(ulong) readByte_;
+    string delegate(ulong) lookupAddress_;
     ulong loc_;
     bool attMode_;
     int mode_;
