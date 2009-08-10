@@ -212,6 +212,11 @@ class X86State: MachineState
 	    return 4;
 	}
 
+	uint spregno()
+	{
+	    return 4;
+	}
+
 	size_t grCount()
 	{
 	    return X86Reg.GR_COUNT;

@@ -3071,6 +3071,8 @@ class FDE
 	    switch (rl.rule) {
 	    case RLoc.Rule.undefined:
 	    case RLoc.Rule.sameValue:
+		if (i == state.spregno)
+		    newState.setGR(i, cfa);
 		break;
 
 	    case RLoc.Rule.offsetN:

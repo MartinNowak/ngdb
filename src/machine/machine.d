@@ -94,6 +94,11 @@ interface MachineState: Scope
     size_t grWidth(int greg);
 
     /**
+     * Return the stack pointer register index.
+     */
+    uint spregno();
+
+    /**
      * Return the number of general registers
      */
     size_t grCount();
