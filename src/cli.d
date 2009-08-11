@@ -88,6 +88,14 @@ class Command
     void onSourceLine(Debugger db, SourceFile sf, uint line)
     {
     }
+
+    /**
+     * Called for command line completion.
+     */
+    string[] complete(Debugger db, string[] args)
+    {
+	return null;
+    }
 }
 
 class CommandTable
@@ -155,17 +163,28 @@ class CommandTable
 	}
     }
 
-    string[] complete(string name)
+    string[] complete(Debugger db, string[] args)
     {
-	string[] matches;
 
-	foreach (c; list_) {
-	    string s = c.name;
-	    if (s.length >= name.length)
-		if (s[0..name.length] == name)
-		    matches ~= s;
+	if (args.length == 1) {
+	    string[] matches;
+	    string name = args[0];
+	    foreach (c; list_) {
+		string s = c.name;
+		if (s.length >= name.length)
+		    if (s[0..name.length] == name)
+			matches ~= s;
+	    }
+	    return matches;
 	}
-	return matches;
+
+	string name = args[0];
+	string message;
+	Command c = lookup(name, message);
+	if (c)
+	    return c.complete(db, args[1..$]);
+	else
+	    return null;
     }
 
     void onSourceLine(Debugger db, SourceFile sf, uint line)
@@ -1251,44 +1270,48 @@ private:
 
 	size_t n = li.cursor - li.buffer;
 	string[] args = split(chomp(li.buffer[0..n].dup), " ");
+	string[] matches = commands_.complete(this, args);
 
-	if (args.length == 1) {
-	    string[] matches = commands_.complete(args[0]);
-	    if (matches.length == 1) {
-		string s = matches[0][args[0].length..$] ~ " ";
+	string lastArg = "";
+	if (args.length)
+	    lastArg = args[$ - 1];
+
+	if (matches.length == 1) {
+	    string s = matches[0][lastArg.length..$] ~ " ";
+	    if (el_insertstr(el, toStringz(s)) == -1)
+		return CC_ERROR;
+	    return CC_REFRESH;
+	} else {
+	    /*
+	     * Find the longest common prefix of all the matches
+	     * and try to insert from that. If we can't insert any
+	     * more, display the match list.
+	     */
+	    if (matches.length == 0)
+		return CC_ERROR;
+	    int i;
+	    string m0 = matches[0];
+	    for (i = 0; i < m0.length; i++) {
+		foreach (m; matches[1..$]) {
+		    if (i > m.length || m[i] != m0[i])
+			goto gotPrefix;
+		}
+	    }
+	gotPrefix:
+	    if (i > lastArg.length) {
+		string s = m0[lastArg.length..$];
 		if (el_insertstr(el, toStringz(s)) == -1)
 		    return CC_ERROR;
 		return CC_REFRESH;
-	    } else {
-		/*
-		 * Find the longest common prefix of all the matches
-		 * and try to insert from that. If we can't insert any
-		 * more, display the match list.
-		 */
-		int i;
-		string m0 = matches[0];
-		for (i = 0; i < m0.length; i++) {
-		    foreach (m; matches[1..$]) {
-			if (i > m.length || m[i] != m0[i])
-			    goto gotPrefix;
-		    }
-		}
-	    gotPrefix:
-		if (i > args[0].length) {
-		    string s = m0[args[0].length..$];
-		    if (el_insertstr(el, toStringz(s)) == -1)
-			return CC_ERROR;
-		    return CC_REFRESH;
-		}
-		writefln("");
-		foreach (j, m; matches) {
-		    if (j > 0)
-			writef("\t");
-		    writef("%s", m);
-		}
-		writefln("");
-		return CC_REDISPLAY;
 	    }
+	    writefln("");
+	    foreach (j, m; matches) {
+		if (j > 0)
+		    writef("\t");
+		writef("%s", m);
+	    }
+	    writefln("");
+	    return CC_REDISPLAY;
 	}
 
 	return CC_ERROR;
@@ -1398,6 +1421,12 @@ class InfoCommand: Command
 		return;
 	    }
 	    db.infoCommands_.run(db, args, "info ");
+	}
+	string[] complete(Debugger db, string[] args)
+	{
+	    if (args.length == 0)
+		return null;
+	    return db.infoCommands_.complete(db, args);
 	}
     }
 }
