@@ -527,7 +527,7 @@ class Debugger: TargetListener, Scope
 	    HistEvent ev;
 	    if (num > 1) {
 		history(hist_, &ev, H_ENTER, buf);
-		args = split(chomp(.toString(buf).dup), " ");
+		args = split(strip(.toString(buf).dup), " ");
 	    }
 
 	    if (args.length == 0)
@@ -1299,7 +1299,7 @@ private:
 	    }
 	gotPrefix:
 	    if (i > lastArg.length) {
-		string s = m0[lastArg.length..$];
+		string s = m0[lastArg.length..i];
 		if (el_insertstr(el, toStringz(s)) == -1)
 		    return CC_ERROR;
 		return CC_REFRESH;
@@ -1731,6 +1731,20 @@ class BreakCommand: Command
 		return;
 	    }
 	    db.setBreakpoint(args.length == 1 ? args[0] : null);
+	}
+
+	string[] complete(Debugger db, string[] args)
+	{
+	    if (args.length != 1)
+		return null;
+
+	    string[] syms = db.contents;
+	    string[] matches;
+	    string s = args[0];
+	    foreach (sym; syms)
+		if (sym.length >= s.length && sym[0..s.length] == s)
+		    matches ~= sym;
+	    return matches;
 	}
     }
 }
