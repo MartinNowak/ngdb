@@ -49,21 +49,21 @@ class Objfile
 
     abstract char[] readSection(string name);
 
-    static Objfile open(string file)
+    static Objfile open(string file, ulong base)
     {
 	Objfile obj;
 	foreach (f; factories_) {
-	    obj = f(file);
+	    obj = f(file, base);
 	    if (obj)
 		return obj;
 	}
 	return null;
     }
 
-    static void addFileType(Objfile function(string) fn)
+    static void addFileType(Objfile function(string, ulong) fn)
     {
 	factories_ ~= fn;
     }
 
-    static Objfile function(string) factories_[];
+    static Objfile function(string, ulong) factories_[];
 }

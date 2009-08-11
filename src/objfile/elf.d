@@ -895,7 +895,7 @@ import sys.pread;
 
 class Elffile: Objfile
 {
-    static Objfile open(string file)
+    static Objfile open(string file, ulong base)
     {
 	int fd = .open(toStringz(file), O_RDONLY);
 	if (fd > 0) {
@@ -910,10 +910,10 @@ class Elffile: Objfile
 		writefln("Elf format file %s", file);
 	    switch (ei.ei_class) {
 	    case ELFCLASS32:
-		return new Elffile32(fd);
+		return new Elffile32(fd, base);
 		break;
 	    case ELFCLASS64:
-		return new Elffile64(fd);
+		return new Elffile64(fd, base);
 		break;
 	    default:
 		return null;
@@ -946,7 +946,7 @@ class Elffile: Objfile
 
 template ElfFileBase()
 {
-    this(int fd)
+    this(int fd, ulong base)
     {
 	fd_ = fd;
 
@@ -961,6 +961,16 @@ template ElfFileBase()
 	    if (pread(fd, &ph_[i], eh.e_phentsize,
 		      eh.e_phoff + i * eh.e_phentsize) != eh.e_phentsize)
 		throw new Exception("Can't read program headers");
+	}
+	if (base > 0 && ph_.length > 0) {
+	    foreach (ph; ph_) {
+		if (ph.p_type == PT_LOAD) {
+		    offset_ = base - ph.p_vaddr;
+		    break;
+		}
+	    }
+	} else {
+	    offset_ = 0;
 	}
 
 	debug (elf)
@@ -1033,7 +1043,7 @@ template ElfFileBase()
 
     ulong offset()
     {
-	return 0;
+	return offset_;
     }
 
     int lookupSection(string name)
@@ -1161,7 +1171,7 @@ private:
 	    Sym* sym = &syms[i];
 	    Symbol* s = &symbols[i];
 	    s.name = std.string.toString(&strings[sym.st_name]);
-	    s.value = sym.st_value;
+	    s.value = sym.st_value + offset_;
 	    s.size = sym.st_size;
 	    s.type = sym.st_type;
 	    s.binding = sym.st_bind;
@@ -1198,6 +1208,7 @@ private:
     }
 
     int		fd_;
+    ulong	offset_;
     Phdr[]	ph_;
     Shdr[]	sections_;
     char[]	shStrings_;

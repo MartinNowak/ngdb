@@ -201,7 +201,7 @@ private class Breakpoint
 		found = di.findLineByFunction(func_, lines);
 	    if (!found) {
 		TargetSymbol sym;
-		if (mod.lookupSymbol(func_, sym)) {
+		if (mod.lookupSymbol(func_, sym) && sym.value) {
 		    LineEntry le;
 		    le.address = sym.value;
 		    lines ~= le;
@@ -756,14 +756,22 @@ class Debugger: TargetListener, Scope
 
     string lookupAddress(ulong addr)
     {
+	TargetSymbol bestSym;
+	bool found = false;
 	foreach (mod; modules_) {
 	    TargetSymbol sym;
 	    if (mod.lookupSymbol(addr, sym)) {
-		if (addr != sym.value)
-		    return sym.name ~ "+" ~ .toString(addr - sym.value);
-		else
-		    return sym.name;
+		if (!found || addr - sym.value < addr - bestSym.value) {
+		    bestSym = sym;
+		    found = true;
+		}
 	    }
+	}
+	if (found) {
+	    if (addr != bestSym.value)
+		return bestSym.name ~ "+" ~ .toString(addr - bestSym.value);
+	    else
+		return bestSym.name;
 	}
 	return std.string.format("0x%x", addr);
     }
@@ -772,14 +780,16 @@ class Debugger: TargetListener, Scope
     {
 	debug (step)
 	    writefln("step breakpoint at %#x", pc);
-	target_.setBreakpoint(pc, cast(void*) this);
+	if (target_)
+	    target_.setBreakpoint(pc, cast(void*) this);
     }
 
     void clearStepBreakpoints()
     {
 	debug (step)
 	    writefln("clearing step breakpoints");
-	target_.clearBreakpoint(cast(void*) this);
+	if (target_)
+	    target_.clearBreakpoint(cast(void*) this);
     }
 
     void stepProgram(bool stepOverCalls)
@@ -1142,6 +1152,14 @@ class Debugger: TargetListener, Scope
 	    foreach (bp; breakpoints_)
 		bp.activate(mod);
 	}
+	void onModuleDelete(Target, TargetModule mod)
+	{
+	    TargetModule[] newModules;
+	    foreach (omod; modules_)
+		if (omod !is mod)
+		    newModules ~= omod;
+	    modules_ = newModules;
+	}
 	void onBreakpoint(Target, TargetThread t, void* id)
 	{
 	    currentThread = t;
@@ -1153,7 +1171,7 @@ class Debugger: TargetListener, Scope
 	    } else {
 		foreach (i, bp; breakpoints_) {
 		    if (id == cast(void*) bp) {
-			writefln("Breakpoint %d, %s", i + 1, describeAddress(t.state.pc, t.state));
+			writefln("Breakpoint %d, %s", bp.id, describeAddress(t.state.pc, t.state));
 		    }
 		}
 	    }
@@ -1179,12 +1197,18 @@ class Debugger: TargetListener, Scope
 	string[] contents()
 	{
 	    string[] res;
+	    foreach (mod; modules_)
+		res ~= mod.contents();
 	    for (int i = 0; i < valueHistory_.length; i++)
 		res ~= "$" ~ .toString(i);
 	    return res;
 	}
 	bool lookup(string name, out DebugItem val)
 	{
+	    foreach (mod; modules_)
+		if (mod.lookup(name, val))
+		    return true;
+
 	    if (name.length == 0 || name[0] != '$')
 		return false;
 	    try {
@@ -1348,7 +1372,7 @@ class RunCommand: Command
 		db.onExit(db.target_);
 
 	    PtraceRun pt = new PtraceRun;
-	    if (args.length > 1 || runArgs_.length == 0) {
+	    if (args.length > 0 || runArgs_.length == 0) {
 		runArgs_ = db.prog_ ~ args;
 	    }
 	    pt.connect(db, runArgs_);
@@ -2192,7 +2216,7 @@ class PrintCommand: Command
 		lang = f.lang_;
 
 		Value thisvar;
-		if (f.func_.thisArgument(thisvar)) {
+		if (f.func_ && f.func_.thisArgument(thisvar)) {
 		    PointerType ptrTy =
 			cast (PointerType) thisvar.type.underlyingType;
 		    if (ptrTy) {
@@ -2201,14 +2225,13 @@ class PrintCommand: Command
 			sc.addScope(new CompoundScope(cTy, v.loc, s));
 		    }
 		}
-		sc.addScope(f.func_);
-		sc.addScope(f.di_);
-		sc.addScope(s);
+		if (f.func_)
+		    sc.addScope(f.func_);
 	    } else {
 		lang = new CLikeLanguage;
-		sc.addScope(db.modules_[0].debugInfo);	// XXX
 	    }
 	    sc.addScope(db);
+	    sc.addScope(s);
 
 	    try {
 		auto e = lang.parseExpr(expr);
@@ -2295,14 +2318,11 @@ class ExamineCommand: Command
 		    }
 		    if (f.func_)
 			sc.addScope(f.func_);
-		    if (f.di_)
-			sc.addScope(f.di_);
-		    sc.addScope(s);
 		} else {
 		    lang = new CLikeLanguage;
-		    sc.addScope(db.modules_[0].debugInfo);	// XXX
 		}
 		sc.addScope(db);
+		sc.addScope(s);
 
 		try {
 		    auto e = lang.parseExpr(expr);
@@ -2390,7 +2410,7 @@ class ListCommand: Command
 	    } else if (args.length == 1) {
 		if (!db.parseSourceLine(args[0], sf, line)) {
 		    line = 0;
-		    sf = db.findFile(args[1]);
+		    sf = db.findFile(args[0]);
 		}
 	    }
 	    if (sf) {

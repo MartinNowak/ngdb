@@ -55,6 +55,7 @@ extern (C)
 {
     int errno;
     char* strerror(int);
+    char* realpath(char*, char*);
 }
 
 class PtraceException: Exception
@@ -72,12 +73,27 @@ class PtraceModule: TargetModule
 {
     this(char[] filename, ulong start, ulong end)
     {
+	char[] buf;
+	buf.length = 1024;
+	char* p = realpath(toStringz(filename), &buf[0]);
+	if (p)
+	    filename = .toString(p);
 	filename_ = filename;
 	start_ = start;
 	end_ = end;
-	obj_ = Objfile.open(filename_);
-	if (obj_ && DwarfFile.hasDebug(obj_))
-	    dwarf_ = new DwarfFile(obj_);
+    }
+
+    void init()
+    {
+	if (!obj_) {
+	    writefln("Opening %s at %#x", filename_, start_);
+	    obj_ = Objfile.open(filename_, start_);
+	    if (obj_ && DwarfFile.hasDebug(obj_)) {
+		//writefln("Offset is %#x", obj_.offset);
+		//writefln("Reading debug info for %s", filename_);
+		dwarf_ = new DwarfFile(obj_);
+	    }
+	}
     }
 
     override {
@@ -116,7 +132,6 @@ class PtraceModule: TargetModule
 	bool lookupSymbol(ulong addr, out TargetSymbol ts)
 	{
 	    if (obj_) {
-		addr -= obj_.offset;
 		Symbol* s = obj_.lookupSymbol(addr);
 		if (s) {
 		    ts = TargetSymbol(s.name, s.value, s.size);
@@ -125,13 +140,24 @@ class PtraceModule: TargetModule
 	    }
 	    return false;
 	}
+	string[] contents()
+	{
+	    if (dwarf_)
+		return dwarf_.contents;
+	    return null;
+	}
+	bool lookup(string name, out DebugItem val)
+	{
+	    if (dwarf_)
+		return dwarf_.lookup(name, val);
+	    return false;
+	}
     }
 
     int opEquals(PtraceModule mod)
     {
 	return filename_ == mod.filename_
-	    && start_ == mod.start_
-	    && end_ == mod.end_;
+	    && start_ == mod.start_;
     }
 
 private:
@@ -540,6 +566,7 @@ private:
     TargetListener listener_;
     string execname_;
     bool breakpointsActive_;
+    string lastMaps_;
 
     void getThreads()
     {
@@ -572,6 +599,9 @@ private:
     void getModules()
     {
 	string maps = readMaps();
+	if (maps == lastMaps_)
+	    return;
+	lastMaps_ = maps;
 
 	string[] lines = splitlines(maps);
 
@@ -586,29 +616,51 @@ private:
 		string name = words[12];
 		if (name == "-")
 		    name = execname_;
-		PtraceModule mod =
-		    new PtraceModule(name, atoi(words[0]), atoi(words[1]));
-		if (lastMod && lastMod.filename_ == mod.filename_
-		    && lastMod.end_ == mod.start_) {
-		    lastMod.end_ = mod.end_;
+		ulong start = strtoull(toStringz(words[0]), null, 0);
+		ulong end = strtoull(toStringz(words[1]), null, 0);
+		if (lastMod && lastMod.filename_ == name
+		    && lastMod.end_ == start) {
+		    lastMod.end_ = end;
 		} else {
+		    PtraceModule mod =
+			new PtraceModule(name, start, end);
 		    modules ~= mod;
 		    lastMod = mod;
 		}
 	    }
 	}
 
-	// XXX cope with modules changing and disappearing
+	PtraceModule[] newModules;
+	PtraceModule[] oldModules;
+
+	foreach (mod; modules_) {
+	    bool seenit = false;
+	    foreach (nmod; modules)
+		if (mod == nmod)
+		    seenit = true;
+	    if (seenit)
+		newModules ~= mod;
+	    else
+		oldModules ~= mod;
+	}
+	
 	foreach (mod; modules) {
 	    bool seenit = false;
 	    foreach (omod; modules_)
 		if (mod == omod)
 		    seenit = true;
 	    if (!seenit) {
+		mod.init;
 		listener_.onModuleAdd(this, mod);
-		modules_ ~= mod;
+		newModules ~= mod;
 	    }
 	}
+
+	foreach (mod; oldModules) {
+	    listener_.onModuleDelete(this, mod);
+	}
+
+	modules_ = newModules;
     }
 
     string readMaps()
@@ -650,6 +702,7 @@ private:
 	getThreads();
 	foreach (t; threads_)
 	    t.readState();
+	getModules();
 
 	if (WIFSTOPPED(waitStatus_)) {
 	    if (WSTOPSIG(waitStatus_) == SIGTRAP) {

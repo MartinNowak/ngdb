@@ -877,6 +877,7 @@ class DwarfFile: public DebugInfo
 	if (obj_.hasSection(".debug_aranges")) {
 	    char[] aranges = obj_.readSection(".debug_aranges");
 	    char* p = &aranges[0], pEnd = p + aranges.length;
+	    ulong offset = obj_.offset;
 
 	    while (p < pEnd) {
 		bool is64;
@@ -901,6 +902,7 @@ class DwarfFile: public DebugInfo
 		    length = parseLength(p, is64);
 		    if (start == 0 && length == 0)
 			break;
+		    start += offset;
 		    cu.addresses ~= AddressRange(start, start + length);
 		}
 		//writefln("cu offset %d = %#x", cu.offset, cast(ulong) cu);
@@ -1175,6 +1177,7 @@ private:
 	char* pStart = &debugFrame[0];
 	char* pEnd = pStart + debugFrame.length;
 	char* p = pStart;
+	ulong offset = obj_.offset;
 
 	CIE[ulong] cies;
 
@@ -1202,7 +1205,7 @@ private:
 		FDE fde = new FDE;
 		fde.is64 = is64;
 		fde.cie = cies[cie_id];
-		fde.initialLocation = parseOffset(p, is64);
+		fde.initialLocation = parseOffset(p, is64) + offset;
 		fde.addressRange = parseOffset(p, is64);
 		fde.instructionStart = p;
 		fde.instructionEnd = entryStart + len;
@@ -1283,6 +1286,7 @@ private:
 	bool is64;
 	size_t len;
 	char* pEnd, pEndHeader;
+	ulong offset = obj_.offset;
 
 	len = parseInitialLength(p, is64);
 	pEnd = p + len;
@@ -1363,7 +1367,7 @@ private:
 	    }
 
 	    LineEntry dle;
-	    dle.address = le.address;
+	    dle.address = le.address + offset;
 	    dle.name = .toString(fe.name);
 	    dle.fullname = fe.fullname;
 	    dle.line = le.line;
@@ -1696,6 +1700,7 @@ struct ValueStack
 struct Expr
 {
     bool is64;
+    ulong offset;
     char* start;
     char* end;
 
@@ -1737,7 +1742,7 @@ struct Expr
 	    }
 	    switch (op) {
 	    case DW_OP_addr:
-		stack.push(parseOffset(p, is64));
+		stack.push(offset + parseOffset(p, is64));
 		break;
 		
 	    case DW_OP_const1u:
@@ -1990,7 +1995,7 @@ struct Expr
 		auto loc = die[DW_AT_location];
 		if (loc) {
 		    pp = loc.b.start;
-		    Expr e = Expr(is64, pp, pp + loc.b.length);
+		    Expr e = Expr(is64, offset, pp, pp + loc.b.length);
 		    e.evalExpr(cu, state, stack);
 		}
 		break;
@@ -2005,7 +2010,7 @@ struct Expr
 		auto loc = die[DW_AT_location];
 		if (loc) {
 		    pp = loc.b.start;
-		    Expr e = Expr(is64, pp, pp + loc.b.length);
+		    Expr e = Expr(is64, offset, pp, pp + loc.b.length);
 		    e.evalExpr(cu, state, stack);
 		}
 		break;
@@ -2056,14 +2061,14 @@ struct Expr
 		loc = new RegisterLocation(regno, length);
 	    } else {
 		ValueStack stack;
-		Expr e = Expr(is64, p, end);
+		Expr e = Expr(is64, offset, p, end);
 		p = e.evalExpr(cu, state, stack);
 		if (p < end
 		    && (*p == DW_OP_GNU_push_tls_address
 			|| *p == DW_OP_form_tls_address)) {
 		    p++;
 		    // XXX need to find module TLS index
-		    loc = new TLSLocation(1, stack.pop, length);
+		    loc = new TLSLocation(1, stack.pop - offset, length);
 		} else {
 		    loc = new MemoryLocation(stack.pop, length);
 		}
@@ -2135,6 +2140,7 @@ struct Expr
 struct Loclist
 {
     bool is64;
+    ulong offset;
     char* start;
 
     bool evalLocation(CompilationUnit cu, MachineState state,
@@ -2146,7 +2152,7 @@ struct Loclist
 	auto p = start;
 	auto lpc = cu.die[DW_AT_low_pc];
 	if (lpc)
-	    base = lpc.ul;
+	    base = lpc.ul + offset;
 	else
 	    base = 0;
 	for (;;) {
@@ -2164,7 +2170,7 @@ struct Loclist
 	    auto expEnd = p + expLen;
 	    p = expEnd;
 	    if (pc >= base + sOff && pc < base + eOff) {
-		Expr e = Expr(is64, expStart, expEnd);
+		Expr e = Expr(is64, offset, expStart, expEnd);
 		return e.evalLocation(cu, state, length, result);
 	    }
 	}
@@ -2177,7 +2183,7 @@ struct Loclist
 	ulong sOff, eOff, base;
 
 	auto p = start;
-	base = cu.die[DW_AT_low_pc].ul;
+	base = cu.die[DW_AT_low_pc].ul + offset;
 	for (;;) {
 	    sOff = parseOffset(p, is64);
 	    eOff = parseOffset(p, is64);
@@ -2193,7 +2199,7 @@ struct Loclist
 	    auto expEnd = p + expLen;
 	    p = expEnd;
 	    if (pc >= base + sOff && pc < base + eOff) {
-		Expr e = Expr(is64, expStart, expEnd);
+		Expr e = Expr(is64, offset, expStart, expEnd);
 		e.evalExpr(cu, state, stack);
 		return true;
 	    }
@@ -2354,11 +2360,11 @@ class AttributeValue
     {
 	if (isLoclistptr) {
 	    char[] locs = cu.parent.debugSection(".debug_loc");
-	    Loclist ll = Loclist(cu.is64, &locs[ul]);
+	    Loclist ll = Loclist(cu.is64, cu.parent.obj_.offset, &locs[ul]);
 	    return ll.evalLocation(cu, state, length, loc);
 	} else {
 	    assert(isBlock);
-	    Expr e = Expr(cu.is64, b.start, b.end);
+	    Expr e = Expr(cu.is64, cu.parent.obj_.offset, b.start, b.end);
 	    return e.evalLocation(cu, state, length, loc);
 	}
     }
@@ -2368,11 +2374,11 @@ class AttributeValue
     {
 	if (isLoclistptr) {
 	    char[] locs = cu.parent.debugSection(".debug_loc");
-	    Loclist ll = Loclist(cu.is64, &locs[ul]);
+	    Loclist ll = Loclist(cu.is64, cu.parent.obj_.offset, &locs[ul]);
 	    return ll.evalExpr(cu, state, stack);
 	} else {
 	    assert(isBlock);
-	    Expr e = Expr(cu.is64, b.start, b.end);
+	    Expr e = Expr(cu.is64, cu.parent.obj_.offset, b.start, b.end);
 	    e.evalExpr(cu, state, stack);
 	    return true;
 	}
@@ -2525,10 +2531,11 @@ class DIE
 		    return true;
 	    return false;
 	} else {
+	    ulong offset = cu_.parent.obj_.offset;
 	    if (this[DW_AT_low_pc]
 		&& this[DW_AT_high_pc]) {
-		addresses ~= AddressRange(this[DW_AT_low_pc].ul,
-					  this[DW_AT_high_pc].ul);
+		addresses ~= AddressRange(this[DW_AT_low_pc].ul + offset,
+					  this[DW_AT_high_pc].ul + offset);
 	    } else if (this[DW_AT_ranges]) {
 		char[] ranges = cu_.parent.debugSection(".debug_ranges");
 		char* p = &ranges[this[DW_AT_ranges].ul];
@@ -2538,6 +2545,8 @@ class DIE
 		    end = parseOffset(p, is64);
 		    if (start == 0 && end == 0)
 			break;
+		    start += offset;
+		    end += offset;
 		    addresses ~= AddressRange(start, end);
 		}
 	    } else {
@@ -2789,10 +2798,12 @@ class DIE
 	    foreach (d; children)
 		if (d.tag == DW_TAG_unspecified_parameters)
 		    f.varargs = true;
+	    ulong addr;
 	    if (this[DW_AT_entry_pc])
-		f.address = this[DW_AT_entry_pc].ul;
+		addr = this[DW_AT_entry_pc].ul;
 	    else if (this[DW_AT_low_pc])
-		f.address = this[DW_AT_low_pc].ul;
+		addr = this[DW_AT_low_pc].ul;
+	    f.address = addr + cu_.parent.obj_.offset;
 	    debugItem_ = f;
 	    break;
 

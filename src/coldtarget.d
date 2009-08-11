@@ -62,7 +62,7 @@ class ColdModule: TargetModule
 	filename_ = filename;
 	start_ = ~0L;
 	end_ = 0;
-	obj_ = cast(Elffile) Objfile.open(filename_);
+	obj_ = cast(Elffile) Objfile.open(filename_, 0);
 	if (obj_)
 	    obj_.enumerateProgramHeaders(&setLimits);
 	if (obj_ && DwarfFile.hasDebug(obj_))
@@ -112,6 +112,18 @@ class ColdModule: TargetModule
 		    return true;
 		}
 	    }
+	    return false;
+	}
+	string[] contents()
+	{
+	    if (dwarf_)
+		return dwarf_.contents;
+	    return null;
+	}
+	bool lookup(string name, out DebugItem val)
+	{
+	    if (dwarf_)
+		return dwarf_.lookup(name, val);
 	    return false;
 	}
     }
@@ -188,7 +200,7 @@ class ColdTarget: Target
 	execname_ = execname;
 	corename_ = corename;
 	if (corename_)
-	    core_ = cast(Elffile) Objfile.open(corename_);
+	    core_ = cast(Elffile) Objfile.open(corename_, 0);
 
 	listener.onTargetStarted(this);
 	getModules();

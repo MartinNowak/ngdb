@@ -64,6 +64,11 @@ interface TargetListener
     void onModuleAdd(Target, TargetModule);
 
     /**
+     * Called when a module is unmapped in the target.
+     */
+    void onModuleDelete(Target, TargetModule);
+
+    /**
      * Called when a thread hits a breakpoint.
      */
     void onBreakpoint(Target, TargetThread, void*);
@@ -115,7 +120,7 @@ struct TargetSymbol
  * file. Top-level modules represent loaded files. Sub-modules of
  * top-level modules are individual compilation units within a file.
  */
-interface TargetModule
+interface TargetModule: Scope
 {
     /**
      * Return the object filename of the module that occupies this address
