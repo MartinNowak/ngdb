@@ -450,6 +450,18 @@ class PagerQuit: Exception
 }
 
 /**
+ * Return a copy of list with all duplicates removed.
+ */
+private string[] uniq(string[] list)
+{
+    bool[string] map;
+
+    foreach (s; list)
+	map[s] = true;
+    return map.keys;
+}
+
+/**
  * Implement a command line interface to the debugger.
  */
 class Debugger: TargetListener, Scope
@@ -1218,7 +1230,8 @@ class Debugger: TargetListener, Scope
 		res ~= mod.contents();
 	    for (int i = 0; i < valueHistory_.length; i++)
 		res ~= "$" ~ .toString(i);
-	    return res;
+
+	    return uniq(res);
 	}
 	bool lookup(string name, out DebugItem val)
 	{
