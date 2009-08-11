@@ -155,6 +155,19 @@ class CommandTable
 	}
     }
 
+    string[] complete(string name)
+    {
+	string[] matches;
+
+	foreach (c; list_) {
+	    string s = c.name;
+	    if (s.length >= name.length)
+		if (s[0..name.length] == name)
+		    matches ~= s;
+	}
+	return matches;
+    }
+
     void onSourceLine(Debugger db, SourceFile sf, uint line)
     {
 	foreach (c; list_)
@@ -438,8 +451,8 @@ class Debugger: TargetListener, Scope
 	el_set(el_, EL_SIGNAL, 1);
 	el_set(el_, EL_PROMPT, &_prompt);
 	el_set(el_, EL_HIST, &history, hist_);
-
-	tok_ = tok_init(null);
+	el_set(el_, EL_ADDFN, toStringz("ed-complete"), toStringz("Complete argument"), &_complete);
+	el_set(el_, EL_BIND, toStringz("^I"), toStringz("ed-complete"), null);
 
 	nextBPID_ = 1;
     }
@@ -448,7 +461,6 @@ class Debugger: TargetListener, Scope
     {
 	history_end(hist_);
 	el_end(el_);
-	tok_end(tok_);
     }
 
     static extern(C) void ignoreSig(int)
@@ -494,23 +506,9 @@ class Debugger: TargetListener, Scope
 	    li = el_line(el_);
 
 	    HistEvent ev;
-	    if (continuation_ || num > 1) {
-		int cont = tok_line(tok_, li, &ac, &av, null, null);
-		if (cont < 0) {
-		    // XXX shouldn't happen
-		    continuation_ = 0;
-		    continue;
-		}
-
-		history(hist_, &ev, continuation_ ? H_APPEND : H_ENTER, buf);
-		continuation_ = cont;
-		if (continuation_)
-		    continue;
-
-		args.length = ac;
-		for (int i = 0; i < ac; i++)
-		    args[i] = .toString(av[i]).dup;
-		tok_reset(tok_);
+	    if (num > 1) {
+		history(hist_, &ev, H_ENTER, buf);
+		args = split(chomp(.toString(buf).dup), " ");
 	    }
 
 	    if (args.length == 0)
@@ -1229,26 +1227,77 @@ private:
     {
 	void* p;
 	el_get(el, EL_CLIENTDATA, &p);
-
 	Debugger db = cast(Debugger) p;
 	assert(db);
 	return toStringz(db.prompt(el));
     }
+    extern(C) static char _complete(EditLine *el, int ch)
+    {
+	void* p;
+	el_get(el, EL_CLIENTDATA, &p);
+	Debugger db = cast(Debugger) p;
+	assert(db);
+	return db.complete(el, ch);
+    }
 
     string prompt(EditLine *el)
     {
-	if (continuation_)
-	    return "> ";
-	else
-	    return prompt_ ~ " ";
+	return prompt_ ~ " ";
+    }
+
+    char complete(EditLine *el, int ch)
+    {
+	LineInfo* li = el_line(el);
+
+	size_t n = li.cursor - li.buffer;
+	string[] args = split(chomp(li.buffer[0..n].dup), " ");
+
+	if (args.length == 1) {
+	    string[] matches = commands_.complete(args[0]);
+	    if (matches.length == 1) {
+		string s = matches[0][args[0].length..$] ~ " ";
+		if (el_insertstr(el, toStringz(s)) == -1)
+		    return CC_ERROR;
+		return CC_REFRESH;
+	    } else {
+		/*
+		 * Find the longest common prefix of all the matches
+		 * and try to insert from that. If we can't insert any
+		 * more, display the match list.
+		 */
+		int i;
+		string m0 = matches[0];
+		for (i = 0; i < m0.length; i++) {
+		    foreach (m; matches[1..$]) {
+			if (i > m.length || m[i] != m0[i])
+			    goto gotPrefix;
+		    }
+		}
+	    gotPrefix:
+		if (i > args[0].length) {
+		    string s = m0[args[0].length..$];
+		    if (el_insertstr(el, toStringz(s)) == -1)
+			return CC_ERROR;
+		    return CC_REFRESH;
+		}
+		writefln("");
+		foreach (j, m; matches) {
+		    if (j > 0)
+			writef("\t");
+		    writef("%s", m);
+		}
+		writefln("");
+		return CC_REDISPLAY;
+	    }
+	}
+
+	return CC_ERROR;
     }
 
     static CommandTable commands_;
     static CommandTable infoCommands_;
     History* hist_;
     EditLine* el_;
-    Tokenizer* tok_;
-    int continuation_;
     bool quit_ = false;
 
     string prog_;
