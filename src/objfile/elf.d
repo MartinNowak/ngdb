@@ -903,7 +903,7 @@ class Elffile: Objfile
 
 	    if (pread(fd, &ei, ei.sizeof, 0) != ei.sizeof
 		|| !IsElf(&ei)) {
-		close(fd);
+		.close(fd);
 		return null;
 	    }
 	    debug (elf)
@@ -919,6 +919,7 @@ class Elffile: Objfile
 		return null;
 	    }
 	}
+	.close(fd);
 	return null;
     }
 
@@ -1014,6 +1015,14 @@ template ElfFileBase()
     {
 	symtab_ = symtab;
 	dynsym_ = dynsym;
+    }
+
+    ~this()
+    {
+	if (fd_ >= 0) {
+	    .close(fd_);
+	    fd_ = -1;
+	}
     }
 
     Symbol* lookupSymbol(ulong addr)
@@ -1207,7 +1216,7 @@ private:
 	return null;
     }
 
-    int		fd_;
+    int		fd_ = -1;
     ulong	offset_;
     Phdr[]	ph_;
     Shdr[]	sections_;

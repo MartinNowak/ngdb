@@ -96,6 +96,14 @@ class PtraceModule: TargetModule
 	}
     }
 
+    ~this()
+    {
+	if (obj_)
+	    delete obj_;
+	if (dwarf_)
+	    delete dwarf_;
+    }
+
     override {
 	char[] filename()
 	{
@@ -401,7 +409,7 @@ class PtraceTarget: Target
 		ptrace(PT_LWPINFO, pid_, cast(char*) &info, info.sizeof);
 	    } catch (PtraceException pte) {
 		if (pte.errno_ == ESRCH)
-		    listener_.onExit(this);
+		    onExit;
 		return null;
 	    }
 	    return threads_[info.pl_lwpid];
@@ -436,7 +444,7 @@ class PtraceTarget: Target
 			pt2.resume;
 	    } catch (PtraceException pte) {
 		if (pte.errno_ == ESRCH)
-		    listener_.onExit(this);
+		    onExit;
 	    }
 	}
 
@@ -471,7 +479,7 @@ class PtraceTarget: Target
 		state_ = TargetState.RUNNING;
 	    } catch (PtraceException pte) {
 		if (pte.errno_ == ESRCH)
-		    listener_.onExit(this);
+		    onExit;
 	    }
 	}
 
@@ -485,7 +493,7 @@ class PtraceTarget: Target
 		stopped();
 	    } catch (PtraceException pte) {
 		if (pte.errno_ == ESRCH)
-		    listener_.onExit(this);
+		    onExit;
 	    }
 	}
 
@@ -532,7 +540,7 @@ class PtraceTarget: Target
 	    ptrace(PT_IO, pid_, cast(char*) &io, 0);
 	} catch (PtraceException pte) {
 	    if (pte.errno_ == ESRCH)
-		listener_.onExit(this);
+		onExit;
 	    throw new TargetException("Can't read target memory");
 	}
 
@@ -551,7 +559,7 @@ class PtraceTarget: Target
 	    ptrace(PT_IO, pid_, cast(char*) &io, 0);
 	} catch (PtraceException pte) {
 	    if (pte.errno_ == ESRCH)
-		listener_.onExit(this);
+		onExit;
 	}
     }
 
@@ -567,6 +575,14 @@ private:
     string execname_;
     bool breakpointsActive_;
     string lastMaps_;
+
+    void onExit()
+    {
+	listener_.onExit(this);
+	foreach (mod; modules_)
+	    delete mod;
+	modules_.length = 0;
+    }
 
     void getThreads()
     {
@@ -658,6 +674,7 @@ private:
 
 	foreach (mod; oldModules) {
 	    listener_.onModuleDelete(this, mod);
+	    delete mod;
 	}
 
 	modules_ = newModules;

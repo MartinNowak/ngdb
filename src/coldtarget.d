@@ -69,6 +69,14 @@ class ColdModule: TargetModule
 	    dwarf_ = new DwarfFile(obj_);
     }
 
+    ~this()
+    {
+	if (obj_)
+	    delete obj_;
+	if (dwarf_)
+	    delete dwarf_;
+    }
+
     override {
 	char[] filename()
 	{
@@ -225,6 +233,13 @@ class ColdTarget: Target
 	    threads_ ~= new ColdThread(this, null);
 	    listener_.onThreadCreate(this, threads_[0]);
 	}
+    }
+
+    ~this()
+    {
+	foreach (mod; modules_)
+	    delete mod;
+	modules_.length = 0;
     }
 
     override

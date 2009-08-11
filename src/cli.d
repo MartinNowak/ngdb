@@ -1368,8 +1368,11 @@ class RunCommand: Command
 		db.pagefln("Program is already being debugged");
 		return;
 	    }
-	    if (db.target_)
-		db.onExit(db.target_);
+	    if (db.target_) {
+		auto target = db.target_;
+		db.onExit(target);
+		delete target;
+	    }
 
 	    PtraceRun pt = new PtraceRun;
 	    if (args.length > 0 || runArgs_.length == 0) {
