@@ -55,7 +55,7 @@ class ColdModule: TargetModule
 	{
 	    if (s < start_)
 		start_ = s;
-	    if (e < end_)
+	    if (e > end_)
 		end_ = e;
 	}
 
