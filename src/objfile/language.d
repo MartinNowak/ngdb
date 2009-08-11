@@ -33,6 +33,7 @@ import std.stdio;
 
 import objfile.debuginfo;
 import machine.machine;
+import target;
 
 interface Language
 {
@@ -171,7 +172,7 @@ class CLikeLanguage: Language
 		more = zt ? c != 0 : --len > 0;
 	    }
 	    sv ~= "\"";
-	} catch (Exception e) {
+	} catch (TargetException e) {
 	    sv = "";
 	}
 	return sv;
@@ -799,10 +800,11 @@ class DLanguage: CLikeLanguage
 	     * quantities - the length followed by the base pointer.
 	     */
 	    ubyte[] val = loc.readValue(state);
-	    return _stringConstant(
-		state,
-		state.readInteger(val[state.pointerWidth..$]),
-		state.readInteger(val[0..state.pointerWidth]));
+	    ulong ptr = state.readInteger(val[state.pointerWidth..$]);
+	    ulong len = state.readInteger(val[0..state.pointerWidth]);
+	    if (len > 256) len = 256;	// XXX
+	    return _stringConstant(state, ptr, len);
+		
 	}
         string namespaceSeparator()
 	{
@@ -811,6 +813,82 @@ class DLanguage: CLikeLanguage
 	string arrayConstant(string s)
 	{
 	    return format("[%s]", s);
+	}
+	Expr parseExpr(string s)
+	{
+	    auto lex = new DLexer(s);
+	    auto e = expr(lex);
+	    auto tok = lex.nextToken;
+	    if (tok.id != "EOF")
+		return unexpected(tok);
+	    return e;
+	}
+    }
+    Expr postfixExpr(Lexer lex)
+    {
+	/*
+	 * PostfixExpression:
+	 *	PrimaryExpression
+	 *	PostfixExpression . Identifier
+	 *	PostfixExpression ++
+	 *	PostfixExpression --
+	 *	PostfixExpression ( )
+	 *	PostfixExpression ( ArgumentList )
+	 *	PostfixExpression [ AssignExpression ]
+	 *
+	 *
+	 * eliminating left recursion
+	 *
+	 * PostfixExpression:
+	 *	PrimaryExpression PostfixExpression2
+	 *
+	 * PostfixExpression2:
+	 *	. Identifier PostfixExpression2
+	 *	-> Identifier PostfixExpression2
+	 *	++ PostfixExpression2
+	 *	-- PostfixExpression2
+	 *	( ) PostfixExpression2
+	 *	( ArgumentList ) PostfixExpression2
+	 *	[ AssignExpression ] PostfixExpression2
+	 *	empty
+	 */
+	auto e = primaryExpr(lex);
+	for (auto tok = lex.nextToken; ; tok = lex.nextToken) {
+	    if (tok.id == ".") {
+		tok = lex.nextToken;
+		if (tok.id != "identifier")
+		    unexpected(tok);
+		auto idtok = cast(IdentifierToken) tok;
+		switch (idtok.value) {
+		case "length":
+		   e = new LengthExpr(this, e);
+		   break;
+		case "sizeof":
+		   e = new SizeofExpr(this, e);
+		   break;
+		default:
+		    e = new DMemberExpr(this, e, idtok.value);
+		}
+	    } else if (tok.id == "++" || tok.id == "--") {
+		auto one = new NumericExpr(this, "1");
+		if (tok.id == "++")
+		    e = new AddExpr(this, e, one);
+		else
+		    e = new SubtractExpr(this, e, one);
+		e = new PostIncrementExpr(this, tok.id, e);
+	    } else if (tok.id == "[") {
+		auto e2 = assignExpr(lex);
+		tok = lex.nextToken;
+		if (tok.id != "]")
+		    return unexpected(tok);
+		e = new IndexExpr(this, e, e2);
+	    } else {
+		lex.pushBack(tok);
+		return e;
+	    }
+	    /*
+	     * XXX Handle function call
+	     */
 	}
     }
 }

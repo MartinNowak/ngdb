@@ -835,6 +835,10 @@ class DArrayType: TypeBase
 	    for (auto i = 0; i < len; i++) {
 		if (i > 0)
 		    v ~= ", ";
+		if (i == 3) {
+		    v ~= "...";
+		    break;
+		}
 		v ~= baseType_.valueToString(fmt, state,
 			new MemoryLocation(addr, baseType_.byteWidth));
 		addr += baseType_.byteWidth;
@@ -1558,6 +1562,70 @@ private:
     Expr expr_;
 }
 
+class LengthExpr: UnaryExpr
+{
+    this(Language lang, Expr e)
+    {
+	super(lang, e);
+    }
+
+    override {
+	string toString()
+	{
+	    return expr_.toString() ~ ".length";
+	}
+	DebugItem eval(Scope sc, MachineState state)
+	{
+	    Value expr = expr_.eval(sc, state).toValue(state);
+	    ArrayType aTy = cast(ArrayType) expr.type.underlyingType;
+	    DArrayType daTy = cast(DArrayType) expr.type.underlyingType;
+	    ulong minIndex, maxIndex;
+	    if (aTy) {
+		minIndex = aTy.dims_[0].indexBase;
+		maxIndex = minIndex + aTy.dims_[0].count;
+	    } else if (daTy) {
+		/*
+		 * The memory representation of dynamic arrays is two
+		 * pointer sized values, the first being the array length
+		 * and the second the base pointer.
+		 */
+		ubyte[] val = expr.loc.readValue(state);
+		minIndex = 0;
+		maxIndex = state.readInteger(val[0..state.pointerWidth]);
+	    } else {
+		throw new EvalException("Expected array for length expression");
+	    }
+	    ubyte[4] val;
+	    state.writeInteger(maxIndex - minIndex, val);
+	    auto ty = new IntegerType(lang_, "size_t", false, 4);
+	    return new Value(new ConstantLocation(val), ty);
+	}
+    }
+}
+
+class SizeofExpr: UnaryExpr
+{
+    this(Language lang, Expr e)
+    {
+	super(lang, e);
+    }
+
+    override {
+	string toString()
+	{
+	    return expr_.toString() ~ ".length";
+	}
+	DebugItem eval(Scope sc, MachineState state)
+	{
+	    Value expr = expr_.eval(sc, state).toValue(state);
+	    ubyte[4] val;
+	    state.writeInteger(expr.type.byteWidth, val);
+	    auto ty = new IntegerType(lang_, "size_t", false, 4);
+	    return new Value(new ConstantLocation(val), ty);
+	}
+    }
+}
+
 class AddressOfExpr: UnaryExpr
 {
     this(Language lang, Expr e)
@@ -2029,6 +2097,45 @@ class MemberExpr: ExprBase
 	    if (!cTy)
 		throw new EvalException("Not a compound type");
 	    return cTy.fieldValue(member_, base.loc, state);
+	}
+    }
+private:
+    Language lang_;
+    Expr base_;
+    string member_;
+}
+
+class DMemberExpr: ExprBase
+{
+    this(Language lang, Expr base, string member)
+    {
+	super(lang);
+	base_ = base;
+	member_ = member;
+    }
+    override {
+	string toString()
+	{
+	    return base_.toString ~ "." ~ member_;
+	}
+	DebugItem eval(Scope sc, MachineState state)
+	{
+	    Value base = base_.eval(sc, state).toValue(state);
+	    PointerType ptrTy = cast(PointerType) base.type.underlyingType;
+	    if (ptrTy) {
+		CompoundType cTy = cast(CompoundType) ptrTy.baseType.underlyingType;
+		if (!cTy)
+		    throw new EvalException("Not a pointer to a compound type");
+		ulong ptr = state.readInteger(base.loc.readValue(state));
+		return cTy.fieldValue(member_,
+				      new MemoryLocation(ptr, cTy.byteWidth),
+				      state);
+	    }
+	    CompoundType cTy = cast(CompoundType) base.type.underlyingType;
+	    if (cTy) {
+		return cTy.fieldValue(member_, base.loc, state);
+	    }
+	    throw new EvalException("Not a compound or pointer to compound");
 	}
     }
 private:
