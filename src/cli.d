@@ -1815,6 +1815,34 @@ class ThreadCommand: Command
     }
 }
 
+class InfoModulesCommand: Command
+{
+    static this()
+    {
+	Debugger.registerInfoCommand(new InfoModulesCommand);
+    }
+
+    override {
+	string name()
+	{
+	    return "modules";
+	}
+
+	string description()
+	{
+	    return "List moduless";
+	}
+
+	void run(Debugger db, string[] args)
+	{
+	    foreach (i, mod; db.modules_) {
+		db.pagefln("%d: %#x .. %#x\t%s",
+			   i + 1, mod.start, mod.end, mod.filename);
+	    }
+	}
+    }
+}
+
 class InfoThreadCommand: Command
 {
     static this()
