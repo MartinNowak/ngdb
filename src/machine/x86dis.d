@@ -2039,7 +2039,11 @@ struct DecodeState
 	{
 	    string res;
 
-	    res ~= _displayAddress(rt, disp_);
+	    if (baseReg_ >= 0) {
+		int disp = cast(int) disp_;	// XXX 64bit?
+		res = std.string.format("%d", disp);
+	    } else
+		res = _displayAddress(rt, disp_);
 
 	    int mode = addressSize;
 
