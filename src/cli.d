@@ -433,9 +433,10 @@ class Debugger: TargetListener, Scope
 	history(hist_, &ev, H_SETSIZE, 100);
 
 	el_ = el_init(toStringz("ngdb"), stdin, stdout, stderr);
+	el_set(el_, EL_CLIENTDATA, cast(void*) this);
 	el_set(el_, EL_EDITOR, toStringz("emacs"));
 	el_set(el_, EL_SIGNAL, 1);
-	el_set(el_, EL_PROMPT, &el_prompt);
+	el_set(el_, EL_PROMPT, &_prompt);
 	el_set(el_, EL_HIST, &history, hist_);
 
 	tok_ = tok_init(null);
@@ -474,7 +475,6 @@ class Debugger: TargetListener, Scope
 	if (core_)
 	    stopped();
 
-	staticPrompt_ = prompt_;
 	while (!quit_ && (buf = el_gets(el_, &num)) != null && num != 0) {
 	    int ac;
 	    char** av;
@@ -1225,14 +1225,22 @@ class Debugger: TargetListener, Scope
     }
 
 private:
-    static int continuation_;
-    static string staticPrompt_; // messy
-    static char *el_prompt(EditLine *el)
+    extern(C) static char* _prompt(EditLine *el)
+    {
+	void* p;
+	el_get(el, EL_CLIENTDATA, &p);
+
+	Debugger db = cast(Debugger) p;
+	assert(db);
+	return toStringz(db.prompt(el));
+    }
+
+    string prompt(EditLine *el)
     {
 	if (continuation_)
 	    return "> ";
 	else
-	    return toStringz(staticPrompt_ ~ " ");
+	    return prompt_ ~ " ";
     }
 
     static CommandTable commands_;
@@ -1240,6 +1248,7 @@ private:
     History* hist_;
     EditLine* el_;
     Tokenizer* tok_;
+    int continuation_;
     bool quit_ = false;
 
     string prog_;
