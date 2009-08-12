@@ -138,6 +138,17 @@ class PtraceModule: TargetModule
 	return 0;
     }
 
+    void enumerateLinkMap(Target target, void delegate(string, ulong) dg)
+    {
+	if (obj_) {
+	    auto elf = cast(Elffile) obj_;
+	    if (!elf)
+		return;
+	    return elf.enumerateLinkMap(target, dg);
+	}
+	return;
+    }
+
     ~this()
     {
 	if (obj_)

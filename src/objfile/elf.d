@@ -960,6 +960,8 @@ class Elffile: Objfile
 
     abstract uint sharedLibraryState(Target target);
 
+    abstract void enumerateLinkMap(Target target, void delegate(string, ulong) dg);
+
     abstract bool inPLT(ulong pc);
 }
 
@@ -1247,6 +1249,36 @@ template ElfFileBase()
 	ubyte[] t = target.readMemory(r_debug_, r_debug.sizeof);
 	r_debug* p = cast(r_debug*) &t[0];
 	return p.r_state;
+    }
+
+    void enumerateLinkMap(Target target, void delegate(string, ulong) dg)
+    {
+	if (!r_debug_)
+	    return;
+
+	string readString(Target target, ulong addr)
+	{
+	    string s;
+	    char c;
+
+	    do {
+		ubyte[] t = target.readMemory(addr++, 1);
+		c = cast(char) t[0];
+		if (c)
+		    s ~= c;
+	    } while (c);
+	    return s;
+	}
+
+	ubyte[] t = target.readMemory(r_debug_, r_debug.sizeof);
+	r_debug* p = cast(r_debug*) &t[0];
+	ulong lp = p.r_map;
+	while (lp) {
+	    t = target.readMemory(lp, link_map.sizeof);
+	    link_map *lm = cast(link_map*) &t[0];
+	    dg(readString(target, lm.l_name), lm.l_addr);
+	    lp = lm.l_next;
+	}
     }
 
     bool inPLT(ulong pc)
