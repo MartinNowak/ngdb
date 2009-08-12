@@ -106,13 +106,41 @@ class PtraceModule: TargetModule
 	}
     }
 
-    void digestDynamic(Target target)
+    void digestDynamic(PtraceTarget target)
     {
 	if (obj_) {
 	    auto elf = cast(Elffile) obj_;
 	    if (!elf)
 		return;
 	    elf.digestDynamic(target);
+
+	    TargetSymbol sym;
+	    if (lookupSymbol("_thread_off_linkmap", sym)) {
+		ubyte[] t = target.readMemory(sym.value, 4);
+		target.linkmapOffset_ = *cast(int*) &t[0]; // XXX endian
+	    }
+	    if (lookupSymbol("_thread_off_tlsindex", sym)) {
+		ubyte[] t = target.readMemory(sym.value, 4);
+		target.tlsindexOffset_ = *cast(int*) &t[0]; // XXX endian
+	    }
+
+	    if (target.linkmapOffset_ && target.tlsindexOffset_
+		&& this !is target.modules_[0]) {
+		void findTlsindex(string name, ulong lm, ulong addr)
+		{
+		    if (addr == start_) {
+			ulong p = lm - target.linkmapOffset_
+			    + target.tlsindexOffset_;
+			ubyte[] t = target.readMemory(p, 4);
+			int tlsindex = *cast(int*) &t[0]; // XXX endian
+			//writefln("Module %s TLS index is %d", filename_, tlsindex);
+			elf.tlsindex = tlsindex;
+		    }
+		}
+		target.modules_[0].enumerateLinkMap(target, &findTlsindex);
+	    } else {
+		elf.tlsindex = 1;
+	    }
 	}
     }
 
@@ -138,7 +166,8 @@ class PtraceModule: TargetModule
 	return 0;
     }
 
-    void enumerateLinkMap(Target target, void delegate(string, ulong) dg)
+    void enumerateLinkMap(Target target,
+			  void delegate(string, ulong, ulong) dg)
     {
 	if (obj_) {
 	    auto elf = cast(Elffile) obj_;
@@ -868,6 +897,8 @@ private:
     bool breakpointsActive_;
     string lastMaps_;
     ulong sharedLibraryBreakpoint_;
+    uint linkmapOffset_;
+    uint tlsindexOffset_;
 }
 
 class PtraceAttach: TargetFactory

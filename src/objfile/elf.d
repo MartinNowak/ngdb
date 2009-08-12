@@ -944,6 +944,10 @@ class Elffile: Objfile
 
     abstract ulong offset();
 
+    abstract uint tlsindex();
+
+    abstract void tlsindex(uint);
+
     abstract bool hasSection(string name);
 
     abstract char[] readSection(string name);
@@ -960,7 +964,8 @@ class Elffile: Objfile
 
     abstract uint sharedLibraryState(Target target);
 
-    abstract void enumerateLinkMap(Target target, void delegate(string, ulong) dg);
+    abstract void enumerateLinkMap(Target target,
+				   void delegate(string, ulong, ulong) dg);
 
     abstract bool inPLT(ulong pc);
 }
@@ -1090,6 +1095,16 @@ template ElfFileBase()
     ulong offset()
     {
 	return offset_;
+    }
+
+    uint tlsindex()
+    {
+	return tlsindex_;
+    }
+
+    void tlsindex(uint i)
+    {
+	tlsindex_ = i;
     }
 
     int lookupSection(string name)
@@ -1251,7 +1266,8 @@ template ElfFileBase()
 	return p.r_state;
     }
 
-    void enumerateLinkMap(Target target, void delegate(string, ulong) dg)
+    void enumerateLinkMap(Target target,
+			  void delegate(string, ulong, ulong) dg)
     {
 	if (!r_debug_)
 	    return;
@@ -1276,7 +1292,7 @@ template ElfFileBase()
 	while (lp) {
 	    t = target.readMemory(lp, link_map.sizeof);
 	    link_map *lm = cast(link_map*) &t[0];
-	    dg(readString(target, lm.l_name), lm.l_addr);
+	    dg(readString(target, lm.l_name), lp, lm.l_addr);
 	    lp = lm.l_next;
 	}
     }
@@ -1357,6 +1373,7 @@ private:
     int		fd_ = -1;
     ulong	entry_;
     ulong	offset_;
+    uint	tlsindex_;
     ulong	r_debug_ = 0;
     ulong	pltStart_ = 0;
     ulong	pltEnd_ = 0;

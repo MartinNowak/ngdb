@@ -2067,8 +2067,8 @@ struct Expr
 		    && (*p == DW_OP_GNU_push_tls_address
 			|| *p == DW_OP_form_tls_address)) {
 		    p++;
-		    // XXX need to find module TLS index
-		    loc = new TLSLocation(1, stack.pop - offset, length);
+		    loc = new TLSLocation(cu.parent.obj_.tlsindex,
+					  stack.pop - offset, length);
 		} else {
 		    loc = new MemoryLocation(stack.pop, length);
 		}

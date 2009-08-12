@@ -47,6 +47,8 @@ class Objfile
 
     abstract ulong offset();
 
+    abstract uint tlsindex();
+
     abstract bool hasSection(string name);
 
     abstract char[] readSection(string name);
