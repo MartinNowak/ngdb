@@ -1086,7 +1086,7 @@ class DwarfFile: public DebugInfo
 				Function f = cast(Function) die.debugItem;
 				auto lpc = f.address;
 				if (findLineByAddress(lpc, le))
-				    res ~= le[0];
+				    res ~= le[1];
 			    }
 			}
 		    }
