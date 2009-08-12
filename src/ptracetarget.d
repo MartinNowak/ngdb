@@ -654,19 +654,6 @@ class PtraceTarget: Target
     }
 
 private:
-    TargetState state_ = TargetState.STOPPED;
-    pid_t pid_;
-    uint nextTid_ = 1;
-    int waitStatus_;
-    PtraceThread[lwpid_t] threads_;
-    PtraceModule[] modules_;
-    PtraceBreakpoint[ulong] breakpoints_;
-    TargetListener listener_;
-    string execname_;
-    bool breakpointsActive_;
-    string lastMaps_;
-    ulong sharedLibraryBreakpoint_;
-
     void onExit()
     {
 	listener_.onExit(this);
@@ -868,6 +855,19 @@ private:
 	if (.wait4(pid, statusp, options, rusage) < 0)
 	    throw new PtraceException;
     }
+
+    TargetState state_ = TargetState.STOPPED;
+    pid_t pid_;
+    uint nextTid_ = 1;
+    int waitStatus_;
+    PtraceThread[lwpid_t] threads_;
+    PtraceModule[] modules_;
+    PtraceBreakpoint[ulong] breakpoints_;
+    TargetListener listener_;
+    string execname_;
+    bool breakpointsActive_;
+    string lastMaps_;
+    ulong sharedLibraryBreakpoint_;
 }
 
 class PtraceAttach: TargetFactory
