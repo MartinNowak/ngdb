@@ -153,6 +153,12 @@ interface TargetModule: Scope
      * Ditto
      */
     bool lookupSymbol(ulong addr, out TargetSymbol);
+
+    /**
+     * Return true of the address is within the Program Linkage Table for
+     * this module.
+     */
+    bool inPLT(ulong addr);
 }
 
 /**

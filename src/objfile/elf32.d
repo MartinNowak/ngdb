@@ -123,7 +123,7 @@ struct Phdr {
  */
 struct Dyn {
     Sword	d_tag;		// Entry type.
-    union d_un {
+    union {
 	Word	d_val;		// Integer value.
 	Addr	d_ptr;		// Address value.
     }
@@ -273,3 +273,18 @@ struct Syminfo {
     Half	si_boundto;	// direct bindings - symbol bound to
     Half	si_flags;	// per symbol flags
 }
+
+struct link_map {
+    Addr	l_addr;		// Base Address of library
+    Addr	l_name;		// Absolute Path to Library
+    Addr	l_ld;		// Pointer to .dynamic in memory
+    Addr	l_next, l_prev;	// linked list of of mapped libs
+}
+
+struct r_debug {
+    Sword	r_version;	// not used
+    Addr 	r_map;		// list of loaded images
+    Addr	r_brk;		// pointer to break point
+    Sword	r_state;	// RT_CONSISTENT, RT_ADD, RT_DELETE
+}
+

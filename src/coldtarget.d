@@ -51,8 +51,10 @@ class ColdModule: TargetModule
 {
     this(char[] filename)
     {
-	void setLimits(ulong s, ulong e)
+	void setLimits(uint tag, ulong s, ulong e)
 	{
+	    if (tag != PT_LOAD)
+		return;
 	    if (s < start_)
 		start_ = s;
 	    if (e > end_)
@@ -120,6 +122,10 @@ class ColdModule: TargetModule
 		    return true;
 		}
 	    }
+	    return false;
+	}
+	bool inPLT(ulong addr)
+	{
 	    return false;
 	}
 	string[] contents()
@@ -258,8 +264,10 @@ class ColdTarget: Target
 	{
 	    if (core_) {
 		bool readcore = false;
-		void checkAddress(ulong s, ulong e)
+		void checkAddress(uint tag, ulong s, ulong e)
 		{
+		    if (tag != PT_LOAD)
+			return;
 		    if (targetAddress + bytes > s && targetAddress < e)
 			readcore = true;
 		}

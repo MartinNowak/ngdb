@@ -58,6 +58,7 @@ else
 import std.c.freebsd.freebsd;
 import std.c.string;
 
+import target;
 import objfile.objfile;
 
 struct Note {
@@ -888,6 +889,15 @@ enum {
 
 }
 
+/**
+ * Values for r_debug.r_state
+ */
+enum {
+    RT_CONSISTENT,		// things are stable
+    RT_ADD,			// adding a shared library
+    RT_DELETE			// removing a shared library
+}
+
 import std.stdio;
 import std.string;
 //import std.c.unix.unix;
@@ -938,11 +948,19 @@ class Elffile: Objfile
 
     abstract char[] readSection(string name);
 
-    abstract void enumerateProgramHeaders(void delegate(ulong, ulong) dg);
+    abstract void enumerateProgramHeaders(void delegate(uint, ulong, ulong) dg);
 
     abstract void enumerateNotes(void delegate(uint, string, ubyte*) dg);
 
     abstract ubyte[] readProgram(ulong addr, size_t len);
+
+    abstract void digestDynamic(Target target);
+
+    abstract ulong findSharedLibraryBreakpoint(Target target);
+
+    abstract uint sharedLibraryState(Target target);
+
+    abstract bool inPLT(ulong pc);
 }
 
 template ElfFileBase()
@@ -974,6 +992,8 @@ template ElfFileBase()
 	    offset_ = 0;
 	}
 
+	entry_ = eh.e_entry + offset_;
+
 	debug (elf)
 	    writefln("%d sections", eh.e_shnum);
 	sections_.length = eh.e_shnum;
@@ -997,6 +1017,16 @@ template ElfFileBase()
 			 std.string.toString(&shStrings_[sh.sh_name]),
 			 sh.sh_offset, sh.sh_size);
 	    }
+
+	for (int i = 0; i < sections_.length; i++) {
+	    Shdr *sh = &sections_[i];
+	    if (sh.sh_type == SHT_NULL)
+		continue;
+	    if (.toString(&shStrings_[sh.sh_name]) != ".plt")
+		continue;
+	    pltStart_ = sh.sh_addr + offset_;
+	    pltEnd_ = pltStart_ + sh.sh_size;
+	}
 
 	Symbol[] symtab;
 	Symbol[] dynsym;
@@ -1050,6 +1080,11 @@ template ElfFileBase()
 	return null;
     }
 
+    ulong entry()
+    {
+	return entry_;
+    }
+
     ulong offset()
     {
 	return offset_;
@@ -1078,12 +1113,11 @@ template ElfFileBase()
 	return readSection(i);
     }
 
-    void enumerateProgramHeaders(void delegate(ulong, ulong) dg)
+    void enumerateProgramHeaders(void delegate(uint, ulong, ulong) dg)
     {
-	foreach (ph; ph_) {
-	    if (ph.p_type == PT_LOAD)
-		dg(ph.p_vaddr, ph.p_vaddr + ph.p_memsz);
-	}
+	foreach (ph; ph_)
+	    dg(ph.p_type, ph.p_vaddr + offset_,
+	       ph.p_vaddr + ph.p_memsz + offset_);
     }
 
     void enumerateNotes(void delegate(uint, string, ubyte*) dg)
@@ -1112,6 +1146,40 @@ template ElfFileBase()
 		    i += roundup(n.n_namesz) + roundup(n.n_descsz);
 		}
 	    }
+	}
+    }
+
+    void enumerateDynamic(Target target, void delegate(uint, ulong) dg)
+    {
+	ulong s, e;
+	bool found = false;
+
+	void getDynamic(uint tag, ulong start, ulong end)
+	{
+	    if (tag == PT_DYNAMIC) {
+		s = start;
+		e = end;
+		found = true;
+	    }
+	}
+	    
+	enumerateProgramHeaders(&getDynamic);
+	if (!found)
+	    return;
+
+	debug (elf)
+	    writefln("Found dynamic at %#x .. %#x", s, e);
+	ubyte[] dyn;
+	dyn = target.readMemory(s, e - s);
+
+	if (dyn.length == 0)
+	    return;
+
+	ubyte* p = &dyn[0], end = p + dyn.length;
+	while (p < end) {
+	    Dyn* d = cast(Dyn*) p;
+	    dg(d.d_tag, d.d_val);
+	    p += Dyn.sizeof;
 	}
     }
 
@@ -1146,6 +1214,44 @@ template ElfFileBase()
 	    }
 	}
 	return res;
+    }
+
+    void digestDynamic(Target target)
+    {
+	void dg(uint tag, ulong val)
+	{
+	    if (tag == DT_DEBUG)
+		r_debug_ = val + offset_;
+	}
+
+	enumerateDynamic(target, &dg);
+
+	debug (elf)
+	    if (r_debug_)
+		writefln("r_debug @ %#x", r_debug_);
+    }
+
+    ulong findSharedLibraryBreakpoint(Target target)
+    {
+	if (!r_debug_)
+	    return 0;
+	ubyte[] t = target.readMemory(r_debug_, r_debug.sizeof);
+	r_debug* p = cast(r_debug*) &t[0];
+	return p.r_brk;
+    }
+
+    uint sharedLibraryState(Target target)
+    {
+	if (!r_debug_)
+	    return RT_CONSISTENT;
+	ubyte[] t = target.readMemory(r_debug_, r_debug.sizeof);
+	r_debug* p = cast(r_debug*) &t[0];
+	return p.r_state;
+    }
+
+    bool inPLT(ulong pc)
+    {
+	return pc >= pltStart_ && pc < pltEnd_;
     }
 
 private:
@@ -1217,7 +1323,11 @@ private:
     }
 
     int		fd_ = -1;
+    ulong	entry_;
     ulong	offset_;
+    ulong	r_debug_ = 0;
+    ulong	pltStart_ = 0;
+    ulong	pltEnd_ = 0;
     Phdr[]	ph_;
     Shdr[]	sections_;
     char[]	shStrings_;

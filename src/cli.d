@@ -884,6 +884,19 @@ class Debugger: TargetListener, Scope
 		    target_.step(t);
 		    debug (step)
 			stoppedAt("single stepped to", s.pc);
+
+		    bool inPLT(ulong pc) {
+			foreach (mod; modules_)
+			    if (mod.inPLT(pc))
+				return true;
+			return false;
+		    }
+
+		    while (inPLT(s.pc)) {
+			debug (step)
+			    writefln("single stepping over PLT entry");
+			target_.step(t);
+		    }
 		    resetStep = true;
 		} else {
 		    debug (step)
@@ -1024,9 +1037,11 @@ class Debugger: TargetListener, Scope
 	    }
 	}
 	stopped();
-	ulong tpc = s.pc;
-	pagefln("%s:\t%s", lookupAddress(s.pc),
-		s.disassemble(tpc, &lookupAddress));
+	if (currentFrame.func_) {
+	    ulong tpc = s.pc;
+	    pagefln("%s:\t%s", lookupAddress(s.pc),
+		    s.disassemble(tpc, &lookupAddress));
+	}
     }
 
     void setBreakpoint(string bploc)
@@ -1622,6 +1637,11 @@ class NextICommand: Command
 	string name()
 	{
 	    return "nexti";
+	}
+
+	string shortName()
+	{
+	    return "ni";
 	}
 
 	string description()

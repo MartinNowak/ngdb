@@ -43,6 +43,8 @@ class Objfile
 
     abstract Symbol* lookupSymbol(string name);
 
+    abstract ulong entry();
+
     abstract ulong offset();
 
     abstract bool hasSection(string name);

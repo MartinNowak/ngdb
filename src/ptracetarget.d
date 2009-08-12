@@ -83,17 +83,59 @@ class PtraceModule: TargetModule
 	end_ = end;
     }
 
+    ulong entry()
+    {
+	if (obj_)
+	    return obj_.entry;
+	return 0;
+    }
+
     void init()
     {
 	if (!obj_) {
-	    writefln("Opening %s at %#x", filename_, start_);
+	    //writefln("Opening %s at %#x", filename_, start_);
 	    obj_ = Objfile.open(filename_, start_);
-	    if (obj_ && DwarfFile.hasDebug(obj_)) {
-		//writefln("Offset is %#x", obj_.offset);
-		//writefln("Reading debug info for %s", filename_);
-		dwarf_ = new DwarfFile(obj_);
+	    if (obj_) {
+		if (DwarfFile.hasDebug(obj_)) {
+		    //writefln("Offset is %#x", obj_.offset);
+		    //writefln("Reading debug info for %s", filename_);
+		    dwarf_ = new DwarfFile(obj_);
+		}
+		auto elf = cast(Elffile) obj_;
 	    }
 	}
+    }
+
+    void digestDynamic(Target target)
+    {
+	if (obj_) {
+	    auto elf = cast(Elffile) obj_;
+	    if (!elf)
+		return;
+	    elf.digestDynamic(target);
+	}
+    }
+
+    ulong findSharedLibraryBreakpoint(Target target)
+    {
+	if (obj_) {
+	    auto elf = cast(Elffile) obj_;
+	    if (!elf)
+		return 0;
+	    return elf.findSharedLibraryBreakpoint(target);
+	}
+	return 0;
+    }
+
+    uint sharedLibraryState(Target target)
+    {
+	if (obj_) {
+	    auto elf = cast(Elffile) obj_;
+	    if (!elf)
+		return 0;
+	    return elf.sharedLibraryState(target);
+	}
+	return 0;
     }
 
     ~this()
@@ -145,6 +187,16 @@ class PtraceModule: TargetModule
 		    ts = TargetSymbol(s.name, s.value, s.size);
 		    return true;
 		}
+	    }
+	    return false;
+	}
+	bool inPLT(ulong pc)
+	{
+	    if (obj_) {
+		auto elf = cast(Elffile) obj_;
+		if (!elf)
+		    return false;
+		return elf.inPLT(pc);
 	    }
 	    return false;
 	}
@@ -392,6 +444,32 @@ class PtraceTarget: Target
 	listener.onTargetStarted(this);
 	stopped();
 	getModules();
+
+	/*
+	 * Continue up to the program entry point (or a user
+	 * breakpoint if that happens first.
+	 */
+	if (modules_[0].entry) {
+	    setBreakpoint(modules_[0].entry, cast(void*) this);
+	    cont(0);
+	    wait;
+	    clearBreakpoint(cast(void*) this);
+	    getModules;
+	    /*
+	     * Re-read dynamic entries - the runtime linker may have
+	     * changed the value of DT_DEBUG.
+	     */
+	    foreach (mod; modules_)
+		mod.digestDynamic(this);
+	    sharedLibraryBreakpoint_ =
+		modules_[0].findSharedLibraryBreakpoint(this);
+	    if (sharedLibraryBreakpoint_) {
+		debug (breakpoints)
+		    writefln("Shared library breakpoint @ %#x",
+			sharedLibraryBreakpoint_);
+		setBreakpoint(sharedLibraryBreakpoint_, cast(void*) this);
+	    }
+	}
     }
 
     override
@@ -488,9 +566,10 @@ class PtraceTarget: Target
 	    assert(state_ == TargetState.RUNNING);
 
 	    try {
-		wait4(pid_, &waitStatus_, 0, null);
-		state_ = TargetState.STOPPED;
-		stopped();
+		do {
+		    wait4(pid_, &waitStatus_, 0, null);
+		    state_ = TargetState.STOPPED;
+		} while (!stopped());
 	    } catch (PtraceException pte) {
 		if (pte.errno_ == ESRCH)
 		    onExit;
@@ -575,6 +654,7 @@ private:
     string execname_;
     bool breakpointsActive_;
     string lastMaps_;
+    ulong sharedLibraryBreakpoint_;
 
     void onExit()
     {
@@ -667,6 +747,7 @@ private:
 		    seenit = true;
 	    if (!seenit) {
 		mod.init;
+		mod.digestDynamic(this);
 		listener_.onModuleAdd(this, mod);
 		newModules ~= mod;
 	    }
@@ -708,8 +789,10 @@ private:
 	return result;
     }
 
-    void stopped()
+    bool stopped()
     {
+	bool ret = true;
+
 	bool checkBreakpoints = breakpointsActive_;
 	if (breakpointsActive_) {
 	    foreach (pbp; breakpoints_)
@@ -719,7 +802,6 @@ private:
 	getThreads();
 	foreach (t; threads_)
 	    t.readState();
-	getModules();
 
 	if (WIFSTOPPED(waitStatus_)) {
 	    if (WSTOPSIG(waitStatus_) == SIGTRAP) {
@@ -733,13 +815,24 @@ private:
 		    pt.pc = pt.state.pc - 1; // XXX MachineState.adjustPcAfterBreak
 		    foreach (pbp; breakpoints_.values) {
 			if (pt.state.pc == pbp.address) {
+			    pbp.stoppedThreads_ ~= pt;
 			    foreach (id; pbp.ids) {
 				debug(breakpoints)
 				    writefln("hit breakpoint at 0x%x for 0x%x",
 					     pt.state.pc, id);
-				listener_.onBreakpoint(this, pt, id);
+				if (id != cast(void*) this)
+				    listener_.onBreakpoint(this, pt, id);
+				else if (sharedLibraryBreakpoint_) {
+				    /*
+				     * We stopped at our shared lib monitor.
+				     */
+				    if (modules_[0].sharedLibraryState(this)
+					== RT_CONSISTENT)
+					getModules;
+				    cont(0);
+				    ret = false;
+				}
 			    }
-			    pbp.stoppedThreads_ ~= pt;
 			}
 		    }
 		}
@@ -748,6 +841,7 @@ private:
 		listener_.onSignal(this, focusThread, sig, signame(sig));
 	    }
 	}
+	return ret;
     }
 
     static int ptrace(int op, int pid, char* p, int n)
@@ -862,6 +956,7 @@ class PtraceRun: TargetFactory
 		    exit(1);
 		debug (ptrace)
 		    writefln("child execve(%s, ...)", execpath);
+		setenv("LD_BIND_NOW", "yes", 1);
 		execve(pathz, argv.ptr, environ);
 		writefln("execve returned: %s",
 			 std.string.toString(strerror(errno)));
