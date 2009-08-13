@@ -26,6 +26,7 @@
 
 module objfile.objfile;
 version (tangobos) import std.compat;
+import endian;
 
 struct Symbol
 {
@@ -37,8 +38,24 @@ struct Symbol
     int		section;
 }
 
-class Objfile
+class Objfile: Endian
 {
+    abstract ulong read(ubyte[] bytes);
+
+    abstract ushort read(ushort v);
+
+    abstract uint read(uint v);
+
+    abstract ulong read(ulong v);
+
+    abstract void write(ulong val, ubyte[] bytes);
+
+    abstract void write(ushort v, out ushort res);
+
+    abstract void write(uint v, out uint res);
+
+    abstract void write(ulong v, out ulong res);
+
     abstract Symbol* lookupSymbol(ulong addr);
 
     abstract Symbol* lookupSymbol(string name);

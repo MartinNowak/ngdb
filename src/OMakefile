@@ -1,6 +1,7 @@
 objs[]=
 	cli
 	editline
+	endian
 	machine/machine
 	machine/x86
 	machine/x86dis

@@ -58,6 +58,7 @@ else
 import std.c.freebsd.freebsd;
 import std.c.string;
 
+import endian;
 import target;
 import objfile.objfile;
 
@@ -938,6 +939,54 @@ class Elffile: Objfile
 	Objfile.addFileType(&open);
     }
 
+    override {
+	ulong read(ubyte[] bytes)
+	{
+	    return endian_.read(bytes);
+	}
+	ushort read(ushort v)
+	{
+	    return endian_.read(v);
+	}
+	uint read(uint v)
+	{
+	    return endian_.read(v);
+	}
+	ulong read(ulong v)
+	{
+	    return endian_.read(v);
+	}
+	void write(ulong val, ubyte[] bytes)
+	{
+	    return endian_.write(val, bytes);
+	}
+	void write(ushort v, out ushort res)
+	{
+	    return endian_.write(v, res);
+	}
+	void write(uint v, out uint res)
+	{
+	    return endian_.write(v, res);
+	}
+	void write(ulong v, out ulong res)
+	{
+	    return endian_.write(v, res);
+	}
+    }
+
+    short read(short v)
+    {
+	return endian_.read(cast(ushort) v);
+    }
+    int read(int v)
+    {
+	return endian_.read(cast(uint) v);
+    }
+    long read(long v)
+    {
+	return endian_.read(cast(ulong) v);
+    }
+
     abstract Symbol* lookupSymbol(ulong addr);
 
     abstract Symbol* lookupSymbol(string name);
@@ -968,6 +1017,9 @@ class Elffile: Objfile
 				   void delegate(string, ulong, ulong) dg);
 
     abstract bool inPLT(ulong pc);
+
+private:
+    Endian endian_;
 }
 
 template ElfFileBase()
@@ -980,18 +1032,23 @@ template ElfFileBase()
 	if (pread(fd, &eh, eh.sizeof, 0) != eh.sizeof)
 	    throw new Exception("Can't read Elf32 header");
 
+	if (eh.e_ident.ei_data == ELFDATA2LSB)
+	    endian_ = new LittleEndian;
+	else
+	    endian_ = new BigEndian;
+
 	debug (elf)
-	    writefln("%d program headers", eh.e_phnum);
-	ph_.length = eh.e_phnum;
-	for (int i = 0; i < eh.e_phnum; i++) {
+	    writefln("%d program headers", read(eh.e_phnum));
+	ph_.length = read(eh.e_phnum);
+	for (int i = 0; i < ph_.length; i++) {
 	    if (pread(fd, &ph_[i], eh.e_phentsize,
 		      eh.e_phoff + i * eh.e_phentsize) != eh.e_phentsize)
 		throw new Exception("Can't read program headers");
 	}
 	if (base > 0 && ph_.length > 0) {
 	    foreach (ph; ph_) {
-		if (ph.p_type == PT_LOAD) {
-		    offset_ = base - ph.p_vaddr;
+		if (read(ph.p_type) == PT_LOAD) {
+		    offset_ = base - read(ph.p_vaddr);
 		    break;
 		}
 	    }
@@ -999,49 +1056,49 @@ template ElfFileBase()
 	    offset_ = 0;
 	}
 
-	entry_ = eh.e_entry + offset_;
+	entry_ = read(eh.e_entry) + offset_;
 
 	debug (elf)
-	    writefln("%d sections", eh.e_shnum);
-	sections_.length = eh.e_shnum;
-	for (int i = 0; i < eh.e_shnum; i++) {
+	    writefln("%d sections", read(eh.e_shnum));
+	sections_.length = read(eh.e_shnum);
+	for (int i = 0; i < sections_.length; i++) {
 	    if (pread(fd, &sections_[i], eh.e_shentsize,
 		      eh.e_shoff + i * eh.e_shentsize) != eh.e_shentsize)
 		throw new Exception("Can't read section headers");
 	}
 
-	if (eh.e_shstrndx != SHN_UNDEF) {
-	    shStrings_ = readSection(eh.e_shstrndx);
+	if (read(eh.e_shstrndx) != SHN_UNDEF) {
+	    shStrings_ = readSection(read(eh.e_shstrndx));
 	}
 
 	debug (elf)
 	    for (int i = 0; i < sections_.length; i++) {
 		Shdr *sh = &sections_[i];
-		if (sh.sh_type == SHT_NULL)
+		if (read(sh.sh_type) == SHT_NULL)
 		    continue;
 		writefln("Section %d type %d, name %s, off %d, size %d",
-			 i, sh.sh_type,
+			 i, read(sh.sh_type),
 			 std.string.toString(&shStrings_[sh.sh_name]),
-			 sh.sh_offset, sh.sh_size);
+			 read(sh.sh_offset), read(sh.sh_size));
 	    }
 
 	for (int i = 0; i < sections_.length; i++) {
 	    Shdr *sh = &sections_[i];
-	    if (sh.sh_type == SHT_NULL)
+	    if (read(sh.sh_type) == SHT_NULL)
 		continue;
 	    if (.toString(&shStrings_[sh.sh_name]) != ".plt")
 		continue;
-	    pltStart_ = sh.sh_addr + offset_;
-	    pltEnd_ = pltStart_ + sh.sh_size;
+	    pltStart_ = read(sh.sh_addr) + offset_;
+	    pltEnd_ = pltStart_ + read(sh.sh_size);
 	}
 
 	Symbol[] symtab;
 	Symbol[] dynsym;
 	for (int i = 0; i < sections_.length; i++) {
 	    Shdr *sh = &sections_[i];
-	    if (sh.sh_type == SHT_SYMTAB)
+	    if (read(sh.sh_type) == SHT_SYMTAB)
 		symtab = readSymbols(i);
-	    else if (sh.sh_type == SHT_DYNSYM)
+	    else if (read(sh.sh_type) == SHT_DYNSYM)
 		dynsym = readSymbols(i);
 	}
 
@@ -1133,18 +1190,18 @@ template ElfFileBase()
     void enumerateProgramHeaders(void delegate(uint, ulong, ulong) dg)
     {
 	foreach (ph; ph_)
-	    dg(ph.p_type, ph.p_vaddr + offset_,
-	       ph.p_vaddr + ph.p_memsz + offset_);
+	    dg(read(ph.p_type), read(ph.p_vaddr) + offset_,
+	       read(ph.p_vaddr) + read(ph.p_memsz) + offset_);
     }
 
     void enumerateNotes(void delegate(uint, string, ubyte*) dg)
     {
 	foreach (ph; ph_) {
-	    if (ph.p_type == PT_NOTE) {
+	    if (read(ph.p_type) == PT_NOTE) {
 		ubyte[] notes;
-		notes.length = ph.p_filesz;
-		if (pread(fd_, &notes[0], ph.p_filesz, ph.p_offset)
-		    != ph.p_filesz)
+		notes.length = read(ph.p_filesz);
+		if (pread(fd_, &notes[0], notes.length, read(ph.p_offset))
+		    != notes.length)
 		    throw new Exception("Can't read from file");
 
 		size_t roundup(size_t n, size_t sz = Size.sizeof)
@@ -1156,11 +1213,13 @@ template ElfFileBase()
 		while (i < notes.length) {
 		    Note* n = cast(Note*) &notes[i];
 		    char* name = cast(char*) (n + 1);
-		    ubyte* desc = cast(ubyte*) (name + roundup(n.n_namesz));
+		    ubyte* desc = cast(ubyte*)
+			(name + roundup(read(n.n_namesz)));
 
 		    dg(n.n_type, .toString(name), desc);
 		    i += Note.sizeof;
-		    i += roundup(n.n_namesz) + roundup(n.n_descsz);
+		    i += roundup(read(n.n_namesz))
+			+ roundup(read(n.n_descsz));
 		}
 	    }
 	}
@@ -1195,7 +1254,7 @@ template ElfFileBase()
 	ubyte* p = &dyn[0], end = p + dyn.length;
 	while (p < end) {
 	    Dyn* d = cast(Dyn*) p;
-	    dg(d.d_tag, d.d_val);
+	    dg(read(d.d_tag), read(d.d_val));
 	    p += Dyn.sizeof;
 	}
     }
@@ -1213,9 +1272,9 @@ template ElfFileBase()
 	ulong sa = addr;
 	ulong ea = addr + len;
 	foreach (ph; ph_) {
-	    if (ph.p_type == PT_LOAD) {
-		ulong psa = ph.p_vaddr;
-		ulong pea = ph.p_vaddr + ph.p_filesz;
+	    if (read(ph.p_type) == PT_LOAD) {
+		ulong psa = read(ph.p_vaddr);
+		ulong pea = psa  + read(ph.p_filesz);
 		if (ea > psa && sa < pea) {
 		    /*
 		     * Some bytes are in this section.
@@ -1225,7 +1284,7 @@ template ElfFileBase()
 		    ulong e = pea;
 		    if (ea < e) e = ea;
 		    if (pread(fd_, &res[s - sa], e - s,
-			ph.p_offset + s - psa) != e - s)
+			      read(ph.p_offset) + s - psa) != e - s)
 			throw new Exception("Can't read from file");
 		}
 	    }
@@ -1254,7 +1313,7 @@ template ElfFileBase()
 	    return 0;
 	ubyte[] t = target.readMemory(r_debug_, r_debug.sizeof);
 	r_debug* p = cast(r_debug*) &t[0];
-	return p.r_brk;
+	return read(p.r_brk);
     }
 
     uint sharedLibraryState(Target target)
@@ -1263,7 +1322,7 @@ template ElfFileBase()
 	    return RT_CONSISTENT;
 	ubyte[] t = target.readMemory(r_debug_, r_debug.sizeof);
 	r_debug* p = cast(r_debug*) &t[0];
-	return p.r_state;
+	return read(p.r_state);
     }
 
     void enumerateLinkMap(Target target,
@@ -1288,12 +1347,12 @@ template ElfFileBase()
 
 	ubyte[] t = target.readMemory(r_debug_, r_debug.sizeof);
 	r_debug* p = cast(r_debug*) &t[0];
-	ulong lp = p.r_map;
+	ulong lp = read(p.r_map);
 	while (lp) {
 	    t = target.readMemory(lp, link_map.sizeof);
 	    link_map *lm = cast(link_map*) &t[0];
-	    dg(readString(target, lm.l_name), lp, lm.l_addr);
-	    lp = lm.l_next;
+	    dg(readString(target, read(lm.l_name)), lp, read(lm.l_addr));
+	    lp = read(lm.l_next);
 	}
     }
 
@@ -1308,9 +1367,9 @@ private:
 	Shdr *sh = &sections_[si];
 	char[] s;
 
-	s.length = sh.sh_size;
+	s.length = read(sh.sh_size);
 	if (s.length > 0)
-	    if (pread(fd_, &s[0], sh.sh_size, sh.sh_offset) != sh.sh_size)
+	    if (pread(fd_, &s[0], s.length, read(sh.sh_offset)) != s.length)
 		throw new Exception("Can't read section");
 	return s;
     }
@@ -1318,11 +1377,11 @@ private:
     Symbol[] readSymbols(int si)
     {
 	Shdr* sh = &sections_[si];
-	if (sh.sh_entsize != Sym.sizeof)
+	if (read(sh.sh_entsize) != Sym.sizeof)
 	    throw new Exception("Symbol section has unsupported entry size");
 
 	Sym[] syms;
-	syms.length = sh.sh_size / sh.sh_entsize;
+	syms.length = read(sh.sh_size) / read(sh.sh_entsize);
 	if (pread(fd_, &syms[0], sh.sh_size, sh.sh_offset) != sh.sh_size)
 	    throw new Exception("Can't read section");
 
@@ -1333,8 +1392,8 @@ private:
 	for (int i = 0; i < syms.length; i++) {
 	    Sym* sym = &syms[i];
 	    Symbol* s = &symbols[i];
-	    s.name = std.string.toString(&strings[sym.st_name]);
-	    s.value = sym.st_value + offset_;
+	    s.name = std.string.toString(&strings[read(sym.st_name)]);
+	    s.value = read(sym.st_value) + offset_;
 	    s.size = sym.st_size;
 	    s.type = sym.st_type;
 	    s.binding = sym.st_bind;
