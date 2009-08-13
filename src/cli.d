@@ -250,10 +250,12 @@ private class Breakpoint
 		 * XXX possibly remove this if it causes problems with
 		 * inlines.
 		 */
-		Function f = di.findFunction(le.address);
-		if (func && f == func)
-		    continue;
-		func = f;
+		if (di) {
+		    Function f = di.findFunction(le.address);
+		    if (func && f == func)
+			continue;
+		    func = f;
+		}
 		db_.target_.setBreakpoint(le.address, cast(void*) this);
 		addresses_ ~= le.address;
 	    }
