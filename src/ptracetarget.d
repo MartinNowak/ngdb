@@ -117,11 +117,11 @@ class PtraceModule: TargetModule
 	    TargetSymbol sym;
 	    if (lookupSymbol("_thread_off_linkmap", sym)) {
 		ubyte[] t = target.readMemory(sym.value, 4);
-		target.linkmapOffset_ = *cast(int*) &t[0]; // XXX endian
+		target.linkmapOffset_ = elf.read(*cast(int*) &t[0]);
 	    }
 	    if (lookupSymbol("_thread_off_tlsindex", sym)) {
 		ubyte[] t = target.readMemory(sym.value, 4);
-		target.tlsindexOffset_ = *cast(int*) &t[0]; // XXX endian
+		target.tlsindexOffset_ = elf.read(*cast(int*) &t[0]);
 	    }
 
 	    if (target.linkmapOffset_ && target.tlsindexOffset_
@@ -132,7 +132,7 @@ class PtraceModule: TargetModule
 			ulong p = lm - target.linkmapOffset_
 			    + target.tlsindexOffset_;
 			ubyte[] t = target.readMemory(p, 4);
-			int tlsindex = *cast(int*) &t[0]; // XXX endian
+			int tlsindex = elf.read(*cast(int*) &t[0]);
 			//writefln("Module %s TLS index is %d", filename_, tlsindex);
 			elf.tlsindex = tlsindex;
 		    }
