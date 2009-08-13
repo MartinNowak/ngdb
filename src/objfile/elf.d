@@ -61,6 +61,9 @@ import std.c.string;
 import endian;
 import target;
 import objfile.objfile;
+import machine.machine;
+import machine.x86;
+import machine.arm;
 
 struct Note {
     uint32_t	n_namesz;
@@ -1036,6 +1039,7 @@ template ElfFileBase()
 	    endian_ = new LittleEndian;
 	else
 	    endian_ = new BigEndian;
+	machine_ = read(eh.e_machine);
 
 	debug (elf)
 	    writefln("%d program headers", read(eh.e_phnum));
@@ -1116,6 +1120,18 @@ template ElfFileBase()
 	if (fd_ >= 0) {
 	    .close(fd_);
 	    fd_ = -1;
+	}
+    }
+
+    MachineState getState(Target target)
+    {
+	switch (machine_) {
+	case EM_386:
+	    return new X86State(target);
+	case EM_ARM:
+	    return new ArmState(target);
+	default:
+	    throw new TargetException("Unsupported target machine type");
 	}
     }
 
@@ -1430,6 +1446,7 @@ private:
     }
 
     int		fd_ = -1;
+    uint	machine_;
     ulong	entry_;
     ulong	offset_;
     uint	tlsindex_;

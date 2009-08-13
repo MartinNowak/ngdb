@@ -27,6 +27,8 @@
 module objfile.objfile;
 version (tangobos) import std.compat;
 import endian;
+import target;
+import machine.machine;
 
 struct Symbol
 {
@@ -40,6 +42,8 @@ struct Symbol
 
 class Objfile: Endian
 {
+    abstract MachineState getState(Target);
+
     abstract ulong read(ubyte[] bytes);
 
     abstract ushort read(ushort v);

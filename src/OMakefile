@@ -3,6 +3,8 @@ objs[]=
 	editline
 	endian
 	machine/machine
+	machine/arm
+	machine/armdis
 	machine/x86
 	machine/x86dis
 	objfile/elf

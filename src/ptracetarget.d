@@ -254,6 +254,11 @@ class PtraceModule: TargetModule
 	}
     }
 
+    MachineState getState(Target target)
+    {
+	return obj_.getState(target);
+    }
+
     int opEquals(PtraceModule mod)
     {
 	return filename_ == mod.filename_
@@ -344,7 +349,7 @@ class PtraceThread: TargetThread
 	target_ = target;
 	id_ = target.nextTid_++;
 	lwpid_ = lwpid;
-	state_ = new X86State(target_);
+	state_ = target_.modules_[0].getState(target_);
     }
     override
     {
@@ -482,8 +487,8 @@ class PtraceTarget: Target
 	execname_ = execname;
 	breakpointsActive_ = false;
 	listener.onTargetStarted(this);
-	stopped();
 	getModules();
+	stopped();
 
 	/*
 	 * Continue up to the program entry point (or a user

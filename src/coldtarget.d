@@ -142,6 +142,11 @@ class ColdModule: TargetModule
 	}
     }
 
+    MachineState getState(Target target)
+    {
+	return obj_.getState(target);
+    }
+
     int opEquals(ColdModule mod)
     {
 	return filename_ == mod.filename_
@@ -170,7 +175,7 @@ class ColdThread: TargetThread
     {
 	target_ = target;
 	id_ = target.nextTid_++;
-	state_ = new X86State(target_);
+	state_ = target.modules_[0].getState(target);
 	if (p)
 	    state.setGRs(p);
     }
