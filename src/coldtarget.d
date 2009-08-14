@@ -143,12 +143,16 @@ class ColdModule: TargetModule
 
     MachineState getState(Target target)
     {
-	return obj_.getState(target);
+	if (obj_)
+	    return obj_.getState(target);
+	return null;
     }
 
     string interpreter()
     {
-	return obj_.interpreter;
+	if (obj_)
+	    return obj_.interpreter;
+	return null;
     }
 
     void enumerateNeededLibraries(Target target,
