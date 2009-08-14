@@ -497,8 +497,8 @@ class CLikeLanguage: Language
 	    default:
 		assert(false);
 	    }
-	}
-	lex.pushBack(tok);
+	} else
+	    lex.pushBack(tok);
 	return e;
     }
     Expr shiftExpr(Lexer lex)
