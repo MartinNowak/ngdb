@@ -347,11 +347,6 @@ class ColdTarget: Target
 	    return state_;
 	}
 
-	TargetThread focusThread()
-	{
-	    return threads_[0];
-	}
-
 	ubyte[] readMemory(ulong targetAddress, size_t bytes)
 	{
 	    if (core_) {

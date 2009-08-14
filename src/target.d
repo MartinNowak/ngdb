@@ -181,11 +181,6 @@ interface Target
     TargetState state();
 
     /**
-     * Return the thread which caused the target to stop.
-     */
-    TargetThread focusThread();
-
-    /**
      * Read from the target's memory.
      */
     ubyte[] readMemory(ulong targetAddress, size_t bytes);

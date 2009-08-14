@@ -523,21 +523,6 @@ class PtraceTarget: Target
 	{
 	    return state_;
 	}
-
-	TargetThread focusThread()
-	{
-	    ptrace_lwpinfo info;
-
-	    try {
-		ptrace(PT_LWPINFO, pid_, cast(char*) &info, info.sizeof);
-	    } catch (PtraceException pte) {
-		if (pte.errno_ == ESRCH)
-		    onExit;
-		return null;
-	    }
-	    return threads_[info.pl_lwpid];
-	}
-
 	ubyte[] readMemory(ulong targetAddress, size_t bytes)
 	{
 	    return readMemory(targetAddress, bytes, true);
@@ -648,6 +633,20 @@ class PtraceTarget: Target
 	    }
 	    breakpoints_ = newBreakpoints;
 	}
+    }
+
+    PtraceThread focusThread()
+    {
+	ptrace_lwpinfo info;
+
+	try {
+	    ptrace(PT_LWPINFO, pid_, cast(char*) &info, info.sizeof);
+	} catch (PtraceException pte) {
+	    if (pte.errno_ == ESRCH)
+		onExit;
+	    return null;
+	}
+	return threads_[info.pl_lwpid];
     }
 
     ubyte[] readMemory(ulong targetAddress, size_t bytes, bool data)
@@ -843,7 +842,7 @@ private:
 		     * accordingly and find out what stopped it,
 		     * informing our listener as appropriate.
 		     */
-		    PtraceThread pt = cast(PtraceThread) focusThread;
+		    PtraceThread pt = focusThread;
 		    pt.pc = pt.state.pc - 1; // XXX MachineState.adjustPcAfterBreak
 		    foreach (pbp; breakpoints_.values) {
 			if (pt.state.pc == pbp.address) {
