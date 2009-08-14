@@ -387,11 +387,11 @@ class ColdTarget: Target
 	{
 	}
 
-	void setBreakpoint(ulong addr, void* id)
+	void setBreakpoint(ulong, TargetBreakpointListener)
 	{
 	}
 
-	void clearBreakpoint(void* id)
+	void clearBreakpoint(TargetBreakpointListener)
 	{
 	}
     }

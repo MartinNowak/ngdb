@@ -38,6 +38,19 @@ class TargetException: Exception
 }
 
 /**
+ * This interface is used to allow a target to notify a user when
+ * a breakpoint is hit.
+ */
+interface TargetBreakpointListener
+{
+    /**
+     * Called when a thread hits a breakpoint. Return true to stop
+     * execution or false to keep running.
+     */
+    bool onBreakpoint(Target, TargetThread);
+}
+
+/**
  * This interface is used to allow a target to notify a user of
  * changes in the target state.
  */
@@ -67,11 +80,6 @@ interface TargetListener
      * Called when a module is unmapped in the target.
      */
     void onModuleDelete(Target, TargetModule);
-
-    /**
-     * Called when a thread hits a breakpoint.
-     */
-    void onBreakpoint(Target, TargetThread, void*);
 
     /**
      * Called when the target stops because of a signal
@@ -216,12 +224,12 @@ interface Target
      * with the same id value as that used to set it. Many breakpoints
      * can be created with the same id value.
      */
-    void setBreakpoint(ulong addr, void* id);
+    void setBreakpoint(ulong addr, TargetBreakpointListener tbl);
 
     /**
      * Clear any breakpoints set with the given id.
      */
-    void clearBreakpoint(void* id);
+    void clearBreakpoint(TargetBreakpointListener tbl);
 }
 
 /**

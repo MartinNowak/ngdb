@@ -305,38 +305,38 @@ class PtraceBreakpoint
 	return addr_;
     }
 
-    void addID(void* id)
+    void addListener(TargetBreakpointListener tbl)
     {
-	ids_ ~= id;
+	listeners_ ~= tbl;
     }
 
-    void removeID(void* id)
+    void removeListener(TargetBreakpointListener tbl)
     {
-	void*[] newids;
+	TargetBreakpointListener[] newListeners;
 
-	foreach (t; ids_)
-	    if (t != id)
-		newids ~= t;
-	ids_ = newids;
+	foreach (t; listeners_)
+	    if (t !is tbl)
+		newListeners ~= t;
+	listeners_ = newListeners;
     }
 
-    bool matchID(void* id)
+    bool matchListener(TargetBreakpointListener tbl)
     {
-	foreach (t; ids_)
-	    if (t == id)
+	foreach (t; listeners_)
+	    if (t is tbl)
 		return true;
 	return false;
     }
 
-    void*[] ids()
+    TargetBreakpointListener[] listeners()
     {
-	return ids_;
+	return listeners_;
     }
 
 private:
     PtraceTarget target_;
     ulong addr_;
-    void*[] ids_;
+    TargetBreakpointListener[] listeners_;
     PtraceThread[] stoppedThreads_;
     ubyte[] save_;
     static ubyte[] break_ = [ 0xcc ]; // XXX i386 int3
@@ -478,7 +478,7 @@ string signame(int sig)
 	return std.string.format("SIG%d", sig);
 }
 
-class PtraceTarget: Target
+class PtraceTarget: Target, TargetBreakpointListener
 {
     this(TargetListener listener, pid_t pid, string execname)
     {
@@ -492,28 +492,12 @@ class PtraceTarget: Target
 
 	/*
 	 * Continue up to the program entry point (or a user
-	 * breakpoint if that happens first.
+	 * breakpoint if that happens first).
 	 */
 	if (modules_[0].entry) {
-	    setBreakpoint(modules_[0].entry, cast(void*) this);
+	    setBreakpoint(modules_[0].entry, this);
 	    cont(0);
 	    wait;
-	    clearBreakpoint(cast(void*) this);
-	    getModules;
-	    /*
-	     * Re-read dynamic entries - the runtime linker may have
-	     * changed the value of DT_DEBUG.
-	     */
-	    foreach (mod; modules_)
-		mod.digestDynamic(this);
-	    sharedLibraryBreakpoint_ =
-		modules_[0].findSharedLibraryBreakpoint(this);
-	    if (sharedLibraryBreakpoint_) {
-		debug (breakpoints)
-		    writefln("Shared library breakpoint @ %#x",
-			sharedLibraryBreakpoint_);
-		setBreakpoint(sharedLibraryBreakpoint_, cast(void*) this);
-	    }
 	}
     }
 
@@ -606,32 +590,69 @@ class PtraceTarget: Target
 	    }
 	}
 
-	void setBreakpoint(ulong addr, void* id)
+	void setBreakpoint(ulong addr, TargetBreakpointListener tbl)
 	{
 	    debug(breakpoints)
-		writefln("setting breakpoint at 0x%x for 0x%x", addr, id);
+		writefln("setting breakpoint at 0x%x for 0x%x", addr,
+		    cast(ulong) tbl);
 	    if (addr in breakpoints_) {
-		breakpoints_[addr].addID(id);
+		breakpoints_[addr].addListener(tbl);
 	    } else {
 		PtraceBreakpoint pbp = new PtraceBreakpoint(this, addr);
-		pbp.addID(id);
+		pbp.addListener(tbl);
 		breakpoints_[addr] = pbp;
 	    }
 	}
 
-	void clearBreakpoint(void* id)
+	void clearBreakpoint(TargetBreakpointListener tbl)
 	{
 	    debug(breakpoints)
-		writefln("clearing breakpoints for 0x%x", id);
+		writefln("clearing breakpoints for 0x%x", cast(ulong) tbl);
 	    PtraceBreakpoint[ulong] newBreakpoints;
 	    foreach (addr, pbp; breakpoints_) {
-		if (pbp.matchID(id)) {
-		    pbp.removeID(id);
+		if (pbp.matchListener(tbl)) {
+		    pbp.removeListener(tbl);
 		}
-		if (pbp.ids.length > 0)
+		if (pbp.listeners.length > 0)
 		    newBreakpoints[addr] = pbp;
 	    }
 	    breakpoints_ = newBreakpoints;
+	}
+	bool onBreakpoint(Target, TargetThread)
+	{
+	    if (!sharedLibraryBreakpoint_) {
+		/*
+		 * We are stopped at program entry point. The dynamic
+		 * linker is done now so we re-read the module lists
+		 * and see if we can figure out how to monitor dlopen
+		 * and dlclose.
+		 */
+		clearBreakpoint(this);
+		getModules;
+		/*
+		 * Re-read dynamic entries - the runtime linker may have
+		 * changed the value of DT_DEBUG.
+		 */
+		foreach (mod; modules_)
+		    mod.digestDynamic(this);
+		sharedLibraryBreakpoint_ =
+		    modules_[0].findSharedLibraryBreakpoint(this);
+		if (sharedLibraryBreakpoint_) {
+		    debug (breakpoints)
+			writefln("Shared library breakpoint @ %#x",
+			    sharedLibraryBreakpoint_);
+		    setBreakpoint(sharedLibraryBreakpoint_, this);
+		}
+		return false;
+	    } else {
+		/*
+		 * We stopped at our shared lib monitor.
+		 */
+		if (modules_[0].sharedLibraryState(this)
+		    == RT_CONSISTENT)
+		    getModules;
+		return false;
+	    }
 	}
     }
 
@@ -847,22 +868,13 @@ private:
 		    foreach (pbp; breakpoints_.values) {
 			if (pt.state.pc == pbp.address) {
 			    pbp.stoppedThreads_ ~= pt;
-			    foreach (id; pbp.ids) {
+			    ret = false;
+			    foreach (tbl; pbp.listeners) {
 				debug(breakpoints)
 				    writefln("hit breakpoint at 0x%x for 0x%x",
-					     pt.state.pc, id);
-				if (id != cast(void*) this)
-				    listener_.onBreakpoint(this, pt, id);
-				else if (sharedLibraryBreakpoint_) {
-				    /*
-				     * We stopped at our shared lib monitor.
-				     */
-				    if (modules_[0].sharedLibraryState(this)
-					== RT_CONSISTENT)
-					getModules;
-				    cont(0);
-				    ret = false;
-				}
+					     pt.state.pc, cast(ulong) tbl);
+				if (tbl.onBreakpoint(this, pt))
+				    ret = true;
 			    }
 			}
 		    }
@@ -872,6 +884,8 @@ private:
 		listener_.onSignal(this, focusThread, sig, signame(sig));
 	    }
 	}
+	if (!ret)
+	    cont(0);
 	return ret;
     }
 

@@ -197,7 +197,7 @@ class CommandTable
     string[string] shortNames_;
 }
 
-private class Breakpoint
+private class Breakpoint: TargetBreakpointListener
 {
     this(Debugger db, uint id, SourceFile sf, uint line)
     {
@@ -212,6 +212,14 @@ private class Breakpoint
 	db_ = db;
 	id_ = id;
 	func_ = func;
+    }
+
+    bool onBreakpoint(Target, TargetThread t)
+    {
+	db_.currentThread = t;
+	writefln("Breakpoint %d, %s", id,
+	    db_.describeAddress(t.state.pc, t.state));
+	return true;
     }
 
     void activate(TargetModule mod)
@@ -256,7 +264,7 @@ private class Breakpoint
 			continue;
 		    func = f;
 		}
-		db_.target_.setBreakpoint(le.address, cast(void*) this);
+		db_.target_.setBreakpoint(le.address, this);
 		addresses_ ~= le.address;
 	    }
 	}
@@ -266,7 +274,7 @@ private class Breakpoint
     {
 	if (enabled_) {
 	    if (addresses_.length > 0)
-		db_.target_.clearBreakpoint(cast(void*) this);
+		db_.target_.clearBreakpoint(this);
 	    enabled_ = false;
 	}
     }
@@ -275,7 +283,7 @@ private class Breakpoint
     {
 	if (!enabled_) {
 	    foreach (address; addresses_)
-		db_.target_.setBreakpoint(address, cast(void*) this);
+		db_.target_.setBreakpoint(address, this);
 	    enabled_ = true;
 	}
     }
@@ -484,7 +492,7 @@ private string[] uniq(string[] list)
 /**
  * Implement a command line interface to the debugger.
  */
-class Debugger: TargetListener, Scope
+class Debugger: TargetListener, TargetBreakpointListener, Scope
 {
     this(string prog, string core)
     {
@@ -830,7 +838,7 @@ class Debugger: TargetListener, Scope
 	debug (step)
 	    writefln("step breakpoint at %#x", pc);
 	if (target_)
-	    target_.setBreakpoint(pc, cast(void*) this);
+	    target_.setBreakpoint(pc, this);
     }
 
     void clearStepBreakpoints()
@@ -838,7 +846,7 @@ class Debugger: TargetListener, Scope
 	debug (step)
 	    writefln("clearing step breakpoints");
 	if (target_)
-	    target_.clearBreakpoint(cast(void*) this);
+	    target_.clearBreakpoint(this);
     }
 
     void stepProgram(bool stepOverCalls)
@@ -1224,21 +1232,13 @@ class Debugger: TargetListener, Scope
 		    newModules ~= omod;
 	    modules_ = newModules;
 	}
-	void onBreakpoint(Target, TargetThread t, void* id)
+	bool onBreakpoint(Target, TargetThread t)
 	{
-	    currentThread = t;
 	    /*
-	     * We use this as id for the step breakpoints.
+	     * We use this as listener for the step breakpoints.
 	     */
-	    if (id == cast(void*) this) {
-		return;
-	    } else {
-		foreach (i, bp; breakpoints_) {
-		    if (id == cast(void*) bp) {
-			writefln("Breakpoint %d, %s", bp.id, describeAddress(t.state.pc, t.state));
-		    }
-		}
-	    }
+	    currentThread = t;
+	    return true;
 	}
 	void onSignal(Target, TargetThread t, int sig, string sigName)
 	{
@@ -1514,11 +1514,8 @@ class RunCommand: Command
 		runArgs_ = db.prog_ ~ args;
 	    }
 	    pt.connect(db, runArgs_);
-	    if (db.target_) {
-		db.target_.cont();
-		db.target_.wait();
+	    if (db.target_)
 		db.stopped();
-	    }
 	}
     }
     string[] runArgs_;
