@@ -386,6 +386,23 @@ private class Frame
 	    addr_ = 0;
 	    lang_ = new CLikeLanguage;
 	}
+
+	auto sc = new UnionScope;
+	Value thisvar;
+	if (func_ && func_.thisArgument(thisvar)) {
+	    PointerType ptrTy =
+		cast (PointerType) thisvar.type.underlyingType;
+	    if (ptrTy) {
+		Value v = ptrTy.dereference(state_, thisvar.loc);
+		CompoundType cTy = cast (CompoundType) v.type;
+		sc.addScope(new CompoundScope(cTy, v.loc, state_));
+	    }
+	}
+	if (func_)
+		sc.addScope(func_);
+	sc.addScope(db_);
+	sc.addScope(state_);
+	scope_ = sc;
     }
     string toString()
     {
@@ -439,6 +456,7 @@ private class Frame
     DebugInfo di_;
     Function func_;
     Language lang_;
+    Scope scope_;
     MachineState state_;
     ulong addr_;
 }
@@ -2349,28 +2367,15 @@ class PrintCommand: Command
 		lastExpr_ = expr;
 	    }
 
-	    auto sc = new UnionScope;
+	    Scope sc;
 	    Language lang;
 	    if (f) {
+		sc = f.scope_;
 		lang = f.lang_;
-
-		Value thisvar;
-		if (f.func_ && f.func_.thisArgument(thisvar)) {
-		    PointerType ptrTy =
-			cast (PointerType) thisvar.type.underlyingType;
-		    if (ptrTy) {
-			Value v = ptrTy.dereference(s, thisvar.loc);
-			CompoundType cTy = cast (CompoundType) v.type;
-			sc.addScope(new CompoundScope(cTy, v.loc, s));
-		    }
-		}
-		if (f.func_)
-		    sc.addScope(f.func_);
 	    } else {
+		sc = db;
 		lang = new CLikeLanguage;
 	    }
-	    sc.addScope(db);
-	    sc.addScope(s);
 
 	    try {
 		auto e = lang.parseExpr(expr);
@@ -2439,29 +2444,15 @@ class ExamineCommand: Command
 		addr = lastAddr_;
 	    } else {
 		string expr = join(args, " ");
-		auto sc = new UnionScope;
+		Scope sc;
 		Language lang;
 		if (f) {
+		    sc = f.scope_;
 		    lang = f.lang_;
-
-		    Value thisvar;
-		    if (f.func_ &&
-			f.func_.thisArgument(thisvar)) {
-			PointerType ptrTy =
-			    cast (PointerType) thisvar.type.underlyingType;
-			if (ptrTy) {
-			    Value v = ptrTy.dereference(s, thisvar.loc);
-			    CompoundType cTy = cast (CompoundType) v.type;
-			    sc.addScope(new CompoundScope(cTy, v.loc, s));
-			}
-		    }
-		    if (f.func_)
-			sc.addScope(f.func_);
 		} else {
+		    sc = db;
 		    lang = new CLikeLanguage;
 		}
-		sc.addScope(db);
-		sc.addScope(s);
 
 		try {
 		    auto e = lang.parseExpr(expr);
