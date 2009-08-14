@@ -666,146 +666,6 @@ enum
     DW_CFA_GNU_negative_offset_extended	= 0x2f,
 }
 
-private ubyte parseUByte(ref char* p)
-{
-    return *p++;
-}
-
-private byte parseSByte(ref char* p)
-{
-    byte v = *cast(byte*) p;
-    p++;
-    return v;
-}
-
-private ushort parseUShort(ref char* p)
-{
-    ushort v;
-    v = p[0] + (p[1] << 8);
-    p += 2;
-    return v;
-}
-
-private short parseSShort(ref char* p)
-{
-    short v;
-    v = p[0] + (p[1] << 8);
-    p += 2;
-    return v;
-}
-
-private uint parseUInt(ref char* p)
-{
-    uint v;
-    v = p[0] + (p[1] << 8) + (p[2] << 16) + (p[3] << 24);
-    p += 4;
-    return v;
-}
-
-private uint parseSInt(ref char* p)
-{
-    int v;
-    v = p[0] + (p[1] << 8) + (p[2] << 16) + (p[3] << 24);
-    p += 4;
-    return v;
-}
-
-private ulong parseULong(ref char* p)
-{
-    ulong lo, hi;
-    lo = parseUInt(p);
-    hi = parseUInt(p);
-    return lo | (hi << 32);
-}
-
-
-private ulong parseSLong(ref char* p)
-{
-    return cast(long) parseULong(p);
-}
-
-private ulong parseOffset(ref char* p, bool is64)
-{
-    if (is64)
-	return parseULong(p);
-    else
-	return parseUInt(p);
-}
-
-private ulong parseLength(ref char* p, bool is64)
-{
-    if (is64)
-	return parseULong(p);
-    else
-	return parseUInt(p);
-}
-
-private void skipString(ref char* p)
-{
-    while (*p)
-	p++;
-    p++;
-}
-
-private string parseString(ref char* p)
-{
-    string v = std.string.toString(p);
-    skipString(p);
-    return v;
-}
-
-private size_t parseInitialLength(ref char* p, ref bool is64)
-{
-    uint v = parseUInt(p);
-    if (v < 0xffffff00) {
-	is64 = false;
-	return v;
-    }
-    if (v != 0xffffffff)
-	throw new Exception("Bad initial length");
-    is64 = true;
-    ulong lv;
-    lv = parseUInt(p);
-    lv |= (parseUInt(p) << 32);
-    return lv;
-}
-
-private ulong parseULEB128(ref char* p)
-{
-    ulong v = 0;
-    int shift = 0;
-    bool done = false;
-    char b;
-
-    while (!done) {
-	b = *p++;
-	v |= (b & 0x7f) << shift;
-	shift += 7;
-	if ((b & 0x80) == 0)
-	    done = true;
-    }
-    return v;
-}
-
-private long parseSLEB128(ref char* p)
-{
-    long v = 0;
-    int shift = 0;
-    bool done = false;
-    char b;
-
-    while (!done) {
-	b = *p++;
-	v |= (b & 0x7f) << shift;
-	shift += 7;
-	if ((b & 0x80) == 0)
-	    done = true;
-    }
-    if (shift < 64 && (b & 0x40))
-	v |= -(1 << shift);	// sign extend
-    return v;
-}
-
 class DwarfFile: public DebugInfo
 {
     this(Objfile obj)
@@ -1203,6 +1063,7 @@ private:
 	    } else {
 		// FDE
 		FDE fde = new FDE;
+		fde.dw = this;
 		fde.is64 = is64;
 		fde.cie = cies[cie_id];
 		fde.initialLocation = parseOffset(p, is64) + offset;
@@ -1554,6 +1415,137 @@ private:
 	return false;
     }
 
+    private ubyte parseUByte(ref char* p)
+    {
+	return *p++;
+    }
+
+    byte parseSByte(ref char* p)
+    {
+	byte v = *cast(byte*) p;
+	p++;
+	return v;
+    }
+
+    ushort parseUShort(ref char* p)
+    {
+	ushort v = *cast(ushort*) p;
+	p += 2;
+	return obj_.read(v);
+    }
+
+    short parseSShort(ref char* p)
+    {
+	return cast(short) parseUShort(p);
+    }
+
+    uint parseUInt(ref char* p)
+    {
+	uint v = *cast(uint*) p;
+	p += 4;
+	return obj_.read(v);
+    }
+
+    uint parseSInt(ref char* p)
+    {
+	return cast(int) parseUInt(p);
+    }
+
+    ulong parseULong(ref char* p)
+    {
+	ulong v = *cast(ulong*) p;
+	p += 8;
+	return obj_.read(v);
+    }
+
+
+    ulong parseSLong(ref char* p)
+    {
+	return cast(long) parseULong(p);
+    }
+
+    ulong parseOffset(ref char* p, bool is64)
+    {
+	if (is64)
+	    return parseULong(p);
+	else
+	    return parseUInt(p);
+    }
+
+    ulong parseLength(ref char* p, bool is64)
+    {
+	if (is64)
+	    return parseULong(p);
+	else
+	    return parseUInt(p);
+    }
+
+    void skipString(ref char* p)
+    {
+	while (*p)
+	    p++;
+	p++;
+    }
+
+    string parseString(ref char* p)
+    {
+	string v = std.string.toString(p);
+	skipString(p);
+	return v;
+    }
+
+    size_t parseInitialLength(ref char* p, ref bool is64)
+    {
+	uint v = parseUInt(p);
+	if (v < 0xffffff00) {
+	    is64 = false;
+	    return v;
+	}
+	if (v != 0xffffffff)
+	    throw new Exception("Bad initial length");
+	is64 = true;
+	ulong lv;
+	lv = parseUInt(p);
+	lv |= (cast(ulong) parseUInt(p) << 32);
+	return lv;
+    }
+
+    ulong parseULEB128(ref char* p)
+    {
+	ulong v = 0;
+	int shift = 0;
+	bool done = false;
+	char b;
+
+	while (!done) {
+	    b = *p++;
+	    v |= (b & 0x7f) << shift;
+	    shift += 7;
+	    if ((b & 0x80) == 0)
+		done = true;
+	}
+	return v;
+    }
+
+    long parseSLEB128(ref char* p)
+    {
+	long v = 0;
+	int shift = 0;
+	bool done = false;
+	char b;
+
+	while (!done) {
+	    b = *p++;
+	    v |= (b & 0x7f) << shift;
+	    shift += 7;
+	    if ((b & 0x80) == 0)
+		done = true;
+	}
+	if (shift < 64 && (b & 0x40))
+	    v |= -(1 << shift);	// sign extend
+	return v;
+    }
+
     Objfile obj_;
     char[] debugSections_[string];
     char[] strtab_;
@@ -1728,6 +1720,7 @@ struct Expr
 	}
 
 	char* p = start;
+	DwarfFile dw = cu.parent;
 	while (p < end) {
 	    auto op = *p++;
 	    if (op >= DW_OP_lit0 && op <= DW_OP_lit31) {
@@ -1736,53 +1729,53 @@ struct Expr
 	    }
 	    if (op >= DW_OP_breg0 && op <= DW_OP_breg31) {
 		v = cast(long) state.getGR(op - DW_OP_breg0)
-		    + parseSLEB128(p);
+		    + dw.parseSLEB128(p);
 		stack.push(v);
 		continue;
 	    }
 	    switch (op) {
 	    case DW_OP_addr:
-		stack.push(offset + parseOffset(p, is64));
+		stack.push(offset + dw.parseOffset(p, is64));
 		break;
 		
 	    case DW_OP_const1u:
-		stack.push(parseUByte(p));
+		stack.push(dw.parseUByte(p));
 		break;
 		
 	    case DW_OP_const1s:
-		stack.push(parseSByte(p));
+		stack.push(dw.parseSByte(p));
 		break;
 		
 	    case DW_OP_const2u:
-		stack.push(parseUShort(p));
+		stack.push(dw.parseUShort(p));
 		break;
 		
 	    case DW_OP_const2s:
-		stack.push(parseSShort(p));
+		stack.push(dw.parseSShort(p));
 		break;
 
 	    case DW_OP_const4u:
-		stack.push(parseUInt(p));
+		stack.push(dw.parseUInt(p));
 		break;
 		
 	    case DW_OP_const4s:
-		stack.push(parseSInt(p));
+		stack.push(dw.parseSInt(p));
 		break;
 
 	    case DW_OP_const8u:
-		stack.push(parseULong(p));
+		stack.push(dw.parseULong(p));
 		break;
 		
 	    case DW_OP_const8s:
-		stack.push(parseSLong(p));
+		stack.push(dw.parseSLong(p));
 		break;
 
 	    case DW_OP_constu:
-		stack.push(parseULEB128(p));
+		stack.push(dw.parseULEB128(p));
 		break;
 
 	    case DW_OP_consts:
-		stack.push(parseSLEB128(p));
+		stack.push(dw.parseSLEB128(p));
 		break;
 
 	    case DW_OP_fbreg:
@@ -1791,7 +1784,7 @@ struct Expr
 		    break;
 		}
 		Location frame;
-		v = parseSLEB128(p);
+		v = dw.parseSLEB128(p);
 		if (cu.parent.findFrameBase(state, frame))
 		    stack.push(frame.address(state) + v);
 		else
@@ -1799,8 +1792,8 @@ struct Expr
 		break;
 
 	    case DW_OP_bregx:
-		v = cast(long) state.getGR(parseULEB128(p))
-		    + parseSLEB128(p);
+		v = cast(long) state.getGR(dw.parseULEB128(p))
+		    + dw.parseSLEB128(p);
 		stack.push(v);
 		break;
 
@@ -1837,7 +1830,7 @@ struct Expr
 		v = stack.pop;
 		t = state.readMemory(v, addrlen);
 		pp = cast(char*) &t[0];
-		stack.push(parseOffset(pp, is64));
+		stack.push(dw.parseOffset(pp, is64));
 		break;
 
 	    case DW_OP_deref_size:
@@ -1846,7 +1839,7 @@ struct Expr
 		while (t.length < addrlen)
 		    t ~= 0;
 		pp = cast(char*) &t[0];
-		stack.push(parseOffset(pp, is64));
+		stack.push(dw.parseOffset(pp, is64));
 		break;
 
 	    case DW_OP_xderef:
@@ -1917,7 +1910,7 @@ struct Expr
 
 	    case DW_OP_plus_uconst:
 		v = stack.pop;
-		stack.push(addrWrap(v + parseULEB128(p)));
+		stack.push(addrWrap(v + dw.parseULEB128(p)));
 		break;
 
 	    case DW_OP_shl:
@@ -1975,18 +1968,18 @@ struct Expr
 		break;
 
 	    case DW_OP_skip:
-		v = parseSShort(p);
+		v = dw.parseSShort(p);
 		p += v;
 		break;
 
 	    case DW_OP_bra:
-		v = parseSShort(p);
+		v = dw.parseSShort(p);
 		if (stack.pop != 0)
 		    p += v;
 		break;
 
 	    case DW_OP_call2:
-		v = parseUShort(p);
+		v = dw.parseUShort(p);
 		if (!cu) {
 		    stack.push(0);
 		    break;
@@ -2001,7 +1994,7 @@ struct Expr
 		break;
 
 	    case DW_OP_call4:
-		v = parseUInt(p);
+		v = dw.parseUInt(p);
 		if (!cu) {
 		    stack.push(0);
 		    break;
@@ -2045,6 +2038,7 @@ struct Expr
 	Location loc;
 	CompositeLocation cloc;
 	char* p = start;
+	DwarfFile dw = cu.parent;
 	while (p < end) {
 	    /*
 	     * Check for DW_OP_regN first, otherwise evaluate the
@@ -2057,7 +2051,7 @@ struct Expr
 		loc = new RegisterLocation(regno, length);
 	    } else if (op == DW_OP_regx) {
 		p++;
-		uint regno = parseULEB128(p);
+		uint regno = dw.parseULEB128(p);
 		loc = new RegisterLocation(regno, length);
 	    } else {
 		ValueStack stack;
@@ -2092,15 +2086,15 @@ struct Expr
 		ubyte[] t;
 		switch (op) {
 		case DW_OP_piece:
-		    auto l = parseULEB128(p);
+		    auto l = dw.parseULEB128(p);
 		    loc.length = l;
 		    cloc.addPiece(loc, l);
 		    break;
 
 		case DW_OP_bit_piece:
 		    static if (false) {
-			auto nbits = parseULEB128(p);
-			auto boff = parseULEB128(p);
+			auto nbits = dw.parseULEB128(p);
+			auto boff = dw.parseULEB128(p);
 
 			ulong getVal(ubyte[] t)
 			{
@@ -2151,13 +2145,14 @@ struct Loclist
 
 	auto p = start;
 	auto lpc = cu.die[DW_AT_low_pc];
+	auto dw = cu.parent;
 	if (lpc)
 	    base = lpc.ul + offset;
 	else
 	    base = 0;
 	for (;;) {
-	    sOff = parseOffset(p, is64);
-	    eOff = parseOffset(p, is64);
+	    sOff = dw.parseOffset(p, is64);
+	    eOff = dw.parseOffset(p, is64);
 	    if (sOff == 0 && eOff == 0)
 		break;
 	    if ((is64 && sOff == 0xffffffffffffffff)
@@ -2165,7 +2160,7 @@ struct Loclist
 		base = eOff;
 		continue;
 	    }
-	    size_t expLen = parseUShort(p);
+	    size_t expLen = dw.parseUShort(p);
 	    auto expStart = p;
 	    auto expEnd = p + expLen;
 	    p = expEnd;
@@ -2184,9 +2179,10 @@ struct Loclist
 
 	auto p = start;
 	base = cu.die[DW_AT_low_pc].ul + offset;
+	auto dw = cu.parent;
 	for (;;) {
-	    sOff = parseOffset(p, is64);
-	    eOff = parseOffset(p, is64);
+	    sOff = dw.parseOffset(p, is64);
+	    eOff = dw.parseOffset(p, is64);
 	    if (sOff == 0 && eOff == 0)
 		break;
 	    if ((is64 && sOff == 0xffffffffffffffff)
@@ -2194,7 +2190,7 @@ struct Loclist
 		base = eOff;
 		continue;
 	    }
-	    size_t expLen = parseUShort(p);
+	    size_t expLen = dw.parseUShort(p);
 	    auto expStart = p;
 	    auto expEnd = p + expLen;
 	    p = expEnd;
@@ -2216,7 +2212,7 @@ struct NameSet
 
 class AttributeValue
 {
-    this(int f, ref char* p, int addrlen, char[] strtab)
+    this(DwarfFile dw, int f, ref char* p, int addrlen, char[] strtab)
     {
 	form = f;
     again:
@@ -2224,48 +2220,48 @@ class AttributeValue
 	case DW_FORM_ref_addr:
 	case DW_FORM_addr:
 	    if (addrlen == 4)
-		ul = parseUInt(p);
+		ul = dw.parseUInt(p);
 	    else
-		ul = parseULong(p);
+		ul = dw.parseULong(p);
 	    break;
 
 	case DW_FORM_block:
-	    b.length = parseULEB128(p);
+	    b.length = dw.parseULEB128(p);
 	    goto readBlock;
 
 	case DW_FORM_block1:
-	    b.length = parseUByte(p);
+	    b.length = dw.parseUByte(p);
 	    goto readBlock;
 
 	case DW_FORM_block2:
-	    b.length = parseUShort(p);
+	    b.length = dw.parseUShort(p);
 	readBlock:
 	    b.start = p;
 	    p += b.length;
 	    break;
 
 	case DW_FORM_block4:
-	    b.length = parseUInt(p);
+	    b.length = dw.parseUInt(p);
 	    goto readBlock;
 	    
 	case DW_FORM_ref1:
 	case DW_FORM_data1:
-	    ul = parseUByte(p);
+	    ul = dw.parseUByte(p);
 	    break;
 
 	case DW_FORM_ref2:
 	case DW_FORM_data2:
-	    ul = parseUShort(p);
+	    ul = dw.parseUShort(p);
 	    break;
 
 	case DW_FORM_ref4:
 	case DW_FORM_data4:
-	    ul = parseUInt(p);
+	    ul = dw.parseUInt(p);
 	    break;
 
 	case DW_FORM_ref8:
 	case DW_FORM_data8:
-	    ul = parseULong(p);
+	    ul = dw.parseULong(p);
 	    break;
 
 	case DW_FORM_string:
@@ -2276,29 +2272,29 @@ class AttributeValue
 	    break;
 
 	case DW_FORM_flag:
-	    ul = parseUByte(p);
+	    ul = dw.parseUByte(p);
 	    break;
 
 	case DW_FORM_sdata:
-	    l = parseSLEB128(p);
+	    l = dw.parseSLEB128(p);
 	    break;
 
 	case DW_FORM_strp:
 	    ulong off;
 	    if (addrlen == 4)
-		off = parseUInt(p);
+		off = dw.parseUInt(p);
 	    else
-		off = parseULong(p);
+		off = dw.parseULong(p);
 	    str = &strtab[off];
 	    break;
 
 	case DW_FORM_udata:
 	case DW_FORM_ref_udata:
-	    ul = parseULEB128(p);
+	    ul = dw.parseULEB128(p);
 	    break;
 
 	case DW_FORM_indirect:
-	    form = parseULEB128(p);
+	    form = dw.parseULEB128(p);
 	    goto again;
 	}
     }
@@ -2443,17 +2439,18 @@ class DIE
 	cu_ = cu;
 	parent_ = parent;
 
+	auto dw = cu_.parent;
 	char* abbrevp = abbrevTable[abbrevCode];
-	tag = parseULEB128(abbrevp);
+	tag = dw.parseULEB128(abbrevp);
 	hasChildren = *abbrevp++ == DW_CHILDREN_yes;
 	is64 = cu.is64;
 
 	for (;;) {
-	    int at = parseULEB128(abbrevp);
-	    int form = parseULEB128(abbrevp);
+	    int at = dw.parseULEB128(abbrevp);
+	    int form = dw.parseULEB128(abbrevp);
 	    if (!at)
 		break;
-	    AttributeValue val = new AttributeValue(form, diep,
+	    AttributeValue val = new AttributeValue(dw, form, diep,
 						    addrlen, strtab);
 	    attrs[at] = val;
 	}
@@ -2473,7 +2470,7 @@ class DIE
 	}
 	if (hasChildren) {
 	    char* p = diep;
-	    while ((abbrevCode = parseULEB128(diep)) != 0) {
+	    while ((abbrevCode = dw.parseULEB128(diep)) != 0) {
 		DIE die = new DIE(cu, this, base, diep,
 				  abbrevCode, abbrevTable,
 				  addrlen, strtab);
@@ -2531,7 +2528,8 @@ class DIE
 		    return true;
 	    return false;
 	} else {
-	    ulong offset = cu_.parent.obj_.offset;
+	    auto dw = cu_.parent;
+	    ulong offset = dw.obj_.offset;
 	    if (this[DW_AT_low_pc]
 		&& this[DW_AT_high_pc]) {
 		addresses ~= AddressRange(this[DW_AT_low_pc].ul + offset,
@@ -2541,8 +2539,8 @@ class DIE
 		char* p = &ranges[this[DW_AT_ranges].ul];
 		for (;;) {
 		    ulong start, end;
-		    start = parseOffset(p, is64);
-		    end = parseOffset(p, is64);
+		    start = dw.parseOffset(p, is64);
+		    end = dw.parseOffset(p, is64);
 		    if (start == 0 && end == 0)
 			break;
 		    start += offset;
@@ -2993,6 +2991,7 @@ class CIE
 
 class FDE
 {
+    DwarfFile dw;
     bool is64;
     CIE cie;
     ulong initialLocation;
@@ -3089,11 +3088,7 @@ class FDE
 	    case RLoc.Rule.offsetN:
 		off = rl.N;
 		b = state.readMemory(cfa + off, is64 ? 8 : 4);
-		// XXX endian
-		if (is64)
-		    newState.setGR(i, *cast(ulong*) &b[0]);
-		else
-		    newState.setGR(i, *cast(uint*) &b[0]);
+		newState.setGR(i, dw.obj_.read(b));
 		break;
 
 	    case RLoc.Rule.valOffsetN:
@@ -3124,7 +3119,7 @@ private:
 	    auto op = *p++;
 	    switch ((op & 0xc0) ? (op & 0xc0) : op) {
 	    case DW_CFA_set_loc:
-		fs.loc = parseOffset(p, is64);
+		fs.loc = dw.parseOffset(p, is64);
 		debug(unwind)
 		    writefln("DW_CFA_set_loc: 0x%x", fs.loc);
 		break;
@@ -3137,65 +3132,65 @@ private:
 		break;
 
 	    case DW_CFA_advance_loc1:
-		off = parseUByte(p) * cie.codeAlign;
+		off = dw.parseUByte(p) * cie.codeAlign;
 		fs.loc += off;
 		debug(unwind)
 		    writefln("DW_CFA_advance_loc1: %d to 0x%x", off, fs.loc);
 		break;
 
 	    case DW_CFA_advance_loc2:
-		off = parseUShort(p) * cie.codeAlign;
+		off = dw.parseUShort(p) * cie.codeAlign;
 		fs.loc += off;
 		debug(unwind)
 		    writefln("DW_CFA_advance_loc2: %d to 0x%x", off, fs.loc);
 		break;
 
 	    case DW_CFA_advance_loc4:
-		off = parseUInt(p) * cie.codeAlign;
+		off = dw.parseUInt(p) * cie.codeAlign;
 		fs.loc += off;
 		debug(unwind)
 		    writefln("DW_CFA_advance_loc4: %d to 0x%x", off, fs.loc);
 		break;
 
 	    case DW_CFA_MIPS_advance_loc8:
-		off = parseULong(p) * cie.codeAlign;
+		off = dw.parseULong(p) * cie.codeAlign;
 		fs.loc += off;
 		debug(unwind)
 		    writefln("DW_CFA_MIPS_advance_loc8: %d to 0x%x", off, fs.loc);
 		break;
 
 	    case DW_CFA_def_cfa:
-		fs.cfaReg = parseULEB128(p);
-		fs.cfaOffset = parseULEB128(p);
+		fs.cfaReg = dw.parseULEB128(p);
+		fs.cfaOffset = dw.parseULEB128(p);
 		debug(unwind)
 		    writefln("DW_CFA_def_cfa: cfa=%d, off=%d",
 			     fs.cfaReg, fs.cfaOffset);
 		break;
 
 	    case DW_CFA_def_cfa_sf:
-		fs.cfaReg = parseULEB128(p);
-		fs.cfaOffset = parseSLEB128(p) * cie.dataAlign;
+		fs.cfaReg = dw.parseULEB128(p);
+		fs.cfaOffset = dw.parseSLEB128(p) * cie.dataAlign;
 		debug(unwind)
 		    writefln("DW_CFA_def_cfa_sf: cfa=%d, off=%d",
 			     fs.cfaReg, fs.cfaOffset);
 		break;
 
 	    case DW_CFA_def_cfa_register:
-		fs.cfaReg = parseULEB128(p);
+		fs.cfaReg = dw.parseULEB128(p);
 		debug(unwind)
 		    writefln("DW_CFA_def_cfa_register: cfa=%d, off=%d",
 			     fs.cfaReg, fs.cfaOffset);
 		break;
 
 	    case DW_CFA_def_cfa_offset:
-		fs.cfaOffset = parseULEB128(p);
+		fs.cfaOffset = dw.parseULEB128(p);
 		debug(unwind)
 		    writefln("DW_CFA_def_cfa_offset: cfa=%d, off=%d",
 			     fs.cfaReg, fs.cfaOffset);
 		break;
 
 	    case DW_CFA_def_cfa_offset_sf:
-		fs.cfaOffset = parseSLEB128(p) * cie.dataAlign;
+		fs.cfaOffset = dw.parseSLEB128(p) * cie.dataAlign;
 		debug(unwind)
 		    writefln("DW_CFA_def_cfa_offset_sf: cfa=%d, off=%d",
 			     fs.cfaReg, fs.cfaOffset);
@@ -3205,14 +3200,14 @@ private:
 		throw new Exception("no support for CFA expressions");
 
 	    case DW_CFA_undefined:
-		reg = parseULEB128(p);
+		reg = dw.parseULEB128(p);
 		fs.regs[reg].rule = RLoc.Rule.undefined;
 		debug(unwind)
 		    writefln("DW_CFA_undefined: reg=%d", reg);
 		break;
 
 	    case DW_CFA_same_value:
-		reg = parseULEB128(p);
+		reg = dw.parseULEB128(p);
 		fs.regs[reg].rule = RLoc.Rule.sameValue;
 		debug(unwind)
 		    writefln("DW_CFA_same_value: reg=%d", reg);
@@ -3221,42 +3216,42 @@ private:
 	    case DW_CFA_offset:
 		reg= op & 0x3f;
 		fs.regs[reg].rule = RLoc.Rule.offsetN;
-		fs.regs[reg].N = parseULEB128(p) * cie.dataAlign;
+		fs.regs[reg].N = dw.parseULEB128(p) * cie.dataAlign;
 		debug(unwind)
 		    writefln("DW_CFA_offset: reg=%d, off=%d",
 			     reg, fs.regs[reg].N);
 		break;
 			
 	    case DW_CFA_offset_extended:
-		reg = parseULEB128(p);
+		reg = dw.parseULEB128(p);
 		fs.regs[reg].rule = RLoc.Rule.offsetN;
-		fs.regs[reg].N = parseULEB128(p) * cie.dataAlign;
+		fs.regs[reg].N = dw.parseULEB128(p) * cie.dataAlign;
 		debug(unwind)
 		    writefln("DW_CFA_offset_extended: reg=%d, off=%d",
 			     reg, fs.regs[reg].N);
 		break;
 
 	    case DW_CFA_offset_extended_sf:
-		reg = parseULEB128(p);
+		reg = dw.parseULEB128(p);
 		fs.regs[reg].rule = RLoc.Rule.offsetN;
-		fs.regs[reg].N = parseSLEB128(p) * cie.dataAlign;
+		fs.regs[reg].N = dw.parseSLEB128(p) * cie.dataAlign;
 		debug(unwind)
 		    writefln("DW_CFA_offset_extended_sf: reg=%d, off=%d",
 			     reg, fs.regs[reg].N);
 		break;
 
 	    case DW_CFA_val_offset:
-		reg = parseULEB128(p);
+		reg = dw.parseULEB128(p);
 		fs.regs[reg].rule = RLoc.Rule.valOffsetN;
-		fs.regs[reg].N = parseULEB128(p) * cie.dataAlign;
+		fs.regs[reg].N = dw.parseULEB128(p) * cie.dataAlign;
 		debug(unwind)
 		    writefln("DW_CFA_val_offset: reg=%d, off=%d",
 			     reg, fs.regs[reg].N);
 		break;
 
 	    case DW_CFA_register:
-		reg = parseULEB128(p);
-		fs.regs[reg] = fs.regs[parseULEB128(p)];
+		reg = dw.parseULEB128(p);
+		fs.regs[reg] = fs.regs[dw.parseULEB128(p)];
 		debug(unwind)
 		    writefln("DW_CFA_register: reg=%d", reg);
 		break;
@@ -3275,7 +3270,7 @@ private:
 		break;
 
 	    case DW_CFA_restore_extended:
-		reg = parseULEB128(p);
+		reg = dw.parseULEB128(p);
 		fs.regs[reg] = cieFs.regs[op & 0x3f];
 		debug(unwind)
 		    writefln("DW_CFA_restore_extended: reg=%d", reg);
@@ -3289,7 +3284,7 @@ private:
 		throw new Exception("DW_CFA_GNU_window_save");
 
 	    case DW_CFA_GNU_args_size:
-		parseULEB128(p);
+		dw.parseULEB128(p);
 		break;
 
 	    case DW_CFA_GNU_negative_offset_extended:
