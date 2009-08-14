@@ -1004,6 +1004,8 @@ class Elffile: Objfile
 
     abstract char[] readSection(string name);
 
+    abstract string interpreter();
+
     abstract void enumerateProgramHeaders(void delegate(uint, ulong, ulong) dg);
 
     abstract void enumerateNotes(void delegate(uint, string, ubyte*) dg);
@@ -1204,6 +1206,22 @@ template ElfFileBase()
 	if (i < 0)
 	    throw new Exception("no such section");
 	return readSection(i);
+    }
+
+    string interpreter()
+    {
+	foreach (ph; ph_)
+	    if (ph.p_type == PT_INTERP) {
+		string s;
+		s.length = read(ph.p_filesz);
+		if (s.length == 0)
+		    return s;
+		if (pread(fd_, &s[0], s.length, read(ph.p_offset))
+		    != s.length)
+		    throw new Exception("Can't read from file");
+		return s;
+	    }
+	return null;
     }
 
     void enumerateProgramHeaders(void delegate(uint, ulong, ulong) dg)

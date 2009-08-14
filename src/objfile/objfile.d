@@ -74,6 +74,8 @@ class Objfile: Endian
 
     abstract char[] readSection(string name);
 
+    abstract string interpreter();
+
     abstract void enumerateNeededLibraries(Target target,
 					   void delegate(string) dg);
 

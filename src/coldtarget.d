@@ -146,6 +146,11 @@ class ColdModule: TargetModule
 	return obj_.getState(target);
     }
 
+    string interpreter()
+    {
+	return obj_.interpreter;
+    }
+
     void enumerateNeededLibraries(Target target,
 				  void delegate(string) dg)
     {
@@ -299,6 +304,13 @@ class ColdTarget: Target
 	} else {
 	    size_t i = 0;
 	    ulong addr = 0x28070000;
+	    string interp = modules_[0].interpreter;
+	    if (interp) {
+		auto mod = new ColdModule(interp, addr);
+		addr = (mod.end + 0xfff) & ~0xfff; // XXX pagesize
+		modules_ ~= mod;
+		listener_.onModuleAdd(this, mod);
+	    }
 	    while (i < modules_.length) {
 		void neededLib(string name)
 		{
