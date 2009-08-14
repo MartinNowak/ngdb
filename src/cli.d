@@ -217,9 +217,58 @@ private class Breakpoint: TargetBreakpointListener
     bool onBreakpoint(Target, TargetThread t)
     {
 	db_.currentThread = t;
-	writefln("Breakpoint %d, %s", id,
-	    db_.describeAddress(t.state.pc, t.state));
+	if (condition_) {
+	    db_.setCurrentFrame;
+	    auto f = db_.currentFrame;
+	    auto sc = f.scope_;
+	    auto s = t.state;
+	    try {
+		auto v = expr_.eval(sc, s).toValue(s);
+		if (v.type.isIntegerType)
+		    if (!s.readInteger(v.loc.readValue(s)))
+			return false;
+	    } catch (EvalException ex) {
+		db_.pagefln("Error evaluating breakpoint condition: %s", ex.msg);
+		return true;
+	    }
+	}
+	writefln("Stopped at breakpoint %d", id);
 	return true;
+    }
+
+    string condition()
+    {
+	return condition_;
+    }
+
+    void condition(string s)
+    {
+	if (s == null)
+	    writefln("Breakpoint %d is now unconditional", id);
+
+	/*
+	 * Try to guess a source language for parsing the expression.
+	 */
+	Language lang;
+	foreach (address; addresses_) {
+	    foreach (mod; db_.modules_) {
+		auto di = mod.debugInfo;
+		if (di)
+		    lang = di.findLanguage(address);
+		if (lang)
+		    goto gotLang;
+	    }
+	}
+	if (!lang)
+	    lang = new CLikeLanguage;
+    gotLang:
+	try {
+	    auto e = lang.parseExpr(s);
+	    condition_ = s;
+	    expr_ = e;
+	} catch (EvalException ex) {
+	    db_.pagefln("Error parsing breakpoint condition: %s", ex.msg);
+	}
     }
 
     void activate(TargetModule mod)
@@ -266,6 +315,8 @@ private class Breakpoint: TargetBreakpointListener
 		}
 		db_.target_.setBreakpoint(le.address, this);
 		addresses_ ~= le.address;
+		db_.pagefln("Breakpoint %d at %s", id,
+			    db_.describeAddress(le.address, null));
 	    }
 	}
     }
@@ -332,6 +383,8 @@ private class Breakpoint: TargetBreakpointListener
     SourceFile sf_;
     uint line_;
     string func_;
+    string condition_;
+    Expr expr_;
     bool enabled_ = true;
     Debugger db_;
     uint id_;
@@ -704,14 +757,13 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	return false;
     }
 
-    void stopped()
+    bool setCurrentFrame()
     {
 	if (!target_)
-	    return;
+	    return false;
 
 	TargetThread t = currentThread;
 	MachineState s = t.state;
-	LineEntry[] le;
 	DebugInfo di;
 
 	if (findDebugInfo(s, di)) {
@@ -720,11 +772,34 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	    if (di.findFrameBase(s, loc) && (func = di.findFunction(s.pc)) !is null) {
 		if (!topFrame_ || topFrame_.func_ !is func
 		    || topFrame_.addr_ != loc.address(s)) {
-		    writefln("%s", describeAddress(s.pc, s));
 		    currentFrame_ = topFrame_ =
 			new Frame(this, 0, null, di, func, s);
+		    return true;
 		}
 	    }
+	} else {
+	    currentFrame_ = topFrame_ =
+		new Frame(this, 0, null, null, null, s);
+	    ulong tpc = s.pc;
+	    return true;
+	}
+	return false;
+    }
+
+    void stopped()
+    {
+	if (!target_)
+	    return;
+
+	auto t = currentThread;
+	auto s = t.state;
+	auto newFrame = setCurrentFrame;
+	auto di = currentFrame.di_;
+
+	if (di) {
+	    if (newFrame)
+		writefln("%s", describeAddress(s.pc, s));
+	    LineEntry[] le;
 	    if (di.findLineByAddress(s.pc, le)) {
 		SourceFile sf = findFile(le[0].fullname);
 		currentSourceFile_ = stoppedSourceFile_ = sf;
@@ -1098,6 +1173,13 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	if (target_)
 	    foreach (mod; modules_)
 		bp.activate(mod);
+    }
+
+    void setBreakpointCondition(uint bpid, string cond)
+    {
+	foreach (bp; breakpoints_)
+	    if (bp.id == bpid)
+		bp.condition = cond;
     }
 
     void enableBreakpoint(uint bpid)
@@ -1686,6 +1768,11 @@ class ContinueCommand: Command
 	    return "continue";
 	}
 
+	string shortName()
+	{
+	    return "c";
+	}
+
 	string description()
 	{
 	    return "continue the program being debugged";
@@ -1798,6 +1885,43 @@ class BreakCommand: Command
 	}
     }
 }
+
+class ConditionCommand: Command
+{
+    static this()
+    {
+	Debugger.registerCommand(new ConditionCommand);
+    }
+
+    override {
+	string name()
+	{
+	    return "condition";
+	}
+
+	string description()
+	{
+	    return "Set breakpoint condition";
+	}
+
+	void run(Debugger db, string[] args)
+	{
+	    if (args.length < 1) {
+		db.pagefln("usage: condition <id> [expression]");
+		return;
+	    }
+	    try {
+		string expr;
+		if (args.length > 1)
+		    expr = join(args[1..$], " ");
+		db.setBreakpointCondition(toUint(args[0]), expr);
+	    } catch (ConvError ce) {
+		db.pagefln("Can't parse breakpoint ID");
+	    }
+	}
+    }
+}
+
 
 class EnableCommand: Command
 {
@@ -1947,6 +2071,8 @@ class InfoBreakCommand: Command
 		    db.pagefln("%-3d %-3s %-18s %s",
 			     b.id,  b.enabled ? "y" : "n", " ", b.expr);
 		}
+		if (b.condition)
+		    db.pagefln("\tstop only if %s", b.condition);
 	    }
 	}
     }
