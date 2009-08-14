@@ -74,6 +74,9 @@ class Objfile: Endian
 
     abstract char[] readSection(string name);
 
+    abstract void enumerateNeededLibraries(Target target,
+					   void delegate(string) dg);
+
     static Objfile open(string file, ulong base)
     {
 	Objfile obj;

@@ -49,7 +49,7 @@ static import std.file;
 
 class ColdModule: TargetModule
 {
-    this(char[] filename)
+    this(char[] filename, ulong addr)
     {
 	void setLimits(uint tag, ulong s, ulong e)
 	{
@@ -64,7 +64,7 @@ class ColdModule: TargetModule
 	filename_ = filename;
 	start_ = ~0L;
 	end_ = 0;
-	obj_ = cast(Elffile) Objfile.open(filename_, 0);
+	obj_ = cast(Elffile) Objfile.open(filename_, addr);
 	if (obj_)
 	    obj_.enumerateProgramHeaders(&setLimits);
 	if (obj_ && DwarfFile.hasDebug(obj_))
@@ -115,7 +115,6 @@ class ColdModule: TargetModule
 	bool lookupSymbol(ulong addr, out TargetSymbol ts)
 	{
 	    if (obj_) {
-		addr -= obj_.offset;
 		Symbol* s = obj_.lookupSymbol(addr);
 		if (s) {
 		    ts = TargetSymbol(s.name, s.value, s.size);
@@ -145,6 +144,27 @@ class ColdModule: TargetModule
     MachineState getState(Target target)
     {
 	return obj_.getState(target);
+    }
+
+    void enumerateNeededLibraries(Target target,
+				  void delegate(string) dg)
+    {
+	if (obj_)
+	    obj_.enumerateNeededLibraries(target, dg);
+    }
+
+    void digestDynamic(Target target)
+    {
+	if (obj_)
+	    obj_.digestDynamic(target);
+    }
+
+    void enumerateLinkMap(Target target,
+			  void delegate(string, ulong, ulong) dg)
+    {
+	if (obj_)
+	    return obj_.enumerateLinkMap(target, dg);
+	return;
     }
 
     int opEquals(ColdModule mod)
@@ -211,6 +231,27 @@ struct prstatus32
     int32_t pr_pid;
 }
 
+private string pathSearch(string path, string name)
+{
+    string execpath = "";
+
+    execpath = name;
+    if (find(execpath, "/") < 0) {
+	string[] paths = split(path, ":");
+	foreach (p; paths) {
+	    string s = p ~ "/" ~ execpath;
+	    if (std.file.exists(s) && std.file.isfile(s)) {
+		execpath = s;
+		break;
+	    }
+	}
+    } else {
+	if (!std.file.exists(execpath) || !std.file.isfile(execpath))
+	    execpath = "";
+    }
+    return execpath;
+}
+
 class ColdTarget: Target
 {
     this(TargetListener listener, string execname, string corename)
@@ -222,7 +263,9 @@ class ColdTarget: Target
 	    core_ = cast(Elffile) Objfile.open(corename_, 0);
 
 	listener.onTargetStarted(this);
-	getModules();
+
+	modules_ ~= new ColdModule(execname_, 0);
+	listener_.onModuleAdd(this, modules_[0]);
 
 	if (core_) {
 	    void getThread(uint type, string name, ubyte* desc)
@@ -239,8 +282,40 @@ class ColdTarget: Target
 					   signame(pr.pr_cursig));
 	    }
 
+	    void findCoreModules(string name, ulong lm, ulong addr)
+	    {
+		foreach (mod; modules_)
+		    if (mod.filename == name)
+			return;
+		auto mod = new ColdModule(name, addr);
+		modules_ ~= mod;
+		listener_.onModuleAdd(this, mod);
+	    }
+
+	    modules_[0].digestDynamic(this);
+	    modules_[0].enumerateLinkMap(this, &findCoreModules);
+
 	    core_.enumerateNotes(&getThread);
 	} else {
+	    size_t i = 0;
+	    ulong addr = 0x28070000;
+	    while (i < modules_.length) {
+		void neededLib(string name)
+		{
+		    name = pathSearch("/lib:/usr/lib", name);
+		    foreach (mod; modules_)
+			if (mod.filename == name)
+			    return;
+		    auto mod = new ColdModule(name, addr);
+		    addr = (mod.end + 0xfff) & ~0xfff; // XXX pagesize
+		    modules_ ~= mod;
+		    listener_.onModuleAdd(this, mod);
+		}
+
+		modules_[i].enumerateNeededLibraries(this, &neededLib);
+		i++;
+	    }
+
 	    threads_ ~= new ColdThread(this, null);
 	    listener_.onThreadCreate(this, threads_[0]);
 	}
@@ -280,7 +355,12 @@ class ColdTarget: Target
 		if (readcore)
 		    return core_.readProgram(targetAddress, bytes);
 	    }
-	    return modules_[0].readMemory(targetAddress, bytes);
+	    foreach (mod; modules_) {
+		if (targetAddress + bytes > mod.start
+		    && targetAddress < mod.end)
+		    return mod.readMemory(targetAddress, bytes);
+	    }
+	    throw new TargetException("Can't read memory");
 	}
 
 	void writeMemory(ulong targetAddress, ubyte[] toWrite)
@@ -318,10 +398,4 @@ private:
     string execname_;
     string corename_;
     Elffile core_;
-
-    void getModules()
-    {
-	modules_ ~= new ColdModule(execname_);
-	listener_.onModuleAdd(this, modules_[0]);
-    }
 }

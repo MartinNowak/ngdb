@@ -1019,6 +1019,9 @@ class Elffile: Objfile
     abstract void enumerateLinkMap(Target target,
 				   void delegate(string, ulong, ulong) dg);
 
+    abstract void enumerateNeededLibraries(Target target,
+					   void delegate(string) dg);
+
     abstract bool inPLT(ulong pc);
 
 private:
@@ -1289,7 +1292,7 @@ template ElfFileBase()
 	ulong ea = addr + len;
 	foreach (ph; ph_) {
 	    if (read(ph.p_type) == PT_LOAD) {
-		ulong psa = read(ph.p_vaddr);
+		ulong psa = read(ph.p_vaddr) + offset_;
 		ulong pea = psa  + read(ph.p_filesz);
 		if (ea > psa && sa < pea) {
 		    /*
@@ -1370,6 +1373,32 @@ template ElfFileBase()
 	    dg(readString(target, read(lm.l_name)), lp, read(lm.l_addr));
 	    lp = read(lm.l_next);
 	}
+    }
+
+    void enumerateNeededLibraries(Target target, void delegate(string) dg)
+    {
+	ulong strtabAddr, strtabSize;
+	string strtab;
+
+	void findStrtab(uint tag, ulong val)
+	{
+	    if (tag == DT_STRTAB)
+		strtabAddr = val + offset_;
+	    else if (tag == DT_STRSZ)
+		strtabSize = val;
+	}
+
+	void findNeeded(uint tag, ulong val)
+	{
+	    if (tag == DT_NEEDED && val < strtab.length)
+		dg(.toString(&strtab[val]));
+	}
+
+	enumerateDynamic(target, &findStrtab);
+	strtab.length = strtabSize;
+	if (strtab.length > 0)
+	    strtab = cast(string) target.readMemory(strtabAddr, strtabSize);
+	enumerateDynamic(target, &findNeeded);
     }
 
     bool inPLT(ulong pc)
