@@ -1782,31 +1782,6 @@ class PostIncrementExpr: UnaryExpr
     string op_;
 }
 
-class BinopExpr: ExprBase
-{
-    this(Language lang, string op, Expr l, Expr r)
-    {
-	super(lang);
-	op_ = op;
-	left_ = l;
-	right_ = r;
-    }
-    override {
-	string toString()
-	{
-	    return left_.toString ~ " " ~ op_ ~ " " ~ right_.toString;
-	}
-	DebugItem eval(Scope sc, MachineState state)
-	{
-	    return new Value(null, new VoidType(lang_)); // XXX
-	}
-    }
-private:
-    string op_;
-    Expr left_;
-    Expr right_;
-}
-
 class AssignExpr: ExprBase
 {
     this(Language lang, Expr l, Expr r)
