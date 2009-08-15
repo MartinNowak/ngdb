@@ -199,18 +199,16 @@ class CommandTable
 
 private class Breakpoint: TargetBreakpointListener
 {
-    this(Debugger db, uint id, SourceFile sf, uint line)
+    this(Debugger db, SourceFile sf, uint line)
     {
 	db_ = db;
-	id_ = id;
 	sf_ = sf;
 	line_ = line;
     }
 
-    this(Debugger db, uint id, string func)
+    this(Debugger db, string func)
     {
 	db_ = db;
-	id_ = id;
 	func_ = func;
     }
 
@@ -315,8 +313,6 @@ private class Breakpoint: TargetBreakpointListener
 		}
 		db_.target_.setBreakpoint(le.address, this);
 		addresses_ ~= le.address;
-		db_.pagefln("Breakpoint %d at %s", id,
-			    db_.describeAddress(le.address, null));
 	    }
 	}
     }
@@ -342,6 +338,7 @@ private class Breakpoint: TargetBreakpointListener
     void onExit()
     {
 	addresses_.length = 0;
+	modules_ = null;
     }
 
     bool active()
@@ -378,6 +375,33 @@ private class Breakpoint: TargetBreakpointListener
 	    if (pc == addr)
 		return true;
 	return false;
+    }
+
+    static void printHeader()
+    {
+	writefln("%-3s %-3s %-18s %s",
+		 "Id", "Enb", "Address", "Where");
+    }
+
+    void print()
+    {
+	if (addresses_.length > 0) {
+	    bool first = true;
+	    foreach (addr; addresses_) {
+		if (first)
+		    writef("%-3d %-3s %#-18x ",
+			   id, enabled ? "y" : "n", addr);
+		else
+		    writef("        %#-18x ", addr);
+		first = false;
+		writefln("%s", db_.describeAddress(addr, null));
+	    }
+	} else {
+	    writefln("%-3d %-3s %-18s %s",
+		     id,  enabled ? "y" : "n", " ", expr);
+	}
+	if (condition_)
+	    writefln("\tstop only if %s", condition_);
     }
 
     SourceFile sf_;
@@ -1166,13 +1190,20 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	}
 	Breakpoint bp;
 	if (sf)
-	    bp = new Breakpoint(this, nextBPID_++, sf, line);
+	    bp = new Breakpoint(this, sf, line);
 	else
-	    bp = new Breakpoint(this, nextBPID_++, func);
-	breakpoints_ ~= bp;
+	    bp = new Breakpoint(this, func);
 	if (target_)
 	    foreach (mod; modules_)
 		bp.activate(mod);
+	if (bp.active) {
+	    bp.id_ = nextBPID_++;
+	    breakpoints_ ~= bp;
+	    bp.printHeader;
+	    bp.print;
+	} else {
+	    writefln("Can't set breakpoint %s", bploc);
+	}
     }
 
     void setBreakpointCondition(uint bpid, string cond)
@@ -2051,29 +2082,9 @@ class InfoBreakCommand: Command
 		db.pagefln("No breakpoints");
 		return;
 	    }
-	    db.pagefln("%-3s %-3s %-18s %s",
-		     "Id", "Enb", "Address", "Where");
-	    foreach (b; db.breakpoints_) {
-		ulong[] addrs = b.addresses;
-			
-		if (addrs.length > 0) {
-		    bool first = true;
-		    foreach (addr; addrs) {
-			if (first)
-			    writef("%-3d %-3s %#-18x ",
-				   b.id, b.enabled ? "y" : "n", addr);
-			else
-			    writef("        %#-18x ", addr);
-			first = false;
-			db.pagefln("%s", db.describeAddress(addr, null));
-		    }
-		} else {
-		    db.pagefln("%-3d %-3s %-18s %s",
-			     b.id,  b.enabled ? "y" : "n", " ", b.expr);
-		}
-		if (b.condition)
-		    db.pagefln("\tstop only if %s", b.condition);
-	    }
+	    Breakpoint.printHeader;
+	    foreach (b; db.breakpoints_)
+		b.print;
 	}
     }
 }
