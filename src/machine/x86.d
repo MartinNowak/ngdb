@@ -318,8 +318,8 @@ class X86State: MachineState
     Value regAsValue(uint i)
     {
 	auto loc = new RegisterLocation(i, grWidth(i));
-	auto ty = new IntegerType(CLikeLanguage.instance,
-			    	   "uint32_t", false, grWidth(i));
+	auto ty = CLikeLanguage.instance.integerType(
+	    "uint32_t", false, grWidth(i));
 	return new Value(loc, ty);
     }
 

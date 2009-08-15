@@ -177,6 +177,43 @@ class IntegerType: TypeBase
 
     override
     {
+	hash_t toHash()
+	{
+	    return typeid(string).getHash(cast(void*) &name_)
+		+ cast(int) isSigned_ * 17
+		+ byteWidth_ * 31;
+	}
+
+	int opEquals(Object o)
+	{
+	    IntegerType ty = cast(IntegerType) o;
+	    if (!ty)
+		return 0;
+	    return name_ == ty.name_
+		&& isSigned_ == ty.isSigned_
+		&& byteWidth_ == ty.byteWidth_;
+	}
+
+	int opCmp(Object o)
+	{
+	    IntegerType ty = cast(IntegerType) o;
+	    if (!ty)
+		return 1;
+	    if (name_ < ty.name_)
+		return -1;
+	    if (name_ > ty.name_)
+		return 1;
+	    if (isSigned_ < ty.isSigned_)
+		return -1;
+	    if (isSigned_ > ty.isSigned_)
+		return 1;
+	    if (byteWidth_ < ty.byteWidth_)
+		return -1;
+	    if (byteWidth_ > ty.byteWidth_)
+		return 1;
+	    return 0;
+	}
+
 	string toString()
 	{
 	    return name_;
@@ -269,11 +306,11 @@ class CharType: IntegerType
 	    if (isSigned) {
 		long val = state.readInteger(loc.readValue(state));
 		return super.valueToString(fmt, state, loc)
-		    ~ lang_.charConstant(val);
+		    ~ lang_.renderCharConstant(val);
 	    } else {
 		ulong val = state.readInteger(loc.readValue(state));
 		return super.valueToString(fmt, state, loc)
-		    ~ lang_.charConstant(val);
+		    ~ lang_.renderCharConstant(val);
 	    }		
 	}
 
@@ -346,9 +383,9 @@ class PointerType: TypeBase
 	string toString()
 	{
 	    if (baseType_)
-		return lang_.pointerType(baseType_.toString);
+		return lang_.renderPointerType(baseType_.toString);
 	    else
-		return lang_.pointerType("void");
+		return lang_.renderPointerType("void");
 	}
 
 	string valueToString(string, MachineState state, Location loc)
@@ -357,7 +394,7 @@ class PointerType: TypeBase
 	    ulong p = state.readInteger(loc.readValue(state));
 	    v = std.string.format("0x%x", p);
 	    if (lang_.isStringType(this) && p)
-		v ~= " " ~ lang_.stringConstant(state, this, loc);
+		v ~= " " ~ lang_.renderStringConstant(state, this, loc);
 	    return v;
 	}
 
@@ -410,9 +447,9 @@ class ReferenceType: TypeBase
 	string toString()
 	{
 	    if (baseType_)
-		return lang_.referenceType(baseType_.toString);
+		return lang_.renderReferenceType(baseType_.toString);
 	    else
-		return lang_.referenceType("void");
+		return lang_.renderReferenceType("void");
 	}
 
 	string valueToString(string, MachineState state, Location loc)
@@ -567,9 +604,9 @@ class CompoundType: TypeBase
 	string toString()
 	{
 	    if (kind_ == "struct")
-		return lang_.structureType(name_);
+		return lang_.renderStructureType(name_);
 	    else
-		return lang_.unionType(name_);
+		return lang_.renderUnionType(name_);
 	}
 	string valueToString(string fmt, MachineState state, Location loc)
 	{
@@ -586,7 +623,7 @@ class CompoundType: TypeBase
 		s ~= v.type.valueToString(fmt, state,
 					  v.loc.fieldLocation(loc, state));
 	    }
-	    return lang_.structConstant(s);
+	    return lang_.renderStructConstant(s);
 	}
 	size_t byteWidth()
 	{
@@ -652,7 +689,7 @@ class EnumType: IntegerType
     {
 	string toString()
 	{
-	    return lang_.enumType(name_);
+	    return lang_.renderEnumType(name_);
 	}
 	string valueToString(string fmt, MachineState state, Location loc)
 	{
@@ -749,7 +786,7 @@ class ArrayType: TypeBase
 	string valueToString(string fmt, MachineState state, Location loc)
 	{
 	    if (!loc.hasAddress(state))
-		return lang_.arrayConstant("");
+		return lang_.renderArrayConstant("");
 	    ulong addr = loc.address(state);
 	    return valueToString(fmt, state, addr, 0);
 	}
@@ -792,7 +829,7 @@ private:
 	    if (i < 3)
 		v ~= elem;
 	}
-	return lang_.arrayConstant(v);
+	return lang_.renderArrayConstant(v);
     }
     struct dim {
 	size_t indexBase;
@@ -826,7 +863,7 @@ class DArrayType: TypeBase
 	string valueToString(string fmt, MachineState state, Location loc)
 	{
 	    if (lang_.isStringType(this))
-		return lang_.stringConstant(state, this, loc);
+		return lang_.renderStringConstant(state, this, loc);
 
 	    ubyte[] val = loc.readValue(state);
 	    ulong len = state.readInteger(val[0..state.pointerWidth]);
@@ -843,7 +880,7 @@ class DArrayType: TypeBase
 			new MemoryLocation(addr, baseType_.byteWidth));
 		addr += baseType_.byteWidth;
 	    }
-	    return lang_.arrayConstant(v);
+	    return lang_.renderArrayConstant(v);
 	}
 	size_t byteWidth()
 	{
@@ -1533,10 +1570,10 @@ class NumericExpr: ExprBase
 	    Type ty;
 	    if (isSigned_) {
 		state.writeInteger(num_, val);
-		ty = new IntegerType(lang_, "int", true, 4);
+		ty = lang_.integerType("int", true, 4);
 	    } else {
 		state.writeInteger(unum_, val);
-		ty = new IntegerType(lang_, "uint", false, 4);
+		ty = lang_.integerType("uint", false, 4);
 	    }
 	    return new Value(new ConstantLocation(val), ty);
 	}
@@ -1597,7 +1634,7 @@ class LengthExpr: UnaryExpr
 	    }
 	    ubyte[4] val;
 	    state.writeInteger(maxIndex - minIndex, val);
-	    auto ty = new IntegerType(lang_, "size_t", false, 4);
+	    auto ty = lang_.integerType("size_t", false, 4);
 	    return new Value(new ConstantLocation(val), ty);
 	}
     }
@@ -1620,7 +1657,7 @@ class SizeofExpr: UnaryExpr
 	    Value expr = expr_.eval(sc, state).toValue(state);
 	    ubyte[4] val;
 	    state.writeInteger(expr.type.byteWidth, val);
-	    auto ty = new IntegerType(lang_, "size_t", false, 4);
+	    auto ty = lang_.integerType("size_t", false, 4);
 	    return new Value(new ConstantLocation(val), ty);
 	}
     }
@@ -1732,7 +1769,7 @@ class LogicalNegateExpr: IntegerUnaryExpr!("!", "logically negate")
 	    if (!ptrTy)
 		return super.eval(sc, state);
 	    ulong ptr = state.readInteger(expr.loc.readValue(state));
-	    Type ty = new IntegerType(lang_, "int", true, 4);
+	    Type ty = lang_.integerType("int", true, 4);
 	    ubyte v[4];
 	    state.writeInteger(ptr ? 0 : 1, v);
 	    return new Value(new ConstantLocation(v), ty);
@@ -1958,7 +1995,7 @@ class SubtractExpr: IntegerBinaryExpr!("-", "add")
 		val.length = ptrTy.byteWidth;
 		state.writeInteger(diff, val);
 		return new Value(new ConstantLocation(val),
-			     new IntegerType(lang_, "int", true, ptrTy.byteWidth));
+			     lang_.integerType("int", true, ptrTy.byteWidth));
 	    } else {
 		ulong ptr = lval - rval * ptrTy.baseType.byteWidth;
 		ubyte[] val;
@@ -2302,7 +2339,7 @@ class Function: DebugItem, Scope
 
 	    s = returnType_.toString ~ " ";
 	    if (containingType_)
-		s ~= containingType_.toString ~ lang_.namespaceSeparator;
+		s ~= containingType_.toString ~ lang_.renderNamespaceSeparator;
 	    s ~= std.string.format("%s(", name_);
 	    bool first = true;
 	    foreach (a; arguments_) {

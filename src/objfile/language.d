@@ -35,60 +35,58 @@ import objfile.debuginfo;
 import machine.machine;
 import target;
 
-interface Language
+class Language
 {
-    Type voidType();
-    string enumType(string baseType);
-    string structureType(string baseType);
-    string unionType(string baseType);
-    string pointerType(string baseType);
-    string referenceType(string baseType);
-    bool isStringType(Type type);
-    string stringConstant(MachineState state, Type type, Location loc);
-    string namespaceSeparator();
-    string charConstant(int ch);
-    string structConstant(string);
-    string arrayConstant(string);
-    Expr parseExpr(string s);
+    private this()
+    {
+	voidType_ = new VoidType(this);
+    }
+
+    Type voidType()
+    {
+	return voidType_;
+    }
+    Type integerType(string name, bool isSigned, uint byteWidth)
+    {
+	scope IntegerType t = new IntegerType(this, name, isSigned, byteWidth);
+	auto p = t in integerTypes_;
+	if (p)
+	    return *p;
+	auto ty = new IntegerType(this, name, isSigned, byteWidth);
+	integerTypes_[ty] = ty;
+	return ty;
+    }
+    abstract bool isStringType(Type type);
+
+    abstract string renderEnumType(string baseType);
+    abstract string renderStructureType(string baseType);
+    abstract string renderUnionType(string baseType);
+    abstract string renderPointerType(string baseType);
+    abstract string renderReferenceType(string baseType);
+    abstract string renderStringConstant(MachineState state, Type type, Location loc);
+    abstract string renderNamespaceSeparator();
+    abstract string renderCharConstant(int ch);
+    abstract string renderStructConstant(string);
+    abstract string renderArrayConstant(string);
+
+    abstract Expr parseExpr(string s);
+
+private:
+    Type voidType_;
+    Type integerTypes_[Type];
 }
 
 class CLikeLanguage: Language
 {
     static CLikeLanguage instance;
-    Type voidType_;
     private this()
     {
-	voidType_ = new VoidType(this);
     }
     static this()
     {
 	instance = new CLikeLanguage;
     }
     override {
-	Type voidType()
-	{
-	    return voidType_;
-	}
-	string enumType(string baseType)
-	{
-	    return "enum " ~ baseType;
-	}
-	string structureType(string baseType)
-	{
-	    return "struct " ~ baseType;
-	}
-	string unionType(string baseType)
-	{
-	    return "union " ~ baseType;
-	}
-	string pointerType(string baseType)
-	{
-	    return baseType ~ "*";
-	}
-	string referenceType(string baseType)
-	{
-	    return baseType ~ "&";
-	}
 	bool isStringType(Type type)
 	{
 	    PointerType pt = cast(PointerType) type;
@@ -97,7 +95,28 @@ class CLikeLanguage: Language
 	    }
 	    return false;
 	}
-	string stringConstant(MachineState state, Type type, Location loc)
+
+	string renderEnumType(string baseType)
+	{
+	    return "enum " ~ baseType;
+	}
+	string renderStructureType(string baseType)
+	{
+	    return "struct " ~ baseType;
+	}
+	string renderUnionType(string baseType)
+	{
+	    return "union " ~ baseType;
+	}
+	string renderPointerType(string baseType)
+	{
+	    return baseType ~ "*";
+	}
+	string renderReferenceType(string baseType)
+	{
+	    return baseType ~ "&";
+	}
+	string renderStringConstant(MachineState state, Type type, Location loc)
 	{
 	    PointerType pt = cast(PointerType) type;
 	    if (pt) {
@@ -106,11 +125,11 @@ class CLikeLanguage: Language
 	    }
 	    return "";
 	}
-        string namespaceSeparator()
+        string renderNamespaceSeparator()
 	{
 	    return "::";
 	}
-	string charConstant(int ch)
+	string renderCharConstant(int ch)
 	{
 	    string specials[char] = [
 		'\0': "\\0",
@@ -132,14 +151,15 @@ class CLikeLanguage: Language
 	    }
 	    return "";
 	}
-	string structConstant(string s)
+	string renderStructConstant(string s)
 	{
 	    return format("{%s}", s);
 	}
-	string arrayConstant(string s)
+	string renderArrayConstant(string s)
 	{
 	    return format("{%s}", s);
 	}
+
 	Expr parseExpr(string s)
 	{
 	    auto lex = new CLikeLexer(s);
@@ -776,21 +796,15 @@ class CLikeLanguage: Language
 class CPlusPlusLanguage: CLikeLanguage
 {
     static CPlusPlusLanguage instance;
-    Type voidType_;
     private this()
     {
-	voidType_ = new VoidType(this);
     }
     static this()
     {
 	instance = new CPlusPlusLanguage;
     }
     override {
-	Type voidType()
-	{
-	    return voidType_;
-	}
-	string structureType(string baseType)
+	string renderStructureType(string baseType)
 	{
 	    return baseType;
 	}
@@ -800,28 +814,14 @@ class CPlusPlusLanguage: CLikeLanguage
 class DLanguage: CLikeLanguage
 {
     static DLanguage instance;
-    Type voidType_;
     private this()
     {
-	voidType_ = new VoidType(this);
     }
     static this()
     {
 	instance = new DLanguage;
     }
     override {
-	Type voidType()
-	{
-	    return voidType_;
-	}
-	string structureType(string baseType)
-	{
-	    return baseType;
-	}
-	string referenceType(string baseType)
-	{
-	    return "ref " ~ baseType;
-	}
 	bool isStringType(Type type)
 	{
 	    if (super.isStringType(type))
@@ -832,11 +832,20 @@ class DLanguage: CLikeLanguage
 		return false;
 	    return at.baseType.isCharType;
 	}
-	string stringConstant(MachineState state, Type type, Location loc)
+
+	string renderStructureType(string baseType)
+	{
+	    return baseType;
+	}
+	string renderReferenceType(string baseType)
+	{
+	    return "ref " ~ baseType;
+	}
+	string renderStringConstant(MachineState state, Type type, Location loc)
 	{
 	    PointerType pt = cast(PointerType) type;
 	    if (pt)
-		return super.stringConstant(state, type, loc);
+		return super.renderStringConstant(state, type, loc);
 
 	    /*
 	     * Assume the representation is two pointer-sized
@@ -849,14 +858,15 @@ class DLanguage: CLikeLanguage
 	    return _stringConstant(state, ptr, len);
 		
 	}
-        string namespaceSeparator()
+        string renderNamespaceSeparator()
 	{
 	    return ".";
 	}
-	string arrayConstant(string s)
+	string renderArrayConstant(string s)
 	{
 	    return format("[%s]", s);
 	}
+
 	Expr parseExpr(string s)
 	{
 	    auto lex = new DLexer(s);

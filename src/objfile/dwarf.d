@@ -2599,11 +2599,11 @@ class DIE
 	    if (sz == 0) sz = 1;
 	    switch (this[DW_AT_encoding].ul) {
 	    case DW_ATE_signed:
-		debugItem_ = new IntegerType(lang, name, true, sz);
+		debugItem_ = lang.integerType(name, true, sz);
 		break;
 
 	    case DW_ATE_unsigned:
-		debugItem_ = new IntegerType(lang, name, false, sz);
+		debugItem_ = lang.integerType(name, false, sz);
 		break;
 
 	    case DW_ATE_boolean:
@@ -2630,7 +2630,7 @@ class DIE
 	    case DW_ATE_decimal_float:
 		writefln("Unsupported base type encoding %d - using integer",
 			 this[DW_AT_encoding].ul);
-		debugItem_ = new IntegerType(lang, name, false, sz);
+		debugItem_ = lang.integerType(name, false, sz);
 		break;
 	    }
 	    break;
