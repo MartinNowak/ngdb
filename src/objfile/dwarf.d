@@ -2588,7 +2588,7 @@ class DIE
 	{
 	    if (ty)
 		return ty;
-	    return new VoidType(lang);
+	    return lang.voidType;
 	}
 
 	AttributeValue l;
@@ -2807,7 +2807,7 @@ class DIE
 
 	default:
 	    writefln("Unsupported Dwarf tag %s", tagNames[tag]);
-	    debugItem_ = new VoidType(lang); // XXX not really what is needed
+	    debugItem_ = lang.voidType; // XXX not really what is needed
 	}
 	return debugItem_;
     }
@@ -2881,22 +2881,22 @@ class CompilationUnit
 	    return lang_;
 	auto l = die[DW_AT_language];
 	if (!l) {
-	    lang_ = new CLikeLanguage;
+	    lang_ = CLikeLanguage.instance;
 	} else {
 	    switch (l.ul) {
 	    case DW_LANG_C:
 	    case DW_LANG_C89:
 	    case DW_LANG_C99:
 	    default:
-		lang_ = new CLikeLanguage;
+		lang_ = CLikeLanguage.instance;
 		break;
 
 	    case DW_LANG_C_plus_plus:
-		lang_ = new CPlusPlusLanguage;
+		lang_ = CPlusPlusLanguage.instance;
 		break;
 
 	    case DW_LANG_D:
-		lang_ = new DLanguage;
+		lang_ = DLanguage.instance;
 		break;
 	    }
 	}

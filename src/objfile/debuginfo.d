@@ -2284,7 +2284,7 @@ class Function: DebugItem, Scope
     this(string name, Language lang, size_t byteWidth)
     {
 	name_ = name;
-	returnType_ = new VoidType(lang);
+	returnType_ = lang.voidType;
 	containingType_ = null;
 	lang_ = lang;
 	address_ = 0;

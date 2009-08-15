@@ -37,6 +37,7 @@ import target;
 
 interface Language
 {
+    Type voidType();
     string enumType(string baseType);
     string structureType(string baseType);
     string unionType(string baseType);
@@ -53,7 +54,21 @@ interface Language
 
 class CLikeLanguage: Language
 {
+    static CLikeLanguage instance;
+    Type voidType_;
+    private this()
+    {
+	voidType_ = new VoidType(this);
+    }
+    static this()
+    {
+	instance = new CLikeLanguage;
+    }
     override {
+	Type voidType()
+	{
+	    return voidType_;
+	}
 	string enumType(string baseType)
 	{
 	    return "enum " ~ baseType;
@@ -760,7 +775,21 @@ class CLikeLanguage: Language
 
 class CPlusPlusLanguage: CLikeLanguage
 {
+    static CPlusPlusLanguage instance;
+    Type voidType_;
+    private this()
+    {
+	voidType_ = new VoidType(this);
+    }
+    static this()
+    {
+	instance = new CPlusPlusLanguage;
+    }
     override {
+	Type voidType()
+	{
+	    return voidType_;
+	}
 	string structureType(string baseType)
 	{
 	    return baseType;
@@ -770,7 +799,21 @@ class CPlusPlusLanguage: CLikeLanguage
 
 class DLanguage: CLikeLanguage
 {
+    static DLanguage instance;
+    Type voidType_;
+    private this()
+    {
+	voidType_ = new VoidType(this);
+    }
+    static this()
+    {
+	instance = new DLanguage;
+    }
     override {
+	Type voidType()
+	{
+	    return voidType_;
+	}
 	string structureType(string baseType)
 	{
 	    return baseType;

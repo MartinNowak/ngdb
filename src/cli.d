@@ -260,7 +260,7 @@ private class Breakpoint: TargetBreakpointListener
 	    }
 	}
 	if (!lang)
-	    lang = new CLikeLanguage;
+	    lang = CLikeLanguage.instance;
     gotLang:
 	try {
 	    auto e = lang.parseExpr(s);
@@ -445,7 +445,7 @@ private class Frame
 	    lang_ = di.findLanguage(state.pc);
 	} else {
 	    addr_ = 0;
-	    lang_ = new CLikeLanguage;
+	    lang_ = CLikeLanguage.instance;
 	}
 
 	auto sc = new UnionScope;
@@ -2497,7 +2497,7 @@ class PrintCommand: Command
 		lang = f.lang_;
 	    } else {
 		sc = db;
-		lang = new CLikeLanguage;
+		lang = CLikeLanguage.instance;
 	    }
 
 	    try {
@@ -2574,7 +2574,7 @@ class ExamineCommand: Command
 		    lang = f.lang_;
 		} else {
 		    sc = db;
-		    lang = new CLikeLanguage;
+		    lang = CLikeLanguage.instance;
 		}
 
 		try {
