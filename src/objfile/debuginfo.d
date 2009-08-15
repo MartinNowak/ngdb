@@ -337,6 +337,37 @@ class BooleanType: TypeBase
 
     override
     {
+	hash_t toHash()
+	{
+	    return typeid(string).getHash(cast(void*) &name_)
+		+ byteWidth_ * 31;
+	}
+
+	int opEquals(Object o)
+	{
+	    BooleanType ty = cast(BooleanType) o;
+	    if (!ty)
+		return 0;
+	    return name_ == ty.name_
+		&& byteWidth_ == ty.byteWidth_;
+	}
+
+	int opCmp(Object o)
+	{
+	    BooleanType ty = cast(BooleanType) o;
+	    if (!ty)
+		return 1;
+	    if (name_ < ty.name_)
+		return -1;
+	    if (name_ > ty.name_)
+		return 1;
+	    if (byteWidth_ < ty.byteWidth_)
+		return -1;
+	    if (byteWidth_ > ty.byteWidth_)
+		return 1;
+	    return 0;
+	}
+
 	string toString()
 	{
 	    return name_;

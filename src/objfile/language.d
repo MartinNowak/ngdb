@@ -56,6 +56,26 @@ class Language
 	integerTypes_[ty] = ty;
 	return ty;
     }
+    Type charType(string name, bool isSigned, uint byteWidth)
+    {
+	scope CharType t = new CharType(this, name, isSigned, byteWidth);
+	auto p = t in charTypes_;
+	if (p)
+	    return *p;
+	auto ty = new CharType(this, name, isSigned, byteWidth);
+	charTypes_[ty] = ty;
+	return ty;
+    }
+    Type booleanType(string name, uint byteWidth)
+    {
+	scope BooleanType t = new BooleanType(this, name, byteWidth);
+	auto p = t in booleanTypes_;
+	if (p)
+	    return *p;
+	auto ty = new BooleanType(this, name, byteWidth);
+	booleanTypes_[ty] = ty;
+	return ty;
+    }
     abstract bool isStringType(Type type);
 
     abstract string renderEnumType(string baseType);
@@ -74,6 +94,8 @@ class Language
 private:
     Type voidType_;
     Type integerTypes_[Type];
+    Type charTypes_[Type];
+    Type booleanTypes_[Type];
 }
 
 class CLikeLanguage: Language

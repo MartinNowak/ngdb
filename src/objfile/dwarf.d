@@ -2607,15 +2607,15 @@ class DIE
 		break;
 
 	    case DW_ATE_boolean:
-		debugItem_ = new BooleanType(lang, name, sz);
+		debugItem_ = lang.booleanType(name, sz);
 		break;
 
 	    case DW_ATE_signed_char:
-		debugItem_ = new CharType(lang, name, true, sz);
+		debugItem_ = lang.charType(name, true, sz);
 		break;
 
 	    case DW_ATE_unsigned_char:
-		debugItem_ = new CharType(lang, name, false, sz);
+		debugItem_ = lang.charType(name, false, sz);
 		break;
 
 	    case DW_ATE_address:
