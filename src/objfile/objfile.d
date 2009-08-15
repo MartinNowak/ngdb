@@ -27,7 +27,7 @@
 module objfile.objfile;
 version (tangobos) import std.compat;
 import endian;
-import target;
+import target.target;
 import machine.machine;
 
 struct Symbol

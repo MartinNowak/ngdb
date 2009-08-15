@@ -27,8 +27,8 @@
 module machine.arm;
 import machine.machine;
 import objfile.debuginfo;
-import objfile.language;
-import target;
+import language.language;
+import target.target;
 private import machine.armdis;
 
 import std.stdio;

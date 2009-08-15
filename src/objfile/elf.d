@@ -59,7 +59,7 @@ import std.c.freebsd.freebsd;
 import std.c.string;
 
 import endian;
-import target;
+import target.target;
 import objfile.objfile;
 import machine.machine;
 import machine.x86;

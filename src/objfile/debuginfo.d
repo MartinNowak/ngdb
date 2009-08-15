@@ -32,7 +32,7 @@ import std.stdio;
 import std.string;
 import std.c.stdlib;
 
-import objfile.language;
+import language.language;
 import machine.machine;
 
 /**

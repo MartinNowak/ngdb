@@ -27,10 +27,10 @@
 module machine.x86;
 import machine.machine;
 import objfile.debuginfo;
-import objfile.language;
+import language.language;
 private import machine.x86dis;
 import sys.reg;
-import target;
+import target.target;
 
 import std.stdio;
 import std.stdint;

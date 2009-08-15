@@ -27,9 +27,6 @@
 import std.stdio;
 import std.path;
 
-import ptracetarget;
-import target;
-import objfile.dwarf;
 import cli;
 
 int

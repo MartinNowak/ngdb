@@ -30,7 +30,7 @@ module objfile.dwarf;
 
 import objfile.objfile;
 import objfile.debuginfo;
-import objfile.language;
+import language.language;
 import machine.machine;
 static import std.path;
 import std.string;
@@ -38,7 +38,7 @@ import std.stdio;
 version(tangobos) import std.compat;
 //import std.c.unix.unix;
 
-import target;
+import target.target;
 
 enum {
     DW_TAG_array_type			= 0x01,

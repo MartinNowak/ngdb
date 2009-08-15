@@ -29,11 +29,11 @@ module cli;
 //debug = step;
 
 import editline;
-import target;
-import ptracetarget;
-import coldtarget;
+import target.target;
+import target.ptracetarget;
+import target.coldtarget;
 import objfile.debuginfo;
-import objfile.language;
+import language.language;
 import machine.machine;
 
 version (DigitalMars)

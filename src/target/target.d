@@ -24,7 +24,7 @@
  * SUCH DAMAGE.
  */
 
-module target;
+module target.target;
 import objfile.debuginfo;
 import machine.machine;
 version(tangobos) import std.compat;

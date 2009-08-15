@@ -24,11 +24,11 @@
  * SUCH DAMAGE.
  */
 
-module ptracetarget;
+module target.ptracetarget;
 
 //debug = ptrace;
 
-import target;
+import target.target;
 import objfile.objfile;
 import objfile.elf;
 import objfile.debuginfo;

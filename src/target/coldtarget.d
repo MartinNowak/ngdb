@@ -24,9 +24,9 @@
  * SUCH DAMAGE.
  */
 
-module coldtarget;
+module target.coldtarget;
 
-import target;
+import target.target;
 import objfile.objfile;
 import objfile.elf;
 import objfile.debuginfo;
@@ -34,7 +34,6 @@ import objfile.dwarf;
 import machine.machine;
 import machine.x86;
 import sys.reg;
-import ptracetarget;		// XXX signame
 
 import std.stdint;
 import std.stdio;
