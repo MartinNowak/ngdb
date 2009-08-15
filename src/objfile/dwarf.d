@@ -2539,6 +2539,18 @@ class DIE
 	return addresses_;
     }
 
+    bool findSubprogram(ulong pc, out DIE func)
+    {
+	if (tag == DW_TAG_subprogram && contains(pc)) {
+	    func = this;
+	    return true;
+	}
+	foreach (d; children)
+	    if (d.findSubprogram(pc, func))
+		return true;
+	return false;
+    }
+
     bool contains(ulong pc)
     {
 	foreach (a; addresses)
@@ -2954,10 +2966,8 @@ class CompilationUnit
     bool findSubprogram(ulong pc, out DIE func)
     {
 	foreach (kid; die.children)
-	    if (kid.tag == DW_TAG_subprogram && kid.contains(pc)) {
-		func = kid;
+	    if (kid.findSubprogram(pc, func))
 		return true;
-	    }
 	return false;
     }
 
