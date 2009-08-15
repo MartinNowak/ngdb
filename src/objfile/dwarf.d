@@ -2640,27 +2640,27 @@ class DIE
 	    break;
 
 	case DW_TAG_const_type:
-	    debugItem_ = new ModifierType(lang, name, "const", subType);
+	    debugItem_ = subType.modifierType("const");
 	    break;
 
 	case DW_TAG_packed_type:
-	    debugItem_ = new ModifierType(lang, name, "packed", subType);
+	    debugItem_ = subType.modifierType("packed");
 	    break;
 
 	case DW_TAG_reference_type:
-	    debugItem_ = new ReferenceType(lang, name, subType, cu_.addressSize);
+	    debugItem_ = subType.referenceType(cu_.addressSize);
 	    break;
 
 	case DW_TAG_restrict_type:
-	    debugItem_ = new ModifierType(lang, name, "restrict", subType);
+	    debugItem_ = subType.modifierType("restrict");
 	    break;
 
 	case DW_TAG_shared_type:
-	    debugItem_ = new ModifierType(lang, name, "shared", subType);
+	    debugItem_ = subType.modifierType("shared");
 	    break;
 
 	case DW_TAG_volatile_type:
-	    debugItem_ = new ModifierType(lang, name, "volatile", subType);
+	    debugItem_ = subType.modifierType("volatile");
 	    break;
 
 	case DW_TAG_enumeration_type:

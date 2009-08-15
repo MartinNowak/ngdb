@@ -70,6 +70,8 @@ interface Type: DebugItem
     size_t byteWidth();
     Type underlyingType();
     Type pointerType(uint);
+    Type referenceType(uint);
+    Type modifierType(string modifier);
     bool isCharType();
     bool isIntegerType();
 }
@@ -117,12 +119,27 @@ class TypeBase: Type
 	    return ptrTypes_[width];
 	return (ptrTypes_[width] = new PointerType(lang_, this, width));
     }
+    Type referenceType(uint width)
+    {
+	if (width in refTypes_)
+	    return refTypes_[width];
+	return (refTypes_[width] = new ReferenceType(lang_, this, width));
+    }
+    Type modifierType(string modifier)
+    {
+	if (modifier in modifierTypes_)
+	    return modifierTypes_[modifier];
+	return (modifierTypes_[modifier] =
+		new ModifierType(lang_, modifier, this));
+    }
     abstract bool isCharType();
     abstract bool isIntegerType();
 
 private:
     Language lang_;
     Type[uint] ptrTypes_;
+    Type[uint] refTypes_;
+    Type[string] modifierTypes_;
 }
 
 interface Scope
@@ -402,7 +419,7 @@ private:
 
 class PointerType: TypeBase
 {
-    this(Language lang, Type baseType, uint byteWidth)
+    private this(Language lang, Type baseType, uint byteWidth)
     {
 	super(lang);
 	baseType_ = baseType;
@@ -465,10 +482,9 @@ private:
 
 class ReferenceType: TypeBase
 {
-    this(Language lang, string name, Type baseType, uint byteWidth)
+    private this(Language lang, Type baseType, uint byteWidth)
     {
 	super(lang);
-	name_ = name;
 	baseType_ = baseType;
 	byteWidth_ = byteWidth;
     }
@@ -513,17 +529,15 @@ class ReferenceType: TypeBase
     }
 
 private:
-    string name_;
     Type baseType_;
     uint byteWidth_;
 }
 
 class ModifierType: TypeBase
 {
-    this(Language lang, string name, string modifier, Type baseType)
+    private this(Language lang, string modifier, Type baseType)
     {
 	super(lang);
-	name_ = name;
 	modifier_ = modifier;
 	baseType_ = baseType;
     }
@@ -557,7 +571,6 @@ class ModifierType: TypeBase
     }
 
 private:
-    string name_;
     string modifier_;
     Type baseType_;
 }
