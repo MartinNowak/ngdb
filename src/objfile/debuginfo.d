@@ -2360,13 +2360,23 @@ private:
     Value value_;
 }
 
+struct AddressRange
+{
+    bool contains(ulong pc)
+    {
+	return pc >= start && pc < end;
+    }
+
+    ulong start;
+    ulong end;
+}
+
 class LexicalScope: DebugItem, Scope
 {
-    this(Language lang, ulong start, ulong end)
+    this(Language lang, AddressRange[] addresses)
     {
 	lang_ = lang;
-	start_ = start;
-	end_ = end;
+	addresses_ = addresses;
     }
 
     override {
@@ -2423,24 +2433,16 @@ class LexicalScope: DebugItem, Scope
 	return variables_;
     }
 
-    ulong start()
-    {
-	return start_;
-    }
-
-    void end()
-    {
-	return end_;
-    }
-
     bool contains(ulong pc)
     {
-	return pc >= start_ && pc < end_;
+	foreach (a; addresses_)
+	    if (a.contains(pc))
+		return true;
+	return false;
     }
 
     Language lang_;
-    ulong start_;
-    ulong end_;
+    AddressRange[] addresses_;
     Variable[] variables_;
     LexicalScope[] scopes_;
 }

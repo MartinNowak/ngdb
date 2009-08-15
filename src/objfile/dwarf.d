@@ -2408,17 +2408,6 @@ class AttributeValue
     }
 }
 
-struct AddressRange
-{
-    bool contains(ulong pc)
-    {
-	return pc >= start && pc < end;
-    }
-
-    ulong start;
-    ulong end;
-}
-
 class DIE
 {
     CompilationUnit cu_;
@@ -2429,7 +2418,7 @@ class DIE
     bool is64;
     AttributeValue attrs[int];
     DIE[] children;
-    AddressRange[] addresses; // set of address ranges for this DIE
+    AddressRange[] addresses_; // set of address ranges for this DIE
     DebugItem debugItem_;
 
     this(CompilationUnit cu, DIE parent, char* base, ref char* diep,
@@ -2520,40 +2509,41 @@ class DIE
 	return null;
     }
 
+    AddressRange[] addresses()
+    {
+	if (addresses_.length)
+	    return addresses_;
+
+	auto dw = cu_.parent;
+	auto offset = dw.obj_.offset;
+
+	if (this[DW_AT_low_pc]
+	    && this[DW_AT_high_pc]) {
+	    addresses_ ~= AddressRange(this[DW_AT_low_pc].ul + offset,
+				       this[DW_AT_high_pc].ul + offset);
+	} else if (this[DW_AT_ranges]) {
+	    char[] ranges = cu_.parent.debugSection(".debug_ranges");
+	    char* p = &ranges[this[DW_AT_ranges].ul];
+	    for (;;) {
+		ulong start, end;
+		start = dw.parseOffset(p, is64);
+		end = dw.parseOffset(p, is64);
+		if (start == 0 && end == 0)
+		    break;
+		start += offset;
+		end += offset;
+		addresses_ ~= AddressRange(start, end);
+	    }
+	}
+
+	return addresses_;
+    }
+
     bool contains(ulong pc)
     {
-	if (addresses.length) {
-	    for (int i = 0; i < addresses.length; i++)
-		if (addresses[i].contains(pc))
-		    return true;
-	    return false;
-	} else {
-	    auto dw = cu_.parent;
-	    ulong offset = dw.obj_.offset;
-	    if (this[DW_AT_low_pc]
-		&& this[DW_AT_high_pc]) {
-		addresses ~= AddressRange(this[DW_AT_low_pc].ul + offset,
-					  this[DW_AT_high_pc].ul + offset);
-	    } else if (this[DW_AT_ranges]) {
-		char[] ranges = cu_.parent.debugSection(".debug_ranges");
-		char* p = &ranges[this[DW_AT_ranges].ul];
-		for (;;) {
-		    ulong start, end;
-		    start = dw.parseOffset(p, is64);
-		    end = dw.parseOffset(p, is64);
-		    if (start == 0 && end == 0)
-			break;
-		    start += offset;
-		    end += offset;
-		    addresses ~= AddressRange(start, end);
-		}
-	    } else {
-		return false;
-	    }
-
-	    // Now that we have parsed the DIE's location, try again
-	    return contains(pc);
-	}
+	foreach (a; addresses)
+	    if (a.contains(pc))
+		return true;
 	return false;
     }
 
@@ -2808,9 +2798,7 @@ class DIE
 	    break;
 
 	case DW_TAG_lexical_block:
-	    auto ls = new LexicalScope(cu_.lang,
-				       this[DW_AT_low_pc].ul + offset,
-				       this[DW_AT_high_pc].ul + offset);
+	    auto ls = new LexicalScope(cu_.lang, addresses);
 	    foreach (d; children) {
 		if (d.tag == DW_TAG_variable)
 		    ls.addVariable(cast(Variable) d.debugItem);
