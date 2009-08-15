@@ -70,14 +70,6 @@ class ColdModule: TargetModule
 	    dwarf_ = new DwarfFile(obj_);
     }
 
-    ~this()
-    {
-	if (obj_)
-	    delete obj_;
-	if (dwarf_)
-	    delete dwarf_;
-    }
-
     override {
 	char[] filename()
 	{
@@ -94,10 +86,16 @@ class ColdModule: TargetModule
 	    return end_;
 	}
 
+	bool contains(ulong addr)
+	{
+	    return addr >= start && addr < end_;
+	}
+
 	DebugInfo debugInfo()
 	{
 	    return dwarf_;
 	}
+
 	bool lookupSymbol(string name, out TargetSymbol ts)
 	{
 	    if (obj_) {
@@ -338,9 +336,9 @@ class ColdTarget: Target
 
     ~this()
     {
-	foreach (mod; modules_)
-	    delete mod;
-	modules_.length = 0;
+	modules_ = null;
+	threads_ = null;
+	listener_ = null;
     }
 
     override

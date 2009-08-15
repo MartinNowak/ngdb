@@ -148,6 +148,11 @@ interface TargetModule: Scope
     ulong end();
 
     /**
+     * Return true if the given address is within this module.
+     */
+    bool contains(ulong);
+
+    /**
      * Find debug information for thie module, if any.
      */
     DebugInfo debugInfo();

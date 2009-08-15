@@ -178,14 +178,6 @@ class PtraceModule: TargetModule
 	return;
     }
 
-    ~this()
-    {
-	if (obj_)
-	    delete obj_;
-	if (dwarf_)
-	    delete dwarf_;
-    }
-
     override {
 	char[] filename()
 	{
@@ -202,10 +194,16 @@ class PtraceModule: TargetModule
 	    return end_;
 	}
 
+	bool contains(ulong addr)
+	{
+	    return addr >= start && addr < end_;
+	}
+
 	DebugInfo debugInfo()
 	{
 	    return dwarf_;
 	}
+
 	bool lookupSymbol(string name, out TargetSymbol ts)
 	{
 	    if (obj_) {
@@ -710,10 +708,12 @@ class PtraceTarget: Target, TargetBreakpointListener
 private:
     void onExit()
     {
-	listener_.onExit(this);
-	foreach (mod; modules_)
-	    delete mod;
-	modules_.length = 0;
+	if (listener_)
+	    listener_.onExit(this);
+	threads_ = null;
+	modules_ = null;
+	breakpoints_ = null;
+	listener_ = null;
     }
 
     void getThreads()
@@ -805,11 +805,22 @@ private:
 	    }
 	}
 
-	foreach (mod; oldModules) {
+	foreach (mod; oldModules)
 	    listener_.onModuleDelete(this, mod);
-	    delete mod;
-	}
 
+	/*
+	 * Discard any breakpoint records that don't have addresses
+	 * within our new module list.
+	 */
+	foreach (addr; breakpoints_.keys) {
+	    bool keep = false;
+	    foreach (mod; newModules)
+		if (mod.contains(addr))
+		    keep = true;
+	    if (!keep)
+		breakpoints_.remove(addr);
+	}
+	    
 	modules_ = newModules;
     }
 

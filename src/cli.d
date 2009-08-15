@@ -271,10 +271,6 @@ private class Breakpoint: TargetBreakpointListener
 
     void activate(TargetModule mod)
     {
-	if (mod in modules_)
-	    return;
-	modules_[mod] = true;
-
 	DebugInfo di = mod.debugInfo;
 	int pos;
 
@@ -317,6 +313,16 @@ private class Breakpoint: TargetBreakpointListener
 	}
     }
 
+    void deactivate(TargetModule mod)
+    {
+	ulong[] newAddresses;
+
+	foreach (addr; addresses_)
+	    if (!mod.contains(addr))
+		newAddresses ~= addr;
+	addresses_ = newAddresses;
+    }
+
     void disable()
     {
 	if (enabled_) {
@@ -338,7 +344,6 @@ private class Breakpoint: TargetBreakpointListener
     void onExit()
     {
 	addresses_.length = 0;
-	modules_ = null;
     }
 
     bool active()
@@ -412,7 +417,6 @@ private class Breakpoint: TargetBreakpointListener
     bool enabled_ = true;
     Debugger db_;
     uint id_;
-    bool[TargetModule] modules_;
     ulong[] addresses_;
 }
 
@@ -1344,6 +1348,8 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 		if (omod !is mod)
 		    newModules ~= omod;
 	    modules_ = newModules;
+	    foreach (bp; breakpoints_)
+		bp.deactivate(mod);
 	}
 	bool onBreakpoint(Target, TargetThread t)
 	{
@@ -1619,7 +1625,7 @@ class RunCommand: Command
 	    if (db.target_) {
 		auto target = db.target_;
 		db.onExit(target);
-		delete target;
+		//delete target;
 	    }
 
 	    PtraceRun pt = new PtraceRun;
