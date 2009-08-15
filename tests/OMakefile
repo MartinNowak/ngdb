@@ -5,6 +5,7 @@ tests[]=
 	recursive
 	segfault
 	thread
+	scope
 
 .DEFAULT: $(tests)
 
@@ -25,3 +26,4 @@ DTest(hello3)
 CTest(recursive)
 CTest(segfault)
 CTest(thread)
+CTest(scope)
