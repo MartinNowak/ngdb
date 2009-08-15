@@ -243,12 +243,12 @@ class ArmState: MachineState
 		&readWord, lookupAddress);
 	}
 
-	string[] contents()
+	string[] contents(MachineState)
 	{
 	    return ArmRegNames[];
 	}
 
-	bool lookup(string reg, out DebugItem val)
+	bool lookup(string reg, MachineState, out DebugItem val)
 	{
 	    if (reg.length > 0 && reg[0] == '$')
 		reg = reg[1..$];

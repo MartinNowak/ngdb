@@ -144,8 +144,8 @@ private:
 
 interface Scope
 {
-    string[] contents();
-    bool lookup(string, out DebugItem);
+    string[] contents(MachineState);
+    bool lookup(string, MachineState, out DebugItem);
 }
 
 class UnionScope: Scope
@@ -156,17 +156,17 @@ class UnionScope: Scope
     }
 
     override {
-	string[] contents()
+	string[] contents(MachineState state)
 	{
 	    string[] res;
 	    foreach (sc; subScopes_)
-		res ~= sc.contents;
+		res ~= sc.contents(state);
 	    return res;
 	}
-	bool lookup(string name, out DebugItem val)
+	bool lookup(string name, MachineState state, out DebugItem val)
 	{
 	    foreach (sc; subScopes_) {
-		if (sc.lookup(name, val))
+		if (sc.lookup(name, state, val))
 		    return true;
 	    }
 	    return false;
@@ -771,14 +771,14 @@ class CompoundScope: Scope
 	base_ = base;
 	state_ = state;
     }
-    string[] contents()
+    string[] contents(MachineState)
     {
 	string[] res;
 	foreach (f; type_.fields_)
 	    res ~= f.name;
 	return res;
     }
-    bool lookup(string name, out DebugItem val)
+    bool lookup(string name, MachineState, out DebugItem val)
     {
 	foreach (f; type_.fields_) {
 	    if (f.name == name) {
@@ -1579,7 +1579,7 @@ class VariableExpr: ExprBase
 	DebugItem eval(Scope sc, MachineState state)
 	{
 	    DebugItem val;
-	    if (sc.lookup(name_, val))
+	    if (sc.lookup(name_, state, val))
 		return val;
 	    throw new EvalException(format("Variable %s not found", name_));
 	}
@@ -2360,6 +2360,91 @@ private:
     Value value_;
 }
 
+class LexicalScope: DebugItem, Scope
+{
+    this(Language lang, ulong start, ulong end)
+    {
+	lang_ = lang;
+	start_ = start;
+	end_ = end;
+    }
+
+    override {
+	string toString()
+	{
+	    return "";
+	}
+	string toString(string fmt, MachineState state)
+	{
+	    return "";
+	}
+	Value toValue(MachineState state)
+	{
+	    throw new EvalException("not a value");
+	}
+	string[] contents(MachineState state)
+	{
+	    string[] res;
+	    foreach (sc; scopes_)
+		if (sc.contains(state.pc))
+		    res ~= sc.contents(state);
+	    foreach (v; variables_)
+		res ~= v.name;
+	    return res;
+	}
+	bool lookup(string name, MachineState state, out DebugItem val)
+	{
+	    foreach (sc; scopes_)
+		if (sc.contains(state.pc))
+		    if (sc.lookup(name, state, val))
+			return true;
+	    foreach (v; variables_) {
+		if (name == v.name) {
+		    val = v;
+		    return true;
+		}
+	    }
+	    return false;
+	}
+    }
+
+    void addVariable(Variable var)
+    {
+	variables_ ~= var;
+    }
+
+    void addScope(LexicalScope sc)
+    {
+	scopes_ ~= sc;
+    }
+
+    Variable[] variables()
+    {
+	return variables_;
+    }
+
+    ulong start()
+    {
+	return start_;
+    }
+
+    void end()
+    {
+	return end_;
+    }
+
+    bool contains(ulong pc)
+    {
+	return pc >= start_ && pc < end_;
+    }
+
+    Language lang_;
+    ulong start_;
+    ulong end_;
+    Variable[] variables_;
+    LexicalScope[] scopes_;
+}
+
 class Function: DebugItem, Scope
 {
     this(string name, Language lang, size_t byteWidth)
@@ -2415,18 +2500,25 @@ class Function: DebugItem, Scope
 	    state.writeInteger(address_, ptrVal);
 	    return new Value(new ConstantLocation(ptrVal), pt);
 	}
-	string[] contents()
+	string[] contents(MachineState state)
 	{
 	    string[] res;
+	    foreach (sc; scopes_)
+		if (sc.contains(state.pc))
+		    res ~= sc.contents(state);
 	    foreach (v; arguments_ ~ variables_)
 		res ~= v.name;
 	    return res;
 	}
-	bool lookup(string name, out DebugItem val)
+	bool lookup(string name, MachineState state, out DebugItem val)
 	{
+	    foreach (sc; scopes_)
+		if (sc.contains(state.pc))
+		    if (sc.lookup(name, state, val))
+			return true;
 	    foreach (v; arguments_ ~ variables_) {
 		if (name == v.name) {
-		    val = v.value;
+		    val = v;
 		    return true;
 		}
 	    }
@@ -2452,6 +2544,11 @@ class Function: DebugItem, Scope
     void addVariable(Variable var)
     {
 	variables_ ~= var;
+    }
+
+    void addScope(LexicalScope sc)
+    {
+	scopes_ ~= sc;
     }
 
     string name()
@@ -2515,6 +2612,7 @@ class Function: DebugItem, Scope
     Type containingType_;
     Variable[] arguments_;
     Variable[] variables_;
+    LexicalScope[] scopes_;
     ulong address_;
     size_t byteWidth_;
 }

@@ -295,12 +295,12 @@ class X86State: MachineState
 	    return dis.disassemble(address, &readByte, lookupAddress);
 	}
 
-	string[] contents()
+	string[] contents(MachineState)
 	{
 	    return X86RegNames[];
 	}
 
-	bool lookup(string reg, out DebugItem val)
+	bool lookup(string reg, MachineState, out DebugItem val)
 	{
 	    if (reg.length > 0 && reg[0] == '$')
 		reg = reg[1..$];

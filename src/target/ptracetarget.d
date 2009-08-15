@@ -238,16 +238,16 @@ class PtraceModule: TargetModule
 	    }
 	    return false;
 	}
-	string[] contents()
+	string[] contents(MachineState state)
 	{
 	    if (dwarf_)
-		return dwarf_.contents;
+		return dwarf_.contents(state);
 	    return null;
 	}
-	bool lookup(string name, out DebugItem val)
+	bool lookup(string name, MachineState state, out DebugItem val)
 	{
 	    if (dwarf_)
-		return dwarf_.lookup(name, val);
+		return dwarf_.lookup(name, state, val);
 	    return false;
 	}
     }

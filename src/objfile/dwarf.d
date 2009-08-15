@@ -807,7 +807,7 @@ class DwarfFile: public DebugInfo
 
     // DebugInfo compliance
     override {
-	string[] contents()
+	string[] contents(MachineState)
 	{
 	    string[] res;
 	    foreach (ns; pubnames_) {
@@ -817,7 +817,7 @@ class DwarfFile: public DebugInfo
 	    }
 	    return res;
 	}
-	bool lookup(string name, out DebugItem val)
+	bool lookup(string name, MachineState, out DebugItem val)
 	{
 	    foreach (ns; pubnames_) {
 		if (ns.cuOffset in compilationUnits_) {
@@ -2579,6 +2579,7 @@ class DIE
 	    return debugItem_;
 
 	auto lang = cu_.lang;
+	auto offset = cu_.parent.obj_.offset;
 	auto t = this[DW_AT_type];
 	Type ty = null;
 	if (t)
@@ -2787,22 +2788,36 @@ class DIE
 	    if (ty)
 		f.returnType = ty;
 	    f.containingType = this.containingType;
-	    foreach (v; findVars(DW_TAG_formal_parameter)) {
-		f.addArgument(v);
-	    }
-	    foreach (v; findVars(DW_TAG_variable)) {
-		f.addVariable(v);
-	    }
-	    foreach (d; children)
-		if (d.tag == DW_TAG_unspecified_parameters)
+	    foreach (d; children) {
+		if (d.tag == DW_TAG_formal_parameter)
+		    f.addArgument(cast(Variable) d.debugItem);
+		else if (d.tag == DW_TAG_unspecified_parameters)
 		    f.varargs = true;
+		else if (d.tag == DW_TAG_variable)
+		    f.addVariable(cast(Variable) d.debugItem);
+		else if (d.tag == DW_TAG_lexical_block)
+		    f.addScope(cast(LexicalScope) d.debugItem);
+	    }
 	    ulong addr;
 	    if (this[DW_AT_entry_pc])
 		addr = this[DW_AT_entry_pc].ul;
 	    else if (this[DW_AT_low_pc])
 		addr = this[DW_AT_low_pc].ul;
-	    f.address = addr + cu_.parent.obj_.offset;
+	    f.address = addr + offset;
 	    debugItem_ = f;
+	    break;
+
+	case DW_TAG_lexical_block:
+	    auto ls = new LexicalScope(cu_.lang,
+				       this[DW_AT_low_pc].ul + offset,
+				       this[DW_AT_high_pc].ul + offset);
+	    foreach (d; children) {
+		if (d.tag == DW_TAG_variable)
+		    ls.addVariable(cast(Variable) d.debugItem);
+		if (d.tag == DW_TAG_lexical_block)
+		    ls.addScope(cast(LexicalScope) d.debugItem);
+	    }
+	    debugItem_ = ls;
 	    break;
 
 	default:

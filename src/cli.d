@@ -1377,20 +1377,20 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	    foreach (bp; breakpoints_)
 		bp.onExit;
 	}
-	string[] contents()
+	string[] contents(MachineState state)
 	{
 	    string[] res;
 	    foreach (mod; modules_)
-		res ~= mod.contents();
+		res ~= mod.contents(state);
 	    for (int i = 0; i < valueHistory_.length; i++)
 		res ~= "$" ~ .toString(i);
 
 	    return uniq(res);
 	}
-	bool lookup(string name, out DebugItem val)
+	bool lookup(string name, MachineState state, out DebugItem val)
 	{
 	    foreach (mod; modules_)
-		if (mod.lookup(name, val))
+		if (mod.lookup(name, state, val))
 		    return true;
 
 	    if (name.length == 0 || name[0] != '$')
@@ -1912,7 +1912,7 @@ class BreakCommand: Command
 	    if (args.length != 1)
 		return null;
 
-	    string[] syms = db.contents;
+	    string[] syms = db.contents(db.currentThread.state);
 	    string[] matches;
 	    string s = args[0];
 	    foreach (sym; syms)
@@ -2280,17 +2280,20 @@ class InfoVariablesCommand: Command
 		db.pagefln("current stack frame is invalid");
 		return;
 	    }
-	    MachineState s = f.state_;
-	    DebugInfo di;
 
-	    if (db.findDebugInfo(s, di)) {
-		Function func = di.findFunction(s.pc);
-		auto vars = func.arguments;
-		vars ~= func.variables;
-		foreach (v; vars) {
-		    if (!v.value.loc.valid(s))
-			continue;
-		    db.pagefln("%s = %s", v.toString, v.valueToString(fmt, s));
+	    auto  s = f.state_;
+	    auto func = f.func_;
+	    if (func) {
+		auto names = func.contents(s);
+		foreach (name; names) {
+		    DebugItem d;
+		    if (func.lookup(name, s, d)) {
+			auto v = cast(Variable) d;
+			if (!v.value.loc.valid(s))
+			    continue;
+			db.pagefln("%s = %s",
+				   v.toString, v.valueToString(fmt, s));
+		    }
 		}
 	    }
 	}
