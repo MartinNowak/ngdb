@@ -504,7 +504,7 @@ class FloatType: TypeBase
 	string valueToString(string fmt, MachineState state, Location loc)
 	{
 	    real val = state.readFloat(loc.readValue(state));
-	    return format("%f", val);
+	    return format("%g", val);
 	}
 
 	uint byteWidth()
