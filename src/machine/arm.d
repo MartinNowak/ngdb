@@ -151,21 +151,6 @@ class ArmState: MachineState
 	    return gregs_[gregno];
 	}
 
-	ubyte[] readGR(uint gregno)
-	{
-	    ubyte[] v;
-	    v.length = 4;
-	    v[0..4] = (cast(ubyte*) &gregs_[gregno])[0..4];
-	    return v;
-	}
-
-	void writeGR(uint gregno, ubyte[] v)
-	{
-	    assert(v.length == 4);
-	    (cast(ubyte*) &gregs_[gregno])[0..4] = v[0..4];
-	    grGen_++;
-	}
-
 	size_t grWidth(int greg)
 	{
 	    return 4;
@@ -243,6 +228,22 @@ class ArmState: MachineState
 	size_t frWidth(int fpregno)
 	{
 	    return 8;
+	}
+
+	ubyte[] readRegister(uint regno, size_t bytes)
+	{
+	    ubyte[] v;
+	    assert(bytes <= 4);
+	    v.length = bytes;
+	    v[] = (cast(ubyte*) &gregs_[regno])[0..bytes];
+	    return v;
+	}
+
+	void writeRegister(uint regno, ubyte[] v)
+	{
+	    assert(v.length <= 4);
+	    (cast(ubyte*) &gregs_[regno])[0..v.length] = v[];
+	    grGen_++;
 	}
 
 	uint pointerWidth()

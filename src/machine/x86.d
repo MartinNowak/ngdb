@@ -35,6 +35,7 @@ import sys.ptrace;
 import std.math;
 import std.stdio;
 import std.stdint;
+import std.string;
 
 version (LittleEndian)
 {
@@ -212,21 +213,6 @@ class X86State: MachineState
 	    return gregs_[gregno];
 	}
 
-	ubyte[] readGR(uint gregno)
-	{
-	    ubyte[] v;
-	    v.length = 4;
-	    v[0..4] = (cast(ubyte*) &gregs_[gregno])[0..4];
-	    return v;
-	}
-
-	void writeGR(uint gregno, ubyte[] v)
-	{
-	    assert(v.length == 4);
-	    (cast(ubyte*) &gregs_[gregno])[0..4] = v[0..4];
-	    grGen_++;
-	}
-
 	size_t grWidth(int greg)
 	{
 	    return 4;
@@ -395,6 +381,48 @@ class X86State: MachineState
 	size_t frWidth(int fpregno)
 	{
 	    return 10;
+	}
+
+	ubyte[] readRegister(uint regno, size_t bytes)
+	{
+	    ubyte[] v;
+	    if (regno < 10) {
+		assert(bytes <= 4);
+		v.length = bytes;
+		v[] = (cast(ubyte*) &gregs_[regno])[0..bytes];
+	    } else if (regno >= 11 && regno <= 18) {
+		assert(bytes <= 10);
+		v.length = bytes;
+		v[] = (cast(ubyte*) &fpregs_.xmm_acc[regno-11])[0..bytes];
+	    } else if (regno >= 21 && regno <= 28) {
+		assert(bytes <= 16);
+		v.length = bytes;
+		v[] = (cast(ubyte*) &fpregs_.xmm_reg[regno-21])[0..bytes];
+	    } else {
+		throw new TargetException(
+		    format("Unsupported register index %d", regno));
+	    }
+	    return v;
+	}
+
+	void writeRegister(uint regno, ubyte[] v)
+	{
+	    if (regno < 10) {
+		assert(v.length <= 4);
+		(cast(ubyte*) &gregs_[regno])[0..v.length] = v[];
+		grGen_++;
+	    } else if (regno >= 11 && regno <= 18) {
+		assert(v.length <= 10);
+		(cast(ubyte*) &fpregs_.xmm_acc[regno-11])[0..v.length] = v[];
+		grGen_++;
+	    } else if (regno >= 21 && regno <= 28) {
+		assert(v.length <= 16);
+		(cast(ubyte*) &fpregs_.xmm_reg[regno-21])[0..v.length] = v[];
+		grGen_++;
+	    } else {
+		throw new TargetException(
+		    format("Unsupported register index %d", regno));
+	    }
 	}
 
 	uint pointerWidth()

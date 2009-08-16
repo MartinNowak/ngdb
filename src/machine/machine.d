@@ -91,16 +91,6 @@ interface MachineState: Scope
     ulong getGR(uint gregno);
 
     /**
-     * Read raw register bytes in target byte order
-     */
-    ubyte[] readGR(uint gregno);
-
-    /**
-     * Write raw register bytes in target byte order
-     */
-    void writeGR(uint gregno, ubyte[]);
-
-    /**
      * Return the width in bytes of a general register
      */
     size_t grWidth(int greg);
@@ -176,6 +166,18 @@ interface MachineState: Scope
      * Return the width in bytes of a general register
      */
     size_t frWidth(int fpregno);
+
+    /**
+     * Read raw register bytes in target byte order. Register index
+     * corresponds to dwarf register number.
+     */
+    ubyte[] readRegister(uint regno, size_t bytes);
+
+    /**
+     * Write raw register bytes in target byte order. Register index
+     * corresponds to dwarf register number.
+     */
+    void writeRegister(uint regno, ubyte[]);
 
     /**
      * Return the width of a pointer in bytes

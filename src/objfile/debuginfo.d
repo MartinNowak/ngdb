@@ -1255,12 +1255,12 @@ class RegisterLocation: Location
 
 	ubyte[] readValue(MachineState state)
 	{
-	    return state.readGR(regno_);
+	    return state.readRegister(regno_, length);
 	}
 
 	void writeValue(MachineState state, ubyte[] value)
 	{
-	    return state.writeGR(regno_, value);
+	    return state.writeRegister(regno_, value);
 	}
 
 	bool hasAddress(MachineState)
