@@ -59,6 +59,18 @@ interface MachineState: Scope
     ulong tls_get_addr(uint index, ulong offset);
 
     /**
+     * Return the size of a structure which contains all the general
+     * registers. Typically used with ptrace(PT_GETREGS);
+     */
+    size_t gregsSize();
+
+    /**
+     * Return a value which increments each time the general register
+     * set changes.
+     */
+    uint grGen();
+
+    /**
      * Set the values of all the general registers.
      */
     void setGRs(ubyte* regs);

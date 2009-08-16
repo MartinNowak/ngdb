@@ -49,7 +49,6 @@ static import std.file;
 
 import sys.ptrace;
 import sys.wait;
-import sys.reg;
 
 extern (C)
 {
@@ -344,6 +343,7 @@ class PtraceThread: TargetThread
 	id_ = target.nextTid_++;
 	lwpid_ = lwpid;
 	state_ = target_.modules_[0].getState(target_);
+	regs_.length = state_.gregsSize;
     }
     override
     {
@@ -364,8 +364,7 @@ class PtraceThread: TargetThread
     void pc(ulong addr)
     {
 	state_.setGR(pcRegno_, addr);
-	regs_.r_eip = addr;
-	target_.ptrace(PT_SETREGS, lwpid_, cast(char*) &regs_, 0);
+	writeState;
     }
 
 private:
@@ -379,8 +378,9 @@ private:
     }
     void readState()
     {
-	target_.ptrace(PT_GETREGS, lwpid_, cast(char*) &regs_, 0);
-	state_.setGRs(cast(ubyte*) &regs_);
+	target_.ptrace(PT_GETREGS, lwpid_, cast(char*) regs_.ptr, 0);
+	state_.setGRs(regs_.ptr);
+	grGen_ = state_.grGen;
 	try {
 	    uint32_t tp;
 	    target_.ptrace(PT_GETGSBASE, lwpid_, cast(char*) &tp, 0);
@@ -394,25 +394,11 @@ private:
     }
     void writeState()
     {
-	state_.getGRs(cast(ubyte*) &regs_);
-	//writefln("write thread %d pc as %#x, eax as %#x", id, regs_.r_eip, regs_.r_eax);
-	target_.ptrace(PT_SETREGS, lwpid_, cast(char*) &regs_, 0);
-    }
-    void dumpState()
-    {
-	writefln(" fs:%08x  es:%08x  ds: %08x edi:%08x",
-		 regs_.r_fs, regs_.r_es, regs_.r_ds, regs_.r_edi);
-	writefln("esi:%08x ebp:%08x isp: %08x ebx:%08x",
-		 regs_.r_esi, regs_.r_ebp, regs_.r_isp, regs_.r_ebx);
-	writefln("edx:%08x ecx:%08x eax: %08x trapno:%08x",
-		 regs_.r_edx, regs_.r_ecx, regs_.r_eax, regs_.r_trapno);
-	writefln("err:%08x eip:%08x  cs: %08x eflags:%08x",
-		 regs_.r_err, regs_.r_eip, regs_.r_cs, regs_.r_eflags);
-	writefln("esp:%08x  ss:%08x  gs: %08x",
-		 regs_.r_esp, regs_.r_ss, regs_.r_gs);
-	for (int i = 0; i < 4; i++) {
-	    ubyte[] s = target_.readMemory(regs_.r_esp + 4 * i, 4);
-	    writef("%x ", s[0] + (s[1] << 8) + (s[2] << 16) + (s[3] << 24));
+	if (grGen_ != state.grGen) {
+	    state_.getGRs(regs_.ptr);
+	    //writefln("write thread %d pc as %#x, eax as %#x", id, regs_.r_eip, regs_.r_eax);
+	    target_.ptrace(PT_SETREGS, lwpid_, cast(char*) regs_.ptr, 0);
+	    grGen_ = state.grGen;
 	}
     }
 
@@ -422,7 +408,8 @@ private:
     uint id_;
     lwpid_t lwpid_;
     MachineState state_;
-    reg regs_;
+    ubyte[] regs_;
+    uint grGen_;
 }
 
 string signame(int sig)

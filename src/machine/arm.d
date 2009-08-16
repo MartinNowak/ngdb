@@ -120,8 +120,19 @@ class ArmState: MachineState
 	    return base + offset;
 	}
 
+	size_t gregsSize()
+	{
+	    return 4 * 16;
+	}
+
+	uint grGen()
+	{
+	    return grGen_;
+	}
+
 	void setGRs(ubyte* p)
 	{
+	    grGen_++;
 	}
 
 	void getGRs(ubyte* p)
@@ -131,6 +142,7 @@ class ArmState: MachineState
 	void setGR(uint gregno, ulong val)
 	{
 	    gregs_[gregno] = val;
+	    grGen_++;
 	}
 
 	ulong getGR(uint gregno)
@@ -150,6 +162,7 @@ class ArmState: MachineState
 	{
 	    assert(v.length == 4);
 	    (cast(ubyte*) &gregs_[gregno])[0..4] = v[0..4];
+	    grGen_++;
 	}
 
 	size_t grWidth(int greg)
@@ -297,5 +310,6 @@ private:
     }
     Target	target_;
     uint32_t	gregs_[ArmReg.GR_COUNT];
+    uint	grGen_ = 1;
     uint32_t	tp_;
 }
