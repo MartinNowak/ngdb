@@ -391,9 +391,18 @@ class X86State: MachineState
 		v.length = bytes;
 		v[] = (cast(ubyte*) &gregs_[regno])[0..bytes];
 	    } else if (regno >= 11 && regno <= 18) {
+		ubyte* reg = fpregs_.xmm_acc[regno-11].ptr;
 		assert(bytes <= 10);
 		v.length = bytes;
-		v[] = (cast(ubyte*) &fpregs_.xmm_acc[regno-11])[0..bytes];
+		switch (v.length) {
+		case 4:
+		case 8:
+		    auto f = readFloat(reg[0..10]);
+		    writeFloat(f, v);
+		    break;
+		default:
+		    v[] = reg[0..bytes];
+		}
 	    } else if (regno >= 21 && regno <= 28) {
 		assert(bytes <= 16);
 		v.length = bytes;
@@ -416,17 +425,26 @@ class X86State: MachineState
 		(cast(ubyte*) &gregs_[regno])[0..v.length] = v[];
 		grGen_++;
 	    } else if (regno >= 11 && regno <= 18) {
+		ubyte* reg = fpregs_.xmm_acc[regno-11].ptr;
 		assert(v.length <= 10);
-		(cast(ubyte*) &fpregs_.xmm_acc[regno-11])[0..v.length] = v[];
-		grGen_++;
+		switch (v.length) {
+		case 4:
+		case 8:
+		    auto f = readFloat(v);
+		    writeFloat(f, reg[0..10]);
+		    break;
+		default:
+		    reg[0..v.length] = v[];
+		}
+		frGen_++;
 	    } else if (regno >= 21 && regno <= 28) {
 		assert(v.length <= 16);
 		(cast(ubyte*) &fpregs_.xmm_reg[regno-21])[0..v.length] = v[];
-		grGen_++;
+		frGen_++;
 	    } else if (regno >= 29 && regno <= 36) {
 		assert(v.length <= 8);
 		(cast(ubyte*) &fpregs_.xmm_acc[regno-29])[0..v.length] = v[];
-		grGen_++;
+		frGen_++;
 	    } else {
 		throw new TargetException(
 		    format("Unsupported register index %d", regno));
