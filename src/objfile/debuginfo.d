@@ -1106,6 +1106,11 @@ interface Location
      * of the compound object located at base.
      */
     Location fieldLocation(Location base, MachineState state);
+
+    /**
+     * Return a copy of this location.
+     */
+    Location dup();
 }
 
 class RegisterLocation: Location
@@ -1161,6 +1166,11 @@ class RegisterLocation: Location
 	Location fieldLocation(Location baseLoc, MachineState state)
 	{
 	    return null;
+	}
+
+	Location dup()
+	{
+	    return new RegisterLocation(regno_, length_);
 	}
     }
 
@@ -1222,6 +1232,11 @@ class MemoryLocation: Location
 	{
 	    return null;
 	}
+
+	Location dup()
+	{
+	    return new MemoryLocation(address_, length_);
+	}
     }
 
     ulong address_;
@@ -1282,6 +1297,11 @@ class TLSLocation: Location
 	Location fieldLocation(Location baseLoc, MachineState state)
 	{
 	    return null;
+	}
+
+	Location dup()
+	{
+	    return new TLSLocation(index_, offset_, length_);
 	}
     }
 
@@ -1356,6 +1376,14 @@ class CompositeLocation: Location
 	{
 	    return null;
 	}
+
+	Location dup()
+	{
+	    auto res = new CompositeLocation;
+	    foreach (p; pieces_)
+		res.addPiece(p.loc, p.len);
+	    return res;
+	}
     }
 private:
     struct piece
@@ -1414,6 +1442,11 @@ class NoLocation: Location
 	Location fieldLocation(Location baseLoc, MachineState state)
 	{
 	    return null;
+	}
+
+	Location dup()
+	{
+	    return this;
 	}
     }
 }
@@ -1474,7 +1507,18 @@ class FirstFieldLocation: Location
 
 	Location fieldLocation(Location baseLoc, MachineState state)
 	{
-	    return baseLoc;
+	    if (baseLoc.length == length_) {
+		return baseLoc;
+	    } else {
+		auto res = baseLoc.dup;
+		res.length = length_;
+		return res;
+	    }
+	}
+
+	Location dup()
+	{
+	    return this;
 	}
     }
 
@@ -1535,6 +1579,11 @@ class ConstantLocation: Location
 	Location fieldLocation(Location baseLoc, MachineState state)
 	{
 	    return null;
+	}
+
+	Location dup()
+	{
+	    return this;
 	}
     }
 

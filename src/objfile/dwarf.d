@@ -1636,6 +1636,11 @@ class DwarfLocation: Location
 	    evalExpr(cu_, state, stack);
 	    return new MemoryLocation(stack.pop, length);
 	}
+
+	Location dup()
+	{
+	    return new DwarfLocation(cu_, av_, length_);
+	}
     }
 
     bool evalLocation(MachineState state, out Location loc)
