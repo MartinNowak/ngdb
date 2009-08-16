@@ -398,6 +398,10 @@ class X86State: MachineState
 		assert(bytes <= 16);
 		v.length = bytes;
 		v[] = (cast(ubyte*) &fpregs_.xmm_reg[regno-21])[0..bytes];
+	    } else if (regno >= 29 && regno <= 36) {
+		assert(bytes <= 8);
+		v.length = bytes;
+		v[] = (cast(ubyte*) &fpregs_.xmm_acc[regno-29])[0..bytes];
 	    } else {
 		throw new TargetException(
 		    format("Unsupported register index %d", regno));
@@ -418,6 +422,10 @@ class X86State: MachineState
 	    } else if (regno >= 21 && regno <= 28) {
 		assert(v.length <= 16);
 		(cast(ubyte*) &fpregs_.xmm_reg[regno-21])[0..v.length] = v[];
+		grGen_++;
+	    } else if (regno >= 29 && regno <= 36) {
+		assert(v.length <= 8);
+		(cast(ubyte*) &fpregs_.xmm_acc[regno-29])[0..v.length] = v[];
 		grGen_++;
 	    } else {
 		throw new TargetException(
