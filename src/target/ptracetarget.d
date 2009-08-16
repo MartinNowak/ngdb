@@ -344,6 +344,7 @@ class PtraceThread: TargetThread
 	lwpid_ = lwpid;
 	state_ = target_.modules_[0].getState(target_);
 	regs_.length = state_.gregsSize;
+	fpregs_.length = state_.fpregsSize;
     }
     override
     {
@@ -381,6 +382,9 @@ private:
 	target_.ptrace(PT_GETREGS, lwpid_, cast(char*) regs_.ptr, 0);
 	state_.setGRs(regs_.ptr);
 	grGen_ = state_.grGen;
+	target_.ptrace(PT_GETFPREGS, lwpid_, cast(char*) fpregs_.ptr, 0);
+	state_.setFRs(fpregs_.ptr);
+	frGen_ = state_.frGen;
 	try {
 	    uint32_t tp;
 	    target_.ptrace(PT_GETGSBASE, lwpid_, cast(char*) &tp, 0);
@@ -400,6 +404,11 @@ private:
 	    target_.ptrace(PT_SETREGS, lwpid_, cast(char*) regs_.ptr, 0);
 	    grGen_ = state.grGen;
 	}
+	if (frGen_ != state.frGen) {
+	    state_.getFRs(fpregs_.ptr);
+	    target_.ptrace(PT_SETFPREGS, lwpid_, cast(char*) fpregs_.ptr, 0);
+	    frGen_ = state.frGen;
+	}
     }
 
     static int pcRegno_ = X86Reg.EIP;
@@ -410,6 +419,8 @@ private:
     MachineState state_;
     ubyte[] regs_;
     uint grGen_;
+    ubyte[] fpregs_;
+    uint frGen_;
 }
 
 string signame(int sig)

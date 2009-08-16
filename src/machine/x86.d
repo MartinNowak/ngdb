@@ -249,6 +249,142 @@ class X86State: MachineState
 	    return newState;
 	}
 
+	void dumpFloat()
+	{
+	    uint control = fpregs_.fpr_env[0];
+	    uint status = fpregs_.fpr_env[1];
+	    uint tag = fpregs_.fpr_env[2];
+	    uint top = (status >> 11) & 7;
+	    static string tagNames[] = [
+		"Valid",
+		"Zero",
+		"Special",
+		"Empty"];
+	    static string precisionNames[] = [
+		"Single Precision (24 bits),",
+		"Reserved",
+		"Double Precision (53 bits),",
+		"Double Extended Precision (64 bits),",
+		];
+	    static string roundingNames[] = [
+		"Round to nearest",
+		"Round down",
+		"Roumnd up",
+		"Round toward zero",
+		];
+
+	    /*
+	     * Regenerate the tag word from its abridged version
+	     */
+	    ushort newtag = 0;
+	    for (auto i = 0; i < 8; i++) {
+		if (tag & (1 << i)) {
+		    auto fi = (i - top) & 7;
+		    auto exp = readInteger(fpregs_.fpr_acc[fi][8..10]);
+		    auto frac = readInteger(fpregs_.fpr_acc[fi][0..8]);
+		    if ((exp & 0x7fff) == 0x7fff)
+			newtag |= 2 << (2*i); // special
+		    else if (exp == 0 && frac == 0)
+			newtag |= 1 << (2*i); // zero
+		    else
+			newtag |= 0 << (2*i); // valid
+		} else {
+		    newtag |= 3 << (2*i);
+		}
+	    }
+	    tag = newtag;
+
+	    for (auto i = 7; i >= 0; i--) {
+		auto fi = (i - top) & 7;
+		writef("%sR%d: %-7s 0x%04x%016x ",
+		       i == top ? "=>" : "  ",
+		       i,
+		       tagNames[(tag >> 2*i) & 3],
+		       readInteger(fpregs_.fpr_acc[fi][8..10]),
+		       readInteger(fpregs_.fpr_acc[fi][0..8]));
+		switch ((tag >> (2*i)) & 3) {
+		case 0:
+		    writefln("%g", readFloat(fpregs_.fpr_acc[fi]));
+		    break;
+		case 1:
+		    writefln("+0");
+		    break;
+		case 2:
+		case 3:
+		    writefln("");
+		}
+	    }
+	    writefln("");
+	    writefln("%-22s0x%04x", "Status Word:", status);
+	    writefln("%-22s  TOP: %d", "", top);
+	    writef("%-22s0x%04x   ", "Control Word:", control);
+	    if (control & 1) writef("IM ");
+	    if (control & 2) writef("DM ");
+	    if (control & 4) writef("ZM ");
+	    if (control & 8) writef("OM ");
+	    if (control & 16) writef("UM ");
+	    if (control & 32) writef("PM ");
+	    if (control & (1<<12)) writef("X");
+	    writefln("");
+	    writefln("%-22s  PC: %s", "",
+		     precisionNames[(control >> 8) & 3]);
+	    writefln("%-22s  RC: %s", "",
+		     roundingNames[(control >> 10) & 3]);
+	    writefln("%-22s0x%04x", "Tag Word:", tag);
+	    writefln("%-22s0x%02x:0x%08x", "Instruction Pointer:",
+		   fpregs_.fpr_env[4] & 0xffff, fpregs_.fpr_env[3]);
+	    writefln("%-22s0x%02x:0x%08x", "Operand Pointer:",
+		   fpregs_.fpr_env[6] & 0xffff, fpregs_.fpr_env[5]);
+	    writefln("%-22s0x%04x", "Opcode:", fpregs_.fpr_env[4] >> 16);
+	}
+
+	size_t fpregsSize()
+	{
+	    return fpreg.sizeof;
+	}
+
+	uint frGen()
+	{
+	    return frGen_;
+	}
+
+	void setFRs(ubyte* regs)
+	{
+	    fpregs_ = *cast(fpreg*) regs;
+	}
+
+	void getFRs(ubyte* regs)
+	{
+	    *cast(fpreg*) regs = fpregs_;
+	}
+
+	void setFR(uint fpregno, real val)
+	{
+	    writeFloat(val, fpregs_.fpr_acc[fpregno]);
+	    frGen_++;
+	}
+
+	real getFR(uint fpregno)
+	{
+	    return readFloat(fpregs_.fpr_acc[fpregno]);
+	}
+
+	ubyte[] readFR(uint fpregno)
+	{
+	    return fpregs_.fpr_acc[fpregno];
+	}
+
+	void writeFR(uint fpregno, ubyte[] val)
+	{
+	    fpregs_.fpr_acc[fpregno][] = val[];
+	    frGen_++;
+	}
+
+	size_t frWidth(int fpregno)
+	{
+	    return 10;
+	}
+
 	uint pointerWidth()
 	{
 	    return 4;
@@ -440,6 +576,8 @@ private:
     uint32_t	gregs_[X86Reg.GR_COUNT];
     uint	grGen_ = 1;
     uint32_t	tp_;
+    fpreg	fpregs_;
+    uint	frGen_ = 1;
 }
 
 private:
@@ -512,9 +650,9 @@ struct fpreg {
 	 * simplified struct.  This may be too much detail.  Perhaps
 	 * an array of unsigned longs is best.
 	 */
-	ulong	fpr_env[7];
+	uint	fpr_env[7];
 	ubyte	fpr_acc[8][10];
-	ulong	fpr_ex_sw;
+	uint	fpr_ex_sw;
 	ubyte	fpr_pad[64];
 };
 
@@ -524,7 +662,7 @@ struct xmmreg {
 	 * simplified struct.  This may be too much detail.  Perhaps
 	 * an array of ulongs is best.
 	 */
-	ulong	xmm_env[8];
+	uint	xmm_env[8];
 	ubyte	xmm_acc[8][16];
 	ubyte	xmm_reg[8][16];
 	ubyte	xmm_pad[224];

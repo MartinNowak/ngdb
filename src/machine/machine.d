@@ -116,6 +116,58 @@ interface MachineState: Scope
     size_t grCount();
 
     /**
+     * Print a representation of the floating point state.
+     */
+    void dumpFloat();
+
+    /**
+     * Return the size of a structure which contains all the floating
+     * point registers. Typically used with ptrace(PT_GETFPREGS);
+     */
+    size_t fpregsSize();
+
+    /**
+     * Return a value which increments each time the general register
+     * set changes.
+     */
+    uint frGen();
+
+    /**
+     * Set the values of all the general registers.
+     */
+    void setFRs(ubyte* regs);
+
+    /**
+     * Get the values of all the general registers.
+     */
+    void getFRs(ubyte* regs);
+
+    /**
+     * Set a floating point register by register number.
+     */
+    void setFR(uint fpregno, real val);
+
+    /**
+     * Get a general register by register number.
+     */
+    real getFR(uint fpregno);
+
+    /**
+     * Read raw register bytes in target byte order
+     */
+    ubyte[] readFR(uint fpregno);
+
+    /**
+     * Write raw register bytes in target byte order
+     */
+    void writeFR(uint fpregno, ubyte[]);
+
+    /**
+     * Return the width in bytes of a general register
+     */
+    size_t frWidth(int fpregno);
+
+    /**
      * Return the width of a pointer in bytes
      */
     uint pointerWidth();

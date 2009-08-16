@@ -188,6 +188,52 @@ class ArmState: MachineState
 	    return newState;
 	}
 
+	void dumpFloat()
+	{
+	}
+
+	size_t fpregsSize()
+	{
+	    return 0;
+	}
+
+	uint frGen()
+	{
+	    return 0;
+	}
+
+	void setFRs(ubyte* regs)
+	{
+	}
+
+	void getFRs(ubyte* regs)
+	{
+	}
+
+	void setFR(uint fpregno, real val)
+	{
+	}
+
+	real getFR(uint fpregno)
+	{
+	    return 0;
+	}
+
+	ubyte[] readFR(uint fpregno)
+	{
+	    return null;
+	}
+
+	void writeFR(uint fpregno, ubyte[])
+	{
+	    return 0;
+	}
+
+	size_t frWidth(int fpregno)
+	{
+	    return 8;
+	}
+
 	uint pointerWidth()
 	{
 	    return 4;

@@ -1077,7 +1077,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 			    debug (step)
 				if (frameLoc.address(s) < frame)
 				    writefln("stopped at inner frame %#x - continuing", frameLoc.address(s));
-			} while (frameLoc.address(s) != frame);
+			} while (target_ && frameLoc.address(s) != frame);
 			resetStep = true;
 		    } else {
 			clearStepBreakpoints();
@@ -2226,6 +2226,36 @@ class InfoRegistersCommand: Command
 	    ulong tpc = pc;
 	    db.pagefln("%s:\t%s", db.lookupAddress(pc),
 		     s.disassemble(tpc, &db.lookupAddress));
+	}
+    }
+}
+
+class InfoFloatCommand: Command
+{
+    static this()
+    {
+	Debugger.registerInfoCommand(new InfoFloatCommand);
+    }
+
+    override {
+	string name()
+	{
+	    return "float";
+	}
+
+	string description()
+	{
+	    return "Display floating point state";
+	}
+
+	void run(Debugger db, string[] args)
+	{
+	    auto f = db.currentFrame;
+	    if (!f) {
+		db.pagefln("No current stack frame");
+		return;
+	    }
+	    f.state_.dumpFloat;
 	}
     }
 }
