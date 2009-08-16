@@ -2626,9 +2626,12 @@ class DIE
 		debugItem_ = lang.charType(name, false, sz);
 		break;
 
+	    case DW_ATE_float:
+		debugItem_ = lang.floatType(name, sz);
+		break;
+
 	    case DW_ATE_address:
 	    case DW_ATE_complex_float:
-	    case DW_ATE_float:
 	    case DW_ATE_imaginary_float:
 	    case DW_ATE_packed_decimal:
 	    case DW_ATE_numeric_string:

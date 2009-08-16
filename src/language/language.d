@@ -76,6 +76,16 @@ class Language
 	booleanTypes_[ty] = ty;
 	return ty;
     }
+    Type floatType(string name, uint byteWidth)
+    {
+	scope FloatType t = new FloatType(this, name, byteWidth);
+	auto p = t in floatTypes_;
+	if (p)
+	    return *p;
+	auto ty = new FloatType(this, name, byteWidth);
+	floatTypes_[ty] = ty;
+	return ty;
+    }
     abstract bool isStringType(Type type);
 
     abstract string renderEnumType(string baseType);
@@ -96,6 +106,7 @@ private:
     Type integerTypes_[Type];
     Type charTypes_[Type];
     Type booleanTypes_[Type];
+    Type floatTypes_[Type];
 }
 
 class CLikeLanguage: Language

@@ -119,6 +119,16 @@ interface MachineState: Scope
     void writeInteger(ulong val, ubyte[] bytes);
 
     /**
+     * Convert a floating point value in machine-native format to host format.
+     */
+    real readFloat(ubyte[] bytes);
+
+    /**
+     * Convert a floating point value in host format to machine-native format.
+     */
+    void writeFloat(real val, ubyte[] bytes);
+
+    /**
      * Read from the machine's memory.
      */
     ubyte[] readMemory(ulong address, size_t bytes);

@@ -200,6 +200,26 @@ class ArmState: MachineState
 	    }
 	}
 
+	real readFloat(ubyte[] bytes)
+	{
+	    float32 f32;
+	    float64 f64;
+	    switch (bytes.length) {
+	    case 4:
+		f32.i = readInteger(bytes);
+		return f32.f;
+	    case 8:
+		f64.i = readInteger(bytes);
+		return f64.f;
+	    default:
+		assert(false);
+	    }
+	}
+
+	void writeFloat(real val, ubyte[] bytes)
+	{
+	}
+
 	ubyte[] readMemory(ulong address, size_t bytes)
 	{
 	    return target_.readMemory(address, bytes);
@@ -271,6 +291,14 @@ class ArmState: MachineState
     }
 
 private:
+    union float32 {
+	uint i;
+	float f;
+    }
+    union float64 {
+	ulong i;
+	double f;
+    }
     Target	target_;
     uint32_t	gregs_[ArmReg.GR_COUNT];
     uint32_t	tp_;

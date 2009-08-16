@@ -35,6 +35,12 @@ import target.target;
 import std.stdio;
 import std.stdint;
 
+version (LittleEndian)
+{
+    static if (real.sizeof == 10 || real.sizeof == 12)
+	version = nativeFloat80;
+}
+
 /**
  * Register numbers are chosen to match Dwarf debug info.
  */
@@ -255,6 +261,58 @@ class X86State: MachineState
 	    }
 	}
 
+	real readFloat(ubyte[] bytes)
+	{
+	    float32 f32;
+	    float64 f64;
+	    switch (bytes.length) {
+	    case 4:
+		f32.i = readInteger(bytes);
+		return f32.f;
+	    case 8:
+		f64.i = readInteger(bytes);
+		return f64.f;
+	    case 10:
+	    case 12:
+		version (nativeFloat80) {
+		    return *cast(real*) &bytes[0];
+		} else {
+		    ulong frac = readInteger(bytes[0..8]);
+		    ushort exp = readInteger(bytes[8..10]);
+		    assert(false);
+		}
+		break;
+	    default:
+		assert(false);
+	    }
+	}
+
+	void writeFloat(real val, ubyte[] bytes)
+	{
+	    float32 f32;
+	    float64 f64;
+	    switch (bytes.length) {
+	    case 4:
+		f32.f = val;
+		writeInteger(f32.i, bytes);
+		break;
+	    case 8:
+		f64.f = val;
+		writeInteger(f64.i, bytes);
+		break;
+	    case 10:
+	    case 12:
+		version (nativeFloat80) {
+		    *cast(real*) &bytes[0] = val;
+		} else {
+		    assert(false);
+		}
+		break;
+	    default:
+		assert(false);
+	    }
+	}
+
 	ubyte[] readMemory(ulong address, size_t bytes)
 	{
 	    return target_.readMemory(address, bytes);
@@ -324,6 +382,14 @@ class X86State: MachineState
     }
 
 private:
+    union float32 {
+	uint i;
+	float f;
+    }
+    union float64 {
+	ulong i;
+	double f;
+    }
     struct regmap {
 	int gregno;		// machine gregno
 	size_t regoff;		// offset struct reg

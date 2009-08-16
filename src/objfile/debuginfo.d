@@ -74,6 +74,7 @@ interface Type: DebugItem
     Type modifierType(string modifier);
     bool isCharType();
     bool isIntegerType();
+    bool isNumericType();
 }
 
 class EvalException: Exception
@@ -132,8 +133,18 @@ class TypeBase: Type
 	return (modifierTypes_[modifier] =
 		new ModifierType(lang_, modifier, this));
     }
-    abstract bool isCharType();
-    abstract bool isIntegerType();
+    bool isCharType()
+    {
+	return false;
+    }
+    bool isIntegerType()
+    {
+	return false;
+    }
+    bool isNumericType()
+    {
+	return false;
+    }
 
 private:
     Language lang_;
@@ -298,6 +309,11 @@ class IntegerType: TypeBase
 	{
 	    return true;
 	}
+
+	bool isNumericType()
+	{
+	    return true;
+	}
     }
 
 private:
@@ -407,6 +423,106 @@ class BooleanType: TypeBase
 	}
 
 	bool isIntegerType()
+	{
+	    return true;
+	}
+    }
+
+private:
+    string name_;
+    uint byteWidth_;
+}
+
+class FloatType: TypeBase
+{
+    this(Language lang, string name, uint byteWidth)
+    {
+	super(lang);
+	name_ = name;
+	byteWidth_ = byteWidth;
+    }
+
+    override
+    {
+	hash_t toHash()
+	{
+	    return typeid(string).getHash(cast(void*) &name_)
+		+ byteWidth_ * 31;
+	}
+
+	int opEquals(Object o)
+	{
+	    FloatType ty = cast(FloatType) o;
+	    if (!ty)
+		return 0;
+	    return name_ == ty.name_
+		&& byteWidth_ == ty.byteWidth_;
+	}
+
+	int opCmp(Object o)
+	{
+	    FloatType ty = cast(FloatType) o;
+	    if (!ty)
+		return 1;
+	    if (name_ < ty.name_)
+		return -1;
+	    if (name_ > ty.name_)
+		return 1;
+	    if (byteWidth_ < ty.byteWidth_)
+		return -1;
+	    if (byteWidth_ > ty.byteWidth_)
+		return 1;
+	    return 0;
+	}
+
+	string toString()
+	{
+	    return name_;
+	}
+
+	bool coerce(MachineState state, ref Value val)
+	{
+	    if (!val.type.isNumericType)
+		return false;
+
+	    if (val.type.isIntegerType) {
+		ulong i = state.readInteger(val.loc.readValue(state));
+		ubyte[] v;
+		v.length = byteWidth_;
+		state.writeFloat(cast(real) i, v);
+		val = new Value(new ConstantLocation(v), this);
+	    } else {
+		real f = state.readFloat(val.loc.readValue(state));
+		ubyte[] v;
+		v.length = byteWidth_;
+		state.writeFloat(f, v);
+		val = new Value(new ConstantLocation(v), this);
+	    }
+	    return true;
+	}
+
+	string valueToString(string fmt, MachineState state, Location loc)
+	{
+	    real val = state.readFloat(loc.readValue(state));
+	    return format("%f", val);
+	}
+
+	uint byteWidth()
+	{
+	    return byteWidth_;
+	}
+
+	bool isCharType()
+	{
+	    return false;
+	}
+
+	bool isIntegerType()
+	{
+	    return false;
+	}
+
+	bool isNumericType()
 	{
 	    return true;
 	}
