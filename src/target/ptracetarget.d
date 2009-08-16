@@ -125,6 +125,7 @@ class PtraceModule: TargetModule
 	    }
 
 	    if (target.linkmapOffset_ && target.tlsindexOffset_
+		&& target.modules_.length > 0
 		&& this !is target.modules_[0]) {
 		void findTlsindex(string name, ulong lm, ulong addr)
 		{
