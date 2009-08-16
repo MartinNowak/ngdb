@@ -73,11 +73,6 @@ class PtraceModule: TargetModule
 {
     this(char[] filename, ulong start, ulong end)
     {
-	char[] buf;
-	buf.length = 1024;
-	char* p = realpath(toStringz(filename), &buf[0]);
-	if (p)
-	    filename = .toString(p);
 	filename_ = filename;
 	start_ = start;
 	end_ = end;
@@ -745,6 +740,16 @@ private:
 	}
     }
 
+    string realpath(string filename)
+    {
+	char[] buf;
+	buf.length = 1024;
+	char* p = .realpath(toStringz(filename), &buf[0]);
+	if (p)
+	    return .toString(p);
+	return filename;
+    }
+
     void getModules()
     {
 	string maps = readMaps();
@@ -765,6 +770,7 @@ private:
 		string name = words[12];
 		if (name == "-")
 		    name = execname_;
+		name = realpath(name);
 		ulong start = strtoull(toStringz(words[0]), null, 0);
 		ulong end = strtoull(toStringz(words[1]), null, 0);
 		if (lastMod && lastMod.filename_ == name
