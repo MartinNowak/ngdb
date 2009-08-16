@@ -30,6 +30,7 @@ import objfile.debuginfo;
 import language.language;
 private import machine.x86dis;
 import target.target;
+import sys.ptrace;
 
 import std.math;
 import std.stdio;
@@ -251,9 +252,9 @@ class X86State: MachineState
 
 	void dumpFloat()
 	{
-	    uint control = fpregs_.fpr_env[0];
-	    uint status = fpregs_.fpr_env[1];
-	    uint tag = fpregs_.fpr_env[2];
+	    uint control = fpregs_.xmm_env[0] & 0xffff;
+	    uint status = fpregs_.xmm_env[0] >> 16;
+	    uint tag = fpregs_.xmm_env[1] & 0xffff;
 	    uint top = (status >> 11) & 7;
 	    static string tagNames[] = [
 		"Valid",
@@ -280,8 +281,8 @@ class X86State: MachineState
 	    for (auto i = 0; i < 8; i++) {
 		if (tag & (1 << i)) {
 		    auto fi = (i - top) & 7;
-		    auto exp = readInteger(fpregs_.fpr_acc[fi][8..10]);
-		    auto frac = readInteger(fpregs_.fpr_acc[fi][0..8]);
+		    auto exp = readInteger(fpregs_.xmm_acc[fi][8..10]);
+		    auto frac = readInteger(fpregs_.xmm_acc[fi][0..8]);
 		    if ((exp & 0x7fff) == 0x7fff)
 			newtag |= 2 << (2*i); // special
 		    else if (exp == 0 && frac == 0)
@@ -300,11 +301,11 @@ class X86State: MachineState
 		       i == top ? "=>" : "  ",
 		       i,
 		       tagNames[(tag >> 2*i) & 3],
-		       readInteger(fpregs_.fpr_acc[fi][8..10]),
-		       readInteger(fpregs_.fpr_acc[fi][0..8]));
+		       readInteger(fpregs_.xmm_acc[fi][8..10]),
+		       readInteger(fpregs_.xmm_acc[fi][0..8]));
 		switch ((tag >> (2*i)) & 3) {
 		case 0:
-		    writefln("%g", readFloat(fpregs_.fpr_acc[fi]));
+		    writefln("%g", readFloat(fpregs_.xmm_acc[fi]));
 		    break;
 		case 1:
 		    writefln("+0");
@@ -332,15 +333,26 @@ class X86State: MachineState
 		     roundingNames[(control >> 10) & 3]);
 	    writefln("%-22s0x%04x", "Tag Word:", tag);
 	    writefln("%-22s0x%02x:0x%08x", "Instruction Pointer:",
-		   fpregs_.fpr_env[4] & 0xffff, fpregs_.fpr_env[3]);
+		   fpregs_.xmm_env[3] & 0xffff, fpregs_.xmm_env[2]);
 	    writefln("%-22s0x%02x:0x%08x", "Operand Pointer:",
-		   fpregs_.fpr_env[6] & 0xffff, fpregs_.fpr_env[5]);
-	    writefln("%-22s0x%04x", "Opcode:", fpregs_.fpr_env[4] >> 16);
+		   fpregs_.xmm_env[5] & 0xffff, fpregs_.xmm_env[4]);
+	    writefln("%-22s0x%04x", "Opcode:",
+		     0xd800 + (fpregs_.xmm_env[1] >> 16));
 	}
 
 	size_t fpregsSize()
 	{
-	    return fpreg.sizeof;
+	    return xmmreg.sizeof;
+	}
+
+	int ptraceGetFP()
+	{
+	    return PT_GETXMMREGS;
+	}
+
+	int ptraceSetFP()
+	{
+	    return PT_SETXMMREGS;
 	}
 
 	uint frGen()
@@ -350,33 +362,33 @@ class X86State: MachineState
 
 	void setFRs(ubyte* regs)
 	{
-	    fpregs_ = *cast(fpreg*) regs;
+	    fpregs_ = *cast(xmmreg*) regs;
 	}
 
 	void getFRs(ubyte* regs)
 	{
-	    *cast(fpreg*) regs = fpregs_;
+	    *cast(xmmreg*) regs = fpregs_;
 	}
 
 	void setFR(uint fpregno, real val)
 	{
-	    writeFloat(val, fpregs_.fpr_acc[fpregno]);
+	    writeFloat(val, fpregs_.xmm_acc[fpregno]);
 	    frGen_++;
 	}
 
 	real getFR(uint fpregno)
 	{
-	    return readFloat(fpregs_.fpr_acc[fpregno]);
+	    return readFloat(fpregs_.xmm_acc[fpregno]);
 	}
 
 	ubyte[] readFR(uint fpregno)
 	{
-	    return fpregs_.fpr_acc[fpregno];
+	    return fpregs_.xmm_acc[fpregno];
 	}
 
 	void writeFR(uint fpregno, ubyte[] val)
 	{
-	    fpregs_.fpr_acc[fpregno][] = val[];
+	    fpregs_.xmm_acc[fpregno][] = val[];
 	    frGen_++;
 	}
 
@@ -419,6 +431,7 @@ class X86State: MachineState
 		return f64.f;
 	    case 10:
 	    case 12:
+	    case 16:
 		version (nativeFloat80) {
 		    return *cast(real*) &bytes[0];
 		} else {
@@ -453,6 +466,7 @@ class X86State: MachineState
 		break;
 	    case 10:
 	    case 12:
+	    case 16:
 		version (nativeFloat80) {
 		    int sign = 0;
 		    if (val < 0) {
@@ -576,7 +590,7 @@ private:
     uint32_t	gregs_[X86Reg.GR_COUNT];
     uint	grGen_ = 1;
     uint32_t	tp_;
-    fpreg	fpregs_;
+    xmmreg	fpregs_;
     uint	frGen_ = 1;
 }
 

@@ -30,6 +30,7 @@ import objfile.debuginfo;
 import language.language;
 import target.target;
 private import machine.armdis;
+import sys.ptrace;
 
 import std.stdio;
 import std.stdint;
@@ -195,6 +196,16 @@ class ArmState: MachineState
 	size_t fpregsSize()
 	{
 	    return 0;
+	}
+
+	int ptraceGetFP()
+	{
+	    return PT_GETFPREGS;
+	}
+
+	int ptraceSetFP()
+	{
+	    return PT_SETFPREGS;
 	}
 
 	uint frGen()

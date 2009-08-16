@@ -127,6 +127,16 @@ interface MachineState: Scope
     size_t fpregsSize();
 
     /**
+     * Ptrace command to get the floating point state
+     */
+    int ptraceGetFP();
+
+    /**
+     * Ptrace command to set the floating point state
+     */
+    int ptraceSetFP();
+
+    /**
      * Return a value which increments each time the general register
      * set changes.
      */

@@ -382,7 +382,7 @@ private:
 	target_.ptrace(PT_GETREGS, lwpid_, cast(char*) regs_.ptr, 0);
 	state_.setGRs(regs_.ptr);
 	grGen_ = state_.grGen;
-	target_.ptrace(PT_GETFPREGS, lwpid_, cast(char*) fpregs_.ptr, 0);
+	target_.ptrace(state_.ptraceGetFP, lwpid_, cast(char*) fpregs_.ptr, 0);
 	state_.setFRs(fpregs_.ptr);
 	frGen_ = state_.frGen;
 	try {
@@ -406,7 +406,7 @@ private:
 	}
 	if (frGen_ != state.frGen) {
 	    state_.getFRs(fpregs_.ptr);
-	    target_.ptrace(PT_SETFPREGS, lwpid_, cast(char*) fpregs_.ptr, 0);
+	    target_.ptrace(state.ptraceSetFP, lwpid_, cast(char*) fpregs_.ptr, 0);
 	    frGen_ = state.frGen;
 	}
     }
