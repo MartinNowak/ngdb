@@ -7,6 +7,7 @@ tests[]=
 	thread
 	scope
 	nested
+	float
 
 .DEFAULT: $(tests)
 
@@ -29,3 +30,4 @@ CTest(segfault)
 CTest(thread)
 CTest(scope)
 CTest(nested)
+CTest(float)
