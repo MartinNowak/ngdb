@@ -32,6 +32,7 @@ private import machine.x86dis;
 import sys.reg;
 import target.target;
 
+import std.math;
 import std.stdio;
 import std.stdint;
 
@@ -243,13 +244,9 @@ class X86State: MachineState
 
 	ulong readInteger(ubyte[] bytes)
 	{
-	    uint bit = 0;
 	    ulong value = 0;
-
-	    foreach (b; bytes) {
-		value |= b << bit;
-		bit += 8;
-	    }
+	    foreach (b; bytes.reverse)
+		value = (value << 8L) | b;
 	    return value;
 	}
 
@@ -279,7 +276,13 @@ class X86State: MachineState
 		} else {
 		    ulong frac = readInteger(bytes[0..8]);
 		    ushort exp = readInteger(bytes[8..10]);
-		    assert(false);
+		    real sign = 1;
+		    if (exp & 0x8000) {
+			sign = -1;
+			exp &= 0x7fff;
+		    }
+		    return sign * ldexp(cast(real) frac / cast(real) ~0UL,
+					cast(int) exp - 16382);
 		}
 		break;
 	    default:
@@ -303,7 +306,16 @@ class X86State: MachineState
 	    case 10:
 	    case 12:
 		version (nativeFloat80) {
-		    *cast(real*) &bytes[0] = val;
+		    int sign = 0;
+		    if (val < 0) {
+			sign = 0x8000;
+			val = -val;
+		    }
+		    int exp;
+		    ulong frac = cast(ulong)
+			(frexp(val, exp) * cast(real) ~0UL);
+		    writeInteger(frac, bytes[0..8]);
+		    writeInteger(exp + 16382 + sign, bytes[8..10]);
 		} else {
 		    assert(false);
 		}

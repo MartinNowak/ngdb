@@ -73,13 +73,9 @@ class LittleEndian: Endian
 {
     ulong read(ubyte[] bytes)
     {
-	uint bit = 0;
 	ulong value = 0;
-
-	foreach (b; bytes) {
-	    value |= b << bit;
-	    bit += 8;
-	}
+	foreach (b; bytes.reverse)
+	    value = (value << 8) | b;
 	return value;
     }
     ushort read(ushort v)
@@ -144,7 +140,6 @@ class BigEndian: Endian
     ulong read(ubyte[] bytes)
     {
 	ulong value = 0;
-
 	foreach (b; bytes)
 	    value = (value << 8) | b;
 	return value;

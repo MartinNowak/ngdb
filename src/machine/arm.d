@@ -182,13 +182,9 @@ class ArmState: MachineState
 
 	ulong readInteger(ubyte[] bytes)
 	{
-	    uint bit = 0;
 	    ulong value = 0;
-
-	    foreach (b; bytes) {
-		value |= b << bit;
-		bit += 8;
-	    }
+	    foreach (b; bytes.reverse)
+		value = (value << 8L) | b;
 	    return value;
 	}
 
