@@ -4,3 +4,5 @@ hello3
 recursive
 segfault
 thread
+nested
+scope
