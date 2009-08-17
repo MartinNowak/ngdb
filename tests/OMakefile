@@ -1,27 +1,13 @@
-tests[]=
-	hello1
-	hello2
-	hello3
-	recursive
-	segfault
-	thread
-	scope
-	nested
-	float
-	inline
-
-.DEFAULT: $(tests)
-
 ELIBS = thr
 
 CTest(name) =
-	CProgram($(name), $(name))
+	.DEFAULT: $(CProgram $(name), $(name))
 
 CXXTest(name) =
-	CXXProgram($(name), $(name))
+	.DEFAULT: $(CXXProgram $(name), $(name))
 
 DTest(name) =
-	DProgram($(name), $(name))
+	.DEFAULT: $(DProgram $(name), $(name))
 
 CTest(hello1)
 CXXTest(hello2)
