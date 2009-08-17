@@ -40,10 +40,11 @@ import std.stdint;
 import std.stdio;
 import std.string;
 import std.c.stdlib;
-version (DigitalMars)
-import std.c.freebsd.freebsd;
-else
-import std.c.unix.unix;
+version (DigitalMars) {
+    import std.c.freebsd.freebsd;
+    const int ESRCH = 3;
+} else
+    import std.c.unix.unix;
 
 static import std.file;
 
