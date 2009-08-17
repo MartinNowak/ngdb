@@ -297,6 +297,8 @@ class X86State: MachineState
 		    writefln("+0");
 		    break;
 		case 2:
+		    writefln("%g", readFloat(fpregs_.xmm_acc[fi]));
+		    break;
 		case 3:
 		    writefln("");
 		}
