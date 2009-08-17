@@ -946,6 +946,9 @@ class DLanguage: CLikeLanguage
 		    unexpected(tok);
 		auto idtok = cast(IdentifierToken) tok;
 		switch (idtok.value) {
+		case "ptr":
+		   e = new PtrExpr(this, e);
+		   break;
 		case "length":
 		   e = new LengthExpr(this, e);
 		   break;

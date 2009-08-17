@@ -1967,6 +1967,52 @@ class LengthExpr: UnaryExpr
     }
 }
 
+class PtrExpr: UnaryExpr
+{
+    this(Language lang, Expr e)
+    {
+	super(lang, e);
+    }
+
+    override {
+	string toString()
+	{
+	    return expr_.toString() ~ ".ptr";
+	}
+	DebugItem eval(Scope sc, MachineState state)
+	{
+	    Value expr = expr_.eval(sc, state).toValue(state);
+	    ArrayType aTy = cast(ArrayType) expr.type.underlyingType;
+	    DArrayType daTy = cast(DArrayType) expr.type.underlyingType;
+	    ulong minIndex, maxIndex;
+	    auto pw = state.pointerWidth;
+	    if (aTy) {
+		if (!expr.loc.hasAddress(state))
+		    throw new EvalException(
+			"Can't take the address of a value "
+			"which is not in memory");
+		ulong addr = expr.loc.address(state);
+		ubyte[] val;
+		val.length = state.pointerWidth;
+		state.writeInteger(addr, val);
+		return new Value(new ConstantLocation(val),
+				 aTy.baseType.pointerType(pw));
+	    } else if (daTy) {
+		/*
+		 * The memory representation of dynamic arrays is two
+		 * pointer sized values, the first being the array length
+		 * and the second the base pointer.
+		 */
+		ubyte[] val = expr.loc.readValue(state);
+		return new Value(new ConstantLocation(val[pw..$]),
+				 daTy.baseType.pointerType(pw));
+	    } else {
+		throw new EvalException("Expected array for ptr expression");
+	    }
+	}
+    }
+}
+
 class SizeofExpr: UnaryExpr
 {
     this(Language lang, Expr e)
