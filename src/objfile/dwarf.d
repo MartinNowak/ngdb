@@ -1642,14 +1642,24 @@ class DwarfLocation: Location
 
 	Location fieldLocation(Location baseLoc, MachineState state)
 	{
-	    assert(baseLoc.hasAddress(state));
-
 	    ValueStack stack;
-	    ulong off;
+	    if (baseLoc.hasAddress(state)) {
+		stack.push(baseLoc.address(state));
+		evalExpr(cu_, state, stack);
+		return new MemoryLocation(stack.pop, length);
+	    } else {
+		stack.push(0);
+		evalExpr(cu_, state, stack);
+		return new SubrangeLocation(baseLoc, stack.pop, length);
+	    }
+	}
 
-	    stack.push(baseLoc.address(state));
-	    evalExpr(cu_, state, stack);
-	    return new MemoryLocation(stack.pop, length);
+	Location subrange(size_t start, size_t length, MachineState state)
+	{
+	    Location loc;
+	    if (av_.evalLocation(cu_, state, length_, loc))
+		return loc.subrange(start, length, state);
+	    return null;
 	}
 
 	Location dup()

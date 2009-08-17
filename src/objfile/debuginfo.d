@@ -945,10 +945,8 @@ class ArrayType: TypeBase
 	}
 	string valueToString(string fmt, MachineState state, Location loc)
 	{
-	    if (!loc.hasAddress(state))
-		return lang_.renderArrayConstant("");
-	    ulong addr = loc.address(state);
-	    return valueToString(fmt, state, addr, 0);
+	    size_t off = 0;
+	    return valueToString(fmt, state, loc, off, 0);
 	}
 	size_t byteWidth()
 	{
@@ -969,7 +967,8 @@ class ArrayType: TypeBase
     }
 
 private:
-    string valueToString(string fmt, MachineState state, ref ulong addr,
+    string valueToString(string fmt, MachineState state,
+			 Location loc, ref size_t off,
 			 size_t di)
     {
 	string v;
@@ -981,10 +980,10 @@ private:
 	    string elem;
 	    if (di == dims_.length - 1) {
 		elem = baseType_.valueToString(fmt, state,
-			new MemoryLocation(addr, baseType_.byteWidth));
-		addr += baseType_.byteWidth;
+			loc.subrange(off, baseType_.byteWidth, state));
+		off += baseType_.byteWidth;
 	    } else {
-		elem = valueToString(fmt, state, addr, di + 1);
+		elem = valueToString(fmt, state, loc, off, di + 1);
 	    }
 	    if (i < 3)
 		v ~= elem;
@@ -1224,6 +1223,12 @@ interface Location
     Location fieldLocation(Location base, MachineState state);
 
     /**
+     * Return a location object which represents a subrange of this
+     * location.
+     */
+    Location subrange(size_t start, size_t length, MachineState state);
+
+    /**
      * Return a copy of this location.
      */
     Location dup();
@@ -1282,6 +1287,11 @@ class RegisterLocation: Location
 	Location fieldLocation(Location baseLoc, MachineState state)
 	{
 	    return null;
+	}
+
+	Location subrange(size_t start, size_t length, MachineState state)
+	{
+	    return new SubrangeLocation(this, start, length);
 	}
 
 	Location dup()
@@ -1349,6 +1359,12 @@ class MemoryLocation: Location
 	    return null;
 	}
 
+	Location subrange(size_t start, size_t length, MachineState state)
+	{
+	    assert(start + length <= length_);
+	    return new MemoryLocation(address_ + start, length);
+	}
+
 	Location dup()
 	{
 	    return new MemoryLocation(address_, length_);
@@ -1413,6 +1429,12 @@ class TLSLocation: Location
 	Location fieldLocation(Location baseLoc, MachineState state)
 	{
 	    return null;
+	}
+
+	Location subrange(size_t start, size_t length, MachineState state)
+	{
+	    assert(start + length < length_);
+	    return new TLSLocation(index_, offset_ + start, length);
 	}
 
 	Location dup()
@@ -1493,6 +1515,11 @@ class CompositeLocation: Location
 	    return null;
 	}
 
+	Location subrange(size_t start, size_t length, MachineState state)
+	{
+	    return new SubrangeLocation(this, start, length);
+	}
+
 	Location dup()
 	{
 	    auto res = new CompositeLocation;
@@ -1556,6 +1583,11 @@ class NoLocation: Location
 	}
 
 	Location fieldLocation(Location baseLoc, MachineState state)
+	{
+	    return null;
+	}
+
+	Location subrange(size_t start, size_t length, MachineState state)
 	{
 	    return null;
 	}
@@ -1632,6 +1664,11 @@ class FirstFieldLocation: Location
 	    }
 	}
 
+	Location subrange(size_t start, size_t length, MachineState state)
+	{
+	    return null;
+	}
+
 	Location dup()
 	{
 	    return this;
@@ -1697,6 +1734,11 @@ class ConstantLocation: Location
 	    return null;
 	}
 
+	Location subrange(size_t start, size_t length, MachineState state)
+	{
+	    return new SubrangeLocation(this, start, length);
+	}
+
 	Location dup()
 	{
 	    return this;
@@ -1704,6 +1746,82 @@ class ConstantLocation: Location
     }
 
     ubyte[] value_;
+}
+
+class SubrangeLocation: Location
+{
+    this(Location base, size_t start, size_t length)
+    {
+	base_ = base;
+	start_ = start;
+	length_ = length;
+    }
+
+    override {
+	bool valid(MachineState state)
+	{
+	    return base_.valid(state);
+	}
+
+	size_t length()
+	{
+	    return length;
+	}
+
+	void length(size_t length)
+	{
+	    assert(false);
+	}
+
+	ubyte[] readValue(MachineState state)
+	{
+	    ubyte v[] = base_.readValue(state);
+	    return v[start_..start_ + length_];
+	}
+
+	void writeValue(MachineState state, ubyte[] value)
+	{
+	    ubyte v[] = base_.readValue(state);
+	    v[start_..start_ + length_] = value[];
+	    base_.writeValue(state, v);
+	}
+
+	bool hasAddress(MachineState)
+	{
+	    return false;
+	}
+
+	ulong address(MachineState)
+	{
+	    assert(false);
+	    return 0;
+	}
+
+	bool isLval(MachineState)
+	{
+	    return false;
+	}
+
+	Location fieldLocation(Location baseLoc, MachineState state)
+	{
+	    return null;
+	}
+
+	Location subrange(size_t start, size_t length, MachineState state)
+	{
+	    return new SubrangeLocation(base_, start_ + start, length);
+	}
+
+	Location dup()
+	{
+	    return new SubrangeLocation(base_, start_, length_);
+	    return this;
+	}
+    }
+
+    Location base_;
+    size_t start_;
+    size_t length_;
 }
 
 interface Expr
