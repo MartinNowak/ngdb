@@ -203,6 +203,8 @@ class ColdThread: TargetThread
 	state_ = target.modules_[0].getState(target);
 	if (p)
 	    state.setGRs(p);
+	else
+	    state.pc = target.modules_[0].obj_.entry;
     }
 
     override {
@@ -301,6 +303,10 @@ class ColdTarget: Target
 	    modules_[0].enumerateLinkMap(this, &findCoreModules);
 
 	    core_.enumerateNotes(&getThread);
+	    if (threads_.length == 0) {
+		threads_ ~= new ColdThread(this, null);
+		listener_.onThreadCreate(this, threads_[0]);
+	    }
 	} else {
 	    size_t i = 0;
 	    ulong addr = 0x28070000;
