@@ -158,6 +158,12 @@ class X86State: MachineState
 	    return gregs_[X86Reg.EIP];
 	}
 
+	void pc(ulong pc)
+	{
+	    gregs_[X86Reg.EIP] = pc;
+	    grGen_++;
+	}
+
 	ulong tp()
 	{
 	    return tp_;

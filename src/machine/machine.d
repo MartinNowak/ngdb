@@ -43,6 +43,11 @@ interface MachineState: Scope
     ulong pc();
 
     /**
+     * Set the program counter register.
+     */
+    void pc(ulong);
+
+    /**
      * Return the thread pointer register.
      */
     ulong tp();

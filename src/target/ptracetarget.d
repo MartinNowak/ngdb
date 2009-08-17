@@ -362,12 +362,6 @@ class PtraceThread: TargetThread
 	}
     }
 
-    void pc(ulong addr)
-    {
-	state_.setGR(pcRegno_, addr);
-	writeState;
-    }
-
 private:
     void suspend()
     {
@@ -880,7 +874,7 @@ private:
 		     * informing our listener as appropriate.
 		     */
 		    PtraceThread pt = focusThread;
-		    pt.pc = pt.state.pc - 1; // XXX MachineState.adjustPcAfterBreak
+		    pt.state.pc = pt.state.pc - 1; // XXX MachineState.adjustPcAfterBreak
 		    foreach (pbp; breakpoints_.values) {
 			if (pt.state.pc == pbp.address) {
 			    pbp.stoppedThreads_ ~= pt;

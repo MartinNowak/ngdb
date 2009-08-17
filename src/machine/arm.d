@@ -102,6 +102,12 @@ class ArmState: MachineState
 	    return gregs_[ArmReg.PC];
 	}
 
+	void pc(ulong pc)
+	{
+	    gregs_[ArmReg.PC] = pc;
+	    grGen_++;
+	}
+
 	ulong tp()
 	{
 	    return tp_;

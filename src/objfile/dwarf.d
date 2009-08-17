@@ -1020,7 +1020,7 @@ class DwarfFile: public DebugInfo
 		    foreach (a; func.addresses) {
 			if (a.contains(pc)) {
 			    MachineState newState = state.dup;
-			    newState.setGR(8, a.end); // XXX pcregno
+			    newState.pc = a.end;
 			    return newState;
 			}
 		    }
