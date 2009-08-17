@@ -1982,14 +1982,19 @@ class EnableCommand: Command
 
 	void run(Debugger db, string[] args)
 	{
-	    if (args.length != 1) {
-		db.pagefln("usage: enable <id>");
+	    if (args.length > 1) {
+		db.pagefln("usage: enable [<id>]");
 		return;
 	    }
-	    try {
-		db.enableBreakpoint(toUint(args[0]));
-	    } catch (ConvError ce) {
-		db.pagefln("Can't parse breakpoint ID");
+	    if (args.length == 0) {
+		foreach (bp; db.breakpoints_)
+		    bp.enable;
+	    } else {
+		try {
+		    db.enableBreakpoint(toUint(args[0]));
+		} catch (ConvError ce) {
+		    db.pagefln("Can't parse breakpoint ID");
+		}
 	    }
 	}
     }
@@ -2015,14 +2020,19 @@ class DisableCommand: Command
 
 	void run(Debugger db, string[] args)
 	{
-	    if (args.length != 1) {
-		db.pagefln("usage: disable <id>");
+	    if (args.length > 1) {
+		db.pagefln("usage: disable [<id>]");
 		return;
 	    }
-	    try {
-		db.disableBreakpoint(toUint(args[0]));
-	    } catch (ConvError ce) {
-		db.pagefln("Can't parse breakpoint ID");
+	    if (args.length == 0) {
+		foreach (bp; db.breakpoints_)
+		    bp.disable;
+	    } else {
+		try {
+		    db.disableBreakpoint(toUint(args[0]));
+		} catch (ConvError ce) {
+		    db.pagefln("Can't parse breakpoint ID");
+		}
 	    }
 	}
     }
