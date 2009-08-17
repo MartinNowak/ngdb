@@ -8,6 +8,7 @@ tests[]=
 	scope
 	nested
 	float
+	inline
 
 .DEFAULT: $(tests)
 
@@ -31,3 +32,4 @@ CTest(thread)
 CTest(scope)
 CTest(nested)
 CTest(float)
+CTest(inline)
