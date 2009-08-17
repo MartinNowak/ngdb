@@ -23,7 +23,6 @@ objs[]+=
 	sys/pread
 	sys/ptrace
 	sys/wait
-	sys/reg
 
 #DFLAGS+= -O
 #DFLAGS+= -debug=breakpoints

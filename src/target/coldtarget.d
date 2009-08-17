@@ -33,7 +33,6 @@ import objfile.debuginfo;
 import objfile.dwarf;
 import machine.machine;
 import machine.x86;
-import sys.reg;
 
 import std.stdint;
 import std.stdio;
