@@ -963,7 +963,7 @@ class DwarfFile: public DebugInfo
 	    auto pc = state.pc;
 	    CompilationUnit cu;
 	    DIE func;
-	    if (findSubprogram(pc, cu, func)) {
+	    if (findSubprogram(pc, false, cu, func)) {
 		auto l = func[DW_AT_frame_base];
 		if (l) {
 		    auto dwloc = new DwarfLocation(cu, l, 1);
@@ -1004,7 +1004,7 @@ class DwarfFile: public DebugInfo
 	{
 	    CompilationUnit cu;
 	    DIE func;
-	    if (findSubprogram(pc, cu, func))
+	    if (findSubprogram(pc, true, cu, func))
 		return cast(Function) func.debugItem;
 	    return null;
 	}
@@ -1012,6 +1012,19 @@ class DwarfFile: public DebugInfo
 	MachineState unwind(MachineState state)
 	{
 	    auto pc = state.pc;
+
+	    CompilationUnit cu;
+	    DIE func;
+	    if (findSubprogram(pc, true, cu, func)) {
+		if (func.tag == DW_TAG_inlined_subroutine) {
+		    auto a = func.addresses;
+		    if (a.length > 0) {
+			MachineState newState = state.dup;
+			newState.setGR(8, a[$ - 1].end); // XXX pcregno
+			return newState;
+		    }
+		}
+	    }
 
 	    foreach (fde; fdes_)
 		if (fde.contains(pc))
@@ -1408,10 +1421,11 @@ private:
     /**
      * Returh the CU and subprogram containing the given address.
      */
-    bool findSubprogram(ulong address, out CompilationUnit cu, out DIE func)
+    bool findSubprogram(ulong address, bool findInline,
+			out CompilationUnit cu, out DIE func)
     {
 	if (findCU(address, cu))
-	    return cu.findSubprogram(address, func);
+	    return cu.findSubprogram(address, findInline, func);
 	return false;
     }
 
@@ -2484,10 +2498,13 @@ class DIE
 	    return *p;
 	} else {
 	    /*
-	     * Check for DW_AT_specification and get the field from
-	     * that if possible.
+	     * Check for DW_AT_specification or DW_AT_abstract_origin
+	     * and get the field from that if possible.
 	     */
 	    p = (DW_AT_specification in attrs);
+	    if (p)
+		return cu_[*p][at];
+	    p = (DW_AT_abstract_origin in attrs);
 	    if (p)
 		return cu_[*p][at];
 	    return null;
@@ -2544,14 +2561,36 @@ class DIE
 	return addresses_;
     }
 
-    bool findSubprogram(ulong pc, out DIE func)
+    bool findInlinedSubroutine(ulong pc, out DIE func)
+    {
+	if (contains(pc)) {
+	    foreach (d; children)
+		if (d.tag == DW_TAG_inlined_subroutine
+		    && d.findInlinedSubroutine(pc, func))
+		    return true;
+	    if (tag == DW_TAG_inlined_subroutine) {
+		func = this;
+		return true;
+	    }
+	}
+	return false;
+    }
+
+    bool findSubprogram(ulong pc, bool findInline, out DIE func)
     {
 	if (tag == DW_TAG_subprogram && contains(pc)) {
+	    if (findInline) {
+		foreach (d; children)
+		    if ((d.tag == DW_TAG_inlined_subroutine
+			 || d.tag == DW_TAG_lexical_block)
+			&& d.findInlinedSubroutine(pc, func))
+			return true;
+	    }
 	    func = this;
 	    return true;
 	}
 	foreach (d; children)
-	    if (d.findSubprogram(pc, func))
+	    if (d.findSubprogram(pc, findInline, func))
 		return true;
 	return false;
     }
@@ -2794,6 +2833,7 @@ class DIE
 	    break;
 
 	case DW_TAG_subprogram:
+	case DW_TAG_inlined_subroutine:
 	    Function f = new Function(name, cu_.lang, cu_.addressSize);
 	    if (ty)
 		f.returnType = ty;
@@ -2808,12 +2848,17 @@ class DIE
 		else if (d.tag == DW_TAG_lexical_block)
 		    f.addScope(cast(LexicalScope) d.debugItem);
 	    }
-	    ulong addr;
+	    ulong addr = 0;
 	    if (this[DW_AT_entry_pc])
-		addr = this[DW_AT_entry_pc].ul;
+		addr = this[DW_AT_entry_pc].ul + offset;
 	    else if (this[DW_AT_low_pc])
-		addr = this[DW_AT_low_pc].ul;
-	    f.address = addr + offset;
+		addr = this[DW_AT_low_pc].ul + offset;
+	    f.address = addr;
+	    auto inl = this[DW_AT_inline];
+	    if (inl)
+		if (inl.ul == DW_INL_declared_inlined
+		    || inl.ul == DW_INL_declared_not_inlined)
+		    f.isInline = true;
 	    debugItem_ = f;
 	    break;
 
@@ -2971,10 +3016,10 @@ class CompilationUnit
 	}
     }
 
-    bool findSubprogram(ulong pc, out DIE func)
+    bool findSubprogram(ulong pc, bool findInline, out DIE func)
     {
 	foreach (kid; die.children)
-	    if (kid.findSubprogram(pc, func))
+	    if (kid.findSubprogram(pc, findInline, func))
 		return true;
 	return false;
     }

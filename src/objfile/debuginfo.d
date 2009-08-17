@@ -2703,6 +2703,16 @@ class Function: DebugItem, Scope
 	return varargs_;
     }
 
+    void isInline(bool v)
+    {
+	inline_ = v;
+    }
+
+    bool isInline()
+    {
+	return inline_;
+    }
+
     void addArgument(Variable var)
     {
 	arguments_ ~= var;
@@ -2772,9 +2782,11 @@ class Function: DebugItem, Scope
 	address_ = address;
     }
 
+private:
     string name_;
     Language lang_;
     bool varargs_;
+    bool inline_;
     Type returnType_;
     Type containingType_;
     Variable[] arguments_;

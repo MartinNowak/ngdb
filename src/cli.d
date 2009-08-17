@@ -966,6 +966,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	if (findDebugInfo(s, di)) {
 	    Location frameLoc;
 	    di.findFrameBase(s, frameLoc);
+	    auto frameFunc = di.findFunction(s.pc);
 
 	    ulong frame = frameLoc.address(s);
 	    ulong startpc = s.pc;
@@ -1045,7 +1046,8 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 		    break;
 		}
 		di.findFrameBase(s, frameLoc);
-		if (frameLoc.address(s) != frame) {
+		auto func = di.findFunction(s.pc);
+		if (frameLoc.address(s) != frame || func !is frameFunc) {
 		    debug (step)
 			writefln("new frame address %#x", frameLoc.address(s));
 		    if (frameLoc.address(s) > frame) {
