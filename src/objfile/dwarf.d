@@ -1017,11 +1017,12 @@ class DwarfFile: public DebugInfo
 	    DIE func;
 	    if (findSubprogram(pc, true, cu, func)) {
 		if (func.tag == DW_TAG_inlined_subroutine) {
-		    auto a = func.addresses;
-		    if (a.length > 0) {
-			MachineState newState = state.dup;
-			newState.setGR(8, a[$ - 1].end); // XXX pcregno
-			return newState;
+		    foreach (a; func.addresses) {
+			if (a.contains(pc)) {
+			    MachineState newState = state.dup;
+			    newState.setGR(8, a.end); // XXX pcregno
+			    return newState;
+			}
 		    }
 		}
 	    }
