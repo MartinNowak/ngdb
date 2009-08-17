@@ -143,6 +143,55 @@ class X86State: MachineState
 	target_ = target;
     }
 
+    static this()
+    {
+	auto lang = CLikeLanguage.instance;
+	grType_ = lang.integerType("uint32_t", false, 4);
+	frType_ = lang.floatType("real", 10);
+
+	void addXmmP(string name, Type ty)
+	{
+	    auto aTy = new ArrayType(lang, ty);
+	    aTy.addDim(0, 16 / ty.byteWidth);
+	    (cast(CompoundType) xmmType_).addField(new Variable(name,
+		new Value(new FirstFieldLocation(16), aTy)));
+	}
+
+	void addXmmS(string name, Type ty)
+	{
+	    (cast(CompoundType) xmmType_).addField(new Variable(name,
+		new Value(new FirstFieldLocation(ty.byteWidth), ty)));
+	}
+
+	xmmType_ = new CompoundType(lang, "union", "xmmreg_t", 16);
+	addXmmS("ss", lang.floatType("float", 4));
+	addXmmS("sd", lang.floatType("float", 8));
+	addXmmP("ps", lang.floatType("float", 4));
+	addXmmP("pd", lang.floatType("float", 8));
+	addXmmP("pb", lang.integerType("uint8_t", false, 1));
+	addXmmP("pw", lang.integerType("uint16_t", false, 2));
+	addXmmP("pi", lang.integerType("uint32_t", false, 4));
+	addXmmP("psb", lang.integerType("int8_t", true, 1));
+	addXmmP("psw", lang.integerType("int16_t", true, 2));
+	addXmmP("psi", lang.integerType("int32_t", true, 4));
+
+	void addMmP(string name, Type ty)
+	{
+	    auto aTy = new ArrayType(lang, ty);
+	    aTy.addDim(0, 8 / ty.byteWidth);
+	    (cast(CompoundType) mmType_).addField(new Variable(name,
+		new Value(new FirstFieldLocation(8), aTy)));
+	}
+
+	mmType_ = new CompoundType(lang, "union", "mmreg_t", 16);
+	addMmP("pb", lang.integerType("uint8_t", false, 1));
+	addMmP("pw", lang.integerType("uint16_t", false, 2));
+	addMmP("pi", lang.integerType("uint32_t", false, 4));
+	addMmP("psb", lang.integerType("int8_t", true, 1));
+	addMmP("psw", lang.integerType("int16_t", true, 2));
+	addMmP("psi", lang.integerType("int32_t", true, 4));
+    }
+
     override {
 	void dumpState()
 	{
@@ -591,7 +640,15 @@ class X86State: MachineState
 
 	string[] contents(MachineState)
 	{
-	    return X86RegNames[];
+	    string[] res;
+	    res = X86RegNames[];
+	    for (auto i = 0; i < 8; i++)
+		res ~= format("st%d", i);
+	    for (auto i = 0; i < 8; i++)
+		res ~= format("mm%d", i);
+	    for (auto i = 0; i < 8; i++)
+		res ~= format("xmm%d", i);
+	    return res;
 	}
 
 	bool lookup(string reg, MachineState, out DebugItem val)
@@ -601,19 +658,33 @@ class X86State: MachineState
 	    if (reg == "pc") reg = "eip";
 	    foreach (i, s; X86RegNames) {
 		if (s == reg) {
-		    val = regAsValue(i);
+		    val = regAsValue(i, grType_);
 		    return true;
 		}
 	    }
+	    if (reg.length == 3 && reg[0..2] == "st"
+		&& reg[2] >= '0' && reg[2] <= '7') {
+		val = regAsValue(11 + reg[2] - '0', frType_);
+		return true;
+	    }
+	    if (reg.length == 4 && reg[0..3] == "xmm"
+		&& reg[3] >= '0' && reg[3] <= '7') {
+		val = regAsValue(21 + reg[3] - '0', xmmType_);
+		return true;
+	    }
+	    if (reg.length == 3 && reg[0..2] == "mm"
+		&& reg[2] >= '0' && reg[2] <= '7') {
+		val = regAsValue(29 + reg[2] - '0', mmType_);
+		return true;
+	    }
+		
 	    return false;
 	}
     }
 
-    Value regAsValue(uint i)
+    Value regAsValue(uint i, Type ty)
     {
 	auto loc = new RegisterLocation(i, grWidth(i));
-	auto ty = CLikeLanguage.instance.integerType(
-	    "uint32_t", false, grWidth(i));
 	return new Value(loc, ty);
     }
 
@@ -654,6 +725,11 @@ private:
     uint32_t	tp_;
     xmmreg	fpregs_;
     uint	frGen_ = 1;
+
+    static Type	grType_;
+    static Type	frType_;
+    static Type	xmmType_;
+    static Type	mmType_;
 }
 
 private:
