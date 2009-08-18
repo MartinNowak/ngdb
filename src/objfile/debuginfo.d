@@ -2804,7 +2804,6 @@ class Function: DebugItem, Scope
 	{
 	    string s;
 
-	    s = returnType_.toString ~ " ";
 	    if (containingType_)
 		s ~= containingType_.toString ~ lang_.renderNamespaceSeparator;
 	    s ~= std.string.format("%s(", name_);
@@ -2814,7 +2813,12 @@ class Function: DebugItem, Scope
 		    s ~= std.string.format(", ");
 		}
 		first = false;
-		s ~= std.string.format("%s", a.toString(fmt, state));
+		if (state)
+		    s ~= std.string.format("%s=%s",
+					   a.name,
+					   a.value.toString(fmt, state));
+		else
+		    s ~= std.string.format("%s", a.toString(fmt, state));
 	    }
 	    if (varargs_) {
 		if (arguments_.length > 0)
