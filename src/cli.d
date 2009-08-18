@@ -425,13 +425,16 @@ private class SourceFile
     this(string filename)
     {
 	filename_ = filename;
+	long ftc, fta;
     }
 
     string opIndex(uint lineno)
     {
+	long ftc, fta, ftm;
 	if (lines_.length == 0 && !error_) {
 	    try {
 		string file = cast(string) std.file.read(filename);
+		std.file.getTimes(filename_, ftc, fta, lastModifiedTime_);
 		lines_ = splitlines(file);
 	    } catch {
 		writefln("Can't open file %s", filename);
@@ -440,6 +443,11 @@ private class SourceFile
 	}
 	if (lineno < 1 || lineno > lines_.length)
 	    return null;
+	std.file.getTimes(filename_, ftc, fta, ftm);
+	if (ftm != lastModifiedTime_) {
+	    lines_ = null;
+	    return opIndex(lineno);
+	}
 	return lines_[lineno - 1];
     }
 
@@ -449,6 +457,7 @@ private class SourceFile
     }
 
     string filename_;
+    long lastModifiedTime_;
     string[] lines_;
     bool error_;
 }
