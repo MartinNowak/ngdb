@@ -7,12 +7,19 @@ version (LDC)
 
 private enum
 {
+    REGISTER	= 0,		// General register
+    FLOATREG	= 1,		// 387 floating point register 
+    MMXREG	= 2,		// MMX register
+    XMMREG	= 3		// SSE registrer
+}
+
+private enum
+{
     BYTE	= 0,		// byte sized operands
     WORD	= 1,		// word sized operands
     LONG	= 2,		// double word sized operands
     QWORD	= 3,		// quad word sized operands
-    MMX		= 4,		// mmx operands
-    XMM		= 5,		// xmm operands
+    DQWORD	= 5,		// double quad word sized operands
     FLOAT	= 6,		// single-precision floating point
     DOUBLE	= 7,		// double-precision floating point
     LDOUBLE	= 8,		// long double-precision floating point
@@ -1678,22 +1685,14 @@ struct DecodeState
 	// QWORD
 	["rax","rcx","rdx","rbx","rsp","rbp","rsi","rdi",
 	 "r8","r9","r10","r11","r12","r13","r14","r15"],
-	// MMX
-	["mm0","mm1","mm2","mm3","mm4","mm5","mm6","mm7",
-	 null,null,null,null,null,null,null,null],
-	// XMM
-	["xmm0","xmm1","xmm2","xmm3", "xmm4","xmm5","xmm6","xmm7",
-	 "xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"],
-	// FLOAT
-	["st(0)","st(1)","st(2)","st(3)","st(4)","st(5)","st(6)","st(7)",
-	 null,null,null,null,null,null,null,null],
-	// DOUBLE
-	["st(0)","st(1)","st(2)","st(3)","st(4)","st(5)","st(6)","st(7)",
-	 null,null,null,null,null,null,null,null],
-	// LDOUBLE
-	["st(0)","st(1)","st(2)","st(3)","st(4)","st(5)","st(6)","st(7)",
-	 null,null,null,null,null,null,null,null],
 	];
+    static string mmxNames[] =
+	["mm0","mm1","mm2","mm3","mm4","mm5","mm6","mm7"];
+    static string xmmNames[] =
+	["xmm0","xmm1","xmm2","xmm3", "xmm4","xmm5","xmm6","xmm7",
+	 "xmm8","xmm9","xmm10","xmm11","xmm12","xmm13","xmm14","xmm15"];
+    static string floatNames[] =
+	["st(0)","st(1)","st(2)","st(3)","st(4)","st(5)","st(6)","st(7)"];
     static string regbNames[] =
 	["al","cl","dl","bl","spl","bpl","sil","dil",
 	 "r8b","r9b","r10b","r11b","r12b","r13b","r14b","r15b"];
@@ -1892,9 +1891,9 @@ struct DecodeState
 	    return rex_ & 8 ? true : false;
 	return false;
     }
-    int typeWidth(int rt)
+    int typeWidth(int size)
     {
-	switch (rt) {
+	switch (size) {
 	case BYTE:
 	    return 8;
 	case WORD:
@@ -1906,21 +1905,30 @@ struct DecodeState
 	    return 64;
 	}
     }
-    string regName(int rt, int regno)
-    {
-	if (regno == 16) {
-	    if (rt == LONG)
-		return "eip";
-	    else
-		return "rip";
-	}
-	if (mode_ == 64 && rex_ && rt == BYTE)
-	    return regbNames[regno];
-	return regNames[rt][regno];
-    }
-    long fetchImmediate(int rt)
+    string regName(int rt, int size, int regno)
     {
 	switch (rt) {
+	case REGISTER:
+	    if (regno == 16) {
+		if (size == LONG)
+		    return "eip";
+		else
+		    return "rip";
+	    }
+	    if (mode_ == 64 && rex_ && size == BYTE)
+		return regbNames[regno];
+	    return regNames[size][regno];
+	case FLOATREG:
+	    return floatNames[regno];
+	case MMXREG:
+	    return mmxNames[regno];
+	case XMMREG:
+	    return xmmNames[regno];
+	}
+    }
+    long fetchImmediate(int size)
+    {
+	switch (size) {
 	case BYTE:
 	    return nextByte();
 	case WORD:
@@ -1933,9 +1941,9 @@ struct DecodeState
 	    assert(false);
 	}
     }
-    Operand displayImmediate(int rt, long val)
+    Operand displayImmediate(int size, long val)
     {
-	int iwidth = typeWidth(rt);
+	int iwidth = typeWidth(size);
 	int width = typeWidth(size_);
 	if (iwidth < 64 && (val & (1L << (iwidth - 1))))
 	    val |= -(1L << iwidth);
@@ -1945,31 +1953,31 @@ struct DecodeState
 	s = std.string.format("%#x", val);
 	if (attMode_)
 	    s = "$" ~ s;
-	return Operand(rt, s);
+	return Operand(size, s);
     }
-    Operand displayUnsignedImmediate(int rt, long val)
+    Operand displayUnsignedImmediate(int size, long val)
     {
 	string s;
 	s = std.string.format("%#x", val);
 	if (attMode_)
 	    s = "$" ~ s;
-	return Operand(rt, s);
+	return Operand(size, s);
     }
-    Operand displayRelative(int rt, long val)
+    Operand displayRelative(int size, long val)
     {
-	int width = typeWidth(rt);
+	int width = typeWidth(size);
 	if (val & (1L << (width - 1)))
 	    val |= -(1L << width);
-	return displayAddress(rt, loc_ + val);
+	return displayAddress(size, loc_ + val);
     }
-    Operand displayFarcall(int rt, ulong addr, uint callseg)
+    Operand displayFarcall(int size, ulong addr, uint callseg)
     {
 	string s;
 	if (attMode_)
 	    s = std.string.format("$%#x,%#x", callseg, addr);
 	else
 	    s = std.string.format("%#x:%#x", callseg, addr);
-	return Operand(rt, s);
+	return Operand(size, s);
     }
     Operand displaySegment(int segno)
     {
@@ -1994,42 +2002,42 @@ struct DecodeState
 	else
 	    return Operand(NONE, std.string.format("dr%d", drno));
     }
-    Operand displayRegister(int rt, int regno)
+    Operand displayRegister(int rt, int size, int regno)
     {
 	if (attMode_)
-	    return Operand(rt, "%" ~ regName(rt, regno));
+	    return Operand(size, "%" ~ regName(rt, size, regno));
 	else
-	    return Operand(rt, regName(rt, regno));
+	    return Operand(size, regName(rt, size, regno));
     }
-    Operand displayIndirect(int rt, int segno, int regno)
+    Operand displayIndirect(int rt, int size, int segno, int regno)
     {
 	string res;
 	if (attMode_)
 	    if (segno >= 0)
 		res =  std.string.format("%%%s:(%%%s)",
 					 segNames[segno],
-					 regName(rt, regno));
+					 regName(rt, size, regno));
 	    else
 		res =  std.string.format("(%%%s)",
-					 regName(rt, regno));
+					 regName(rt, size, regno));
 	else
 	    if (segno >= 0)
 		res =  std.string.format("%s:[%s]",
 					 segNames[segno],
-					 regName(rt, regno));
+					 regName(rt, size, regno));
 	    else
 		res =  std.string.format("[%s]",
-					 regName(rt, regno));
-	return Operand(rt, res);
+					 regName(rt, size, regno));
+	return Operand(size, res);
     }
-    Operand displayReg(int rt)
+    Operand displayReg(int rt, int size)
     {
-	return displayRegister(rt, reg + rexR);
+	return displayRegister(rt, size, reg + rexR);
     }
-    Operand displayRM(int rt, bool indirect)
+    Operand displayRM(int rt, int size, bool indirect)
     {
 	if (indirect) {
-	    Operand op = displayRM(rt, false);
+	    Operand op = displayRM(rt, size, false);
 	    if (attMode_)
 		op.value = "*" ~ op.value;
 	    return op;
@@ -2043,26 +2051,26 @@ struct DecodeState
 		int disp = cast(int) disp_;	// XXX 64bit?
 		res = std.string.format("%d", disp);
 	    } else
-		res = _displayAddress(rt, disp_);
+		res = _displayAddress(size, disp_);
 
 	    int mode = addressSize;
 
 	    if (indexReg_ >= 0) {
 		string br = "";
 		if (baseReg_ >= 0)
-		    br = "%" ~ regName(mode, baseReg_);
+		    br = "%" ~ regName(REGISTER, mode, baseReg_);
 		if (scale_ > 0)
 		    res ~= std.string.format("(%s,%%%s,%d)",
 					     br,
-					     regName(mode, indexReg_),
+					     regName(REGISTER, mode, indexReg_),
 					     scale_);
 		else
 		    res ~= std.string.format("(%s,%%%s)",
 					     br,
-					     regName(mode, indexReg_));
+					     regName(REGISTER, mode, indexReg_));
 	    } else if (baseReg_ >= 0) {
 		res ~= std.string.format("(%%%s)",
-					 regName(mode, baseReg_));
+					 regName(REGISTER, mode, baseReg_));
 	    }
 	    return res;
 	}
@@ -2080,7 +2088,7 @@ struct DecodeState
 		    else
 			s = std.string.format("%d", disp);
 		} else
-		    s = "+" ~ _displayAddress(rt, disp_);
+		    s = "+" ~ _displayAddress(size, disp_);
 		if (baseReg_ < 0 && indexReg_ < 0)
 		    return s[1..$];
 	    }
@@ -2091,30 +2099,30 @@ struct DecodeState
 		if (scale_ && scale_ != 1)
 		    if (baseReg_ >= 0)
 			return std.string.format("[%s+%s*%d%s]",
-						 regName(mode, baseReg_),
-						 regName(mode, indexReg_),
+						 regName(REGISTER, mode, baseReg_),
+						 regName(REGISTER, mode, indexReg_),
 						 scale_, s);
 		    else
 			return std.string.format("[%s*%d%s]",
-						 regName(mode, indexReg_),
+						 regName(REGISTER, mode, indexReg_),
 						 scale_, s);
 		else
 		    return std.string.format("[%s+%s%s]",
-					     regName(mode, baseReg_),
-					     regName(mode, indexReg_), s);
+					     regName(REGISTER, mode, baseReg_),
+					     regName(REGISTER, mode, indexReg_), s);
 	    } else if (baseReg_ >= 0) {
 		return std.string.format("[%s%s]",
-					 regName(mode, baseReg_), s);
+					 regName(REGISTER, mode, baseReg_), s);
 	    }
 	}
 
 	if (mod == 3) {
-	    return displayRegister(rt, rm + rexB);
+	    return displayRegister(rt, size, rm + rexB);
 	} else {
 	    string res;
 
 	    if (!attMode_) {
-		switch (rt) {
+		switch (size) {
 		case BYTE:
 		    res = "byte ptr ";
 		    break;
@@ -2126,14 +2134,13 @@ struct DecodeState
 		    res = "dword ptr ";
 		    break;
 		case QWORD:
-		case MMX:
 		case DOUBLE:
 		    res = "qword ptr ";
 		    break;
 		case LDOUBLE:
 		    res = "xword ptr ";
 		    break;
-		case XMM:
+		case DQWORD:
 		    res = "xmmword ptr ";
 		    break;
 		default:
@@ -2146,21 +2153,21 @@ struct DecodeState
 	    else
 		res ~= basePlusIndexIntel;
 
-	    return Operand(rt, res);
+	    return Operand(size, res);
 	}
     }
-    string _displayAddress(int rt, ulong addr)
+    string _displayAddress(int size, ulong addr)
     {
 	if (mode_ == 32)
 	    addr &= 0xffffffff;
 	return lookupAddress_(addr);
     }
-    Operand displayAddress(int rt, ulong addr)
+    Operand displayAddress(int size, ulong addr)
     {
-	string s = _displayAddress(rt, addr);
+	string s = _displayAddress(size, addr);
 	if (seg_.length > 0)
 	    s = seg_ ~ ":" ~ s;
-	return Operand(rt, s);
+	return Operand(size, s);
     }
     void skipImmediate(string[] s)
     {
@@ -2187,7 +2194,7 @@ struct DecodeState
 		size = LONG;
 		break;
 	    case "dq":
-		size = XMM;
+		size = DQWORD;
 		break;
 	    case "n":
 		size = NONE;
@@ -2196,13 +2203,13 @@ struct DecodeState
 		size = BYTE;	// XXX
 		break;
 	    case "pd":
-		size = XMM;
+		size = DQWORD;
 		break;
 	    case "pi":
-		size = MMX;
+		size = QWORD;
 		break;
 	    case "ps":
-		size = XMM;
+		size = DQWORD;
 		break;
 	    case "q":
 		size = QWORD;
@@ -2210,10 +2217,10 @@ struct DecodeState
 	    case "s":
 		break;
 	    case "sd":
-		size = XMM;
+		size = QWORD;
 		break;
 	    case "ss":
-		size = XMM;
+		size = LONG;
 		break;
 	    case "si":
 		size = LONG;
@@ -2276,88 +2283,88 @@ struct DecodeState
 		 operands ~= displayImmediate(NONE, 3);
 		 continue;
 	    case "AL":
-		operands ~= displayRegister(BYTE, 0 + rexB);
+		operands ~= displayRegister(REGISTER, BYTE, 0 + rexB);
 		continue;
 	    case "CL":
-		operands ~= displayRegister(BYTE, 1 + rexB);
+		operands ~= displayRegister(REGISTER, BYTE, 1 + rexB);
 		continue;
 	    case "CLnorex":
-		operands ~= displayRegister(BYTE, 1);
+		operands ~= displayRegister(REGISTER, BYTE, 1);
 		continue;
 	    case "DL":
-		operands ~= displayRegister(BYTE, 2 + rexB);
+		operands ~= displayRegister(REGISTER, BYTE, 2 + rexB);
 		continue;
 	    case "BL":
-		operands ~= displayRegister(BYTE, 3 + rexB);
+		operands ~= displayRegister(REGISTER, BYTE, 3 + rexB);
 		continue;
 	    case "AH":
-		operands ~= displayRegister(BYTE, 4 + rexB);
+		operands ~= displayRegister(REGISTER, BYTE, 4 + rexB);
 		continue;
 	    case "CH":
-		operands ~= displayRegister(BYTE, 5 + rexB);
+		operands ~= displayRegister(REGISTER, BYTE, 5 + rexB);
 		continue;
 	    case "DH":
-		operands ~= displayRegister(BYTE, 6 + rexB);
+		operands ~= displayRegister(REGISTER, BYTE, 6 + rexB);
 		continue;
 	    case "BH":
-		operands ~= displayRegister(BYTE, 7 + rexB);
+		operands ~= displayRegister(REGISTER, BYTE, 7 + rexB);
 		continue;
 	    case "AX":
-		operands ~= displayRegister(WORD, 0);
+		operands ~= displayRegister(REGISTER, WORD, 0);
 		continue;
 	    case "DX":
-		operands ~= displayRegister(WORD, 2);
+		operands ~= displayRegister(REGISTER, WORD, 2);
 		continue;
 	    case "eAX":
-		operands ~= displayRegister(operandSizePrefix_ ? WORD : LONG, 0);
+		operands ~= displayRegister(REGISTER, operandSizePrefix_ ? WORD : LONG, 0);
 		continue;
 	    case "eCX":
-		operands ~= displayRegister(operandSizePrefix_ ? WORD : LONG, 1);
+		operands ~= displayRegister(REGISTER, operandSizePrefix_ ? WORD : LONG, 1);
 		continue;
 	    case "eDX":
-		operands ~= displayRegister(operandSizePrefix_ ? WORD : LONG, 2);
+		operands ~= displayRegister(REGISTER, operandSizePrefix_ ? WORD : LONG, 2);
 		continue;
 	    case "eBX":
-		operands ~= displayRegister(operandSizePrefix_ ? WORD : LONG, 3);
+		operands ~= displayRegister(REGISTER, operandSizePrefix_ ? WORD : LONG, 3);
 		continue;
 	    case "eSP":
-		operands ~= displayRegister(operandSizePrefix_ ? WORD : LONG, 4);
+		operands ~= displayRegister(REGISTER, operandSizePrefix_ ? WORD : LONG, 4);
 		continue;
 	    case "eBP":
-		operands ~= displayRegister(operandSizePrefix_ ? WORD : LONG, 5);
+		operands ~= displayRegister(REGISTER, operandSizePrefix_ ? WORD : LONG, 5);
 		continue;
 	    case "eSI":
-		operands ~= displayRegister(operandSizePrefix_ ? WORD : LONG, 6);
+		operands ~= displayRegister(REGISTER, operandSizePrefix_ ? WORD : LONG, 6);
 		continue;
 	    case "eDI":
-		operands ~= displayRegister(operandSizePrefix_ ? WORD : LONG, 7);
+		operands ~= displayRegister(REGISTER, operandSizePrefix_ ? WORD : LONG, 7);
 		continue;
 	    case "rAXnorex":
-		operands ~= displayRegister(operandSize, 0);
+		operands ~= displayRegister(REGISTER, operandSize, 0);
 		continue;
 	    case "rAX":
-		operands ~= displayRegister(size_, 0 + rexB);
+		operands ~= displayRegister(REGISTER, size_, 0 + rexB);
 		continue;
 	    case "rCX":
-		operands ~= displayRegister(size_, 1 + rexB);
+		operands ~= displayRegister(REGISTER, size_, 1 + rexB);
 		continue;
 	    case "rDX":
-		operands ~= displayRegister(size_, 2 + rexB);
+		operands ~= displayRegister(REGISTER, size_, 2 + rexB);
 		continue;
 	    case "rBX":
-		operands ~= displayRegister(size_, 3 + rexB);
+		operands ~= displayRegister(REGISTER, size_, 3 + rexB);
 		continue;
 	    case "rSP":
-		operands ~= displayRegister(size_, 4 + rexB);
+		operands ~= displayRegister(REGISTER, size_, 4 + rexB);
 		continue;
 	    case "rBP":
-		operands ~= displayRegister(size_, 5 + rexB);
+		operands ~= displayRegister(REGISTER, size_, 5 + rexB);
 		continue;
 	    case "rSI":
-		operands ~= displayRegister(size_, 6 + rexB);
+		operands ~= displayRegister(REGISTER, size_, 6 + rexB);
 		continue;
 	    case "rDI":
-		operands ~= displayRegister(size_, 7 + rexB);
+		operands ~= displayRegister(REGISTER, size_, 7 + rexB);
 		continue;
 	    case "ES":
 		operands ~= displaySegment(0);
@@ -2378,10 +2385,10 @@ struct DecodeState
 		operands ~= displaySegment(5);
 		continue;
 	    case "ST(0)":
-		operands ~= displayRegister(LDOUBLE, 0);
+		operands ~= displayRegister(FLOATREG, LDOUBLE, 0);
 		continue;
 	    case "ST(i)":
-		operands ~= displayRegister(LDOUBLE, rm);
+		operands ~= displayRegister(FLOATREG, LDOUBLE, rm);
 		continue;
 	    default:
 		break;
@@ -2406,7 +2413,7 @@ struct DecodeState
 		size = LONG;
 		break;
 	    case "dq":
-		size = XMM;
+		size = DQWORD;
 		break;
 	    case "f":
 		size = FLOAT;
@@ -2421,13 +2428,13 @@ struct DecodeState
 		size = BYTE;	// XXX
 		break;
 	    case "pd":
-		size = XMM;
+		size = DQWORD;
 		break;
 	    case "pi":
-		size = MMX;
+		size = QWORD;
 		break;
 	    case "ps":
-		size = XMM;
+		size = DQWORD;
 		break;
 	    case "q":
 		size = QWORD;
@@ -2435,10 +2442,10 @@ struct DecodeState
 	    case "s":
 		break;
 	    case "sd":
-		size = XMM;
+		size = QWORD;
 		break;
 	    case "ss":
-		size = XMM;
+		size = LONG;
 		break;
 	    case "si":
 		size = LONG;
@@ -2468,16 +2475,16 @@ struct DecodeState
 		operands ~= displayDebug(reg);
 		continue;
 	    case 'E':
-		operands ~= displayRM(size, false);
+		operands ~= displayRM(REGISTER, size, false);
 		continue;
 	    case 'F':
 		operands ~= Operand(NONE, "%eflags");
 		continue;
 	    case 'G':
-		operands ~= displayReg(size);
+		operands ~= displayReg(REGISTER, size);
 		continue;
 	    case 'H':
-		operands ~= displayRM(size, true);
+		operands ~= displayRM(REGISTER, size, true);
 		continue;
 	    case 'I':
 		operands ~= displayImmediate(size, fetchImmediate(size));
@@ -2489,45 +2496,45 @@ struct DecodeState
 		operands ~= displayUnsignedImmediate(size, fetchImmediate(size));
 		continue;
 	    case 'M':
-		operands ~= displayRM(size, false);
+		operands ~= displayRM(REGISTER, size, false);
 		continue;
 	    case 'N':
-		operands ~= displayRegister(MMX, rm);
+		operands ~= displayRegister(MMXREG, QWORD, rm);
 		continue;
 	    case 'O':
 		operands ~= displayAddress(size, addressSizePrefix_ ? nextWord : nextDWord);
 		continue;
 	    case 'P':
-		operands ~= displayRegister(MMX, reg);
+		operands ~= displayRegister(MMXREG, QWORD, reg);
 		continue;
 	    case 'Q':
-		operands ~= displayRM(MMX, false);
+		operands ~= displayRM(MMXREG, QWORD, false);
 		continue;
 	    case 'R':
-		operands ~= displayRegister(size, rm + rexB);
+		operands ~= displayRegister(REGISTER, size, rm + rexB);
 		continue;
 	    case 'S':
 		operands ~= displaySegment(reg);
 		continue;
 	    case 'U':
-		operands ~= displayRegister(XMM, rm + rexB);
+		operands ~= displayRegister(XMMREG, DQWORD, rm + rexB);
 		continue;
 	    case 'V':
-		operands ~= displayRegister(XMM, reg + rexR);
+		operands ~= displayRegister(XMMREG, DQWORD, reg + rexR);
 		continue;
 	    case 'W':
-		operands ~= displayRM(XMM, false);
+		operands ~= displayRM(XMMREG, size, false);
 		continue;
 	    case 'X':
-		 if (mode_ == 64) operands ~= displayIndirect(QWORD, -1, 6);
-		 else if (addressSizePrefix_) operands ~= displayIndirect(WORD, -1, 6);
-		 else operands ~= displayIndirect(LONG, -1, 6);
-		 continue;
+		if (mode_ == 64) operands ~= displayIndirect(REGISTER, QWORD, -1, 6);
+		else if (addressSizePrefix_) operands ~= displayIndirect(REGISTER, WORD, -1, 6);
+		else operands ~= displayIndirect(REGISTER, LONG, -1, 6);
+		continue;
 	    case 'Y':
-		 if (mode_ == 64) operands ~= displayIndirect(QWORD, 0, 7);
-		 else if (addressSizePrefix_) operands ~= displayIndirect(WORD, 0, 7);
-		 else operands ~= displayIndirect(LONG, 0, 7);
-		 continue;
+		if (mode_ == 64) operands ~= displayIndirect(REGISTER, QWORD, 0, 7);
+		else if (addressSizePrefix_) operands ~= displayIndirect(REGISTER, WORD, 0, 7);
+		else operands ~= displayIndirect(REGISTER, LONG, 0, 7);
+		continue;
 	    }
 
 	mess:
