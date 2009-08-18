@@ -928,12 +928,14 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	    }
 	}
 	if (found) {
+	    string s;
 	    if (addr != bestSym.value)
-		return bestSym.name ~ "+" ~ .toString(addr - bestSym.value);
+		s = bestSym.name ~ "+" ~ .toString(addr - bestSym.value);
 	    else
-		return bestSym.name;
+		s = bestSym.name;
+	    return std.string.format("%#x <%s>", addr, s);
 	}
-	return std.string.format("0x%x", addr);
+	return std.string.format("%#x", addr);
     }
 
     void setStepBreakpoint(ulong pc)
@@ -1868,6 +1870,8 @@ class FinishCommand: Command
 	    db.target_.cont();
 	    db.target_.wait();
 	    db.clearStepBreakpoints();
+	    if (!db.currentThread)
+		return;
 	    if (rTy) {
 		/*
 		 * XXX factor out calling convention details
