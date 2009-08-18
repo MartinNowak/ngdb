@@ -34,6 +34,7 @@ import std.c.stdlib;
 
 import language.language;
 import machine.machine;
+import target.target;
 
 /**
  * This structure is used to represent line number information
@@ -1402,13 +1403,20 @@ class TLSLocation: Location
 
 	ubyte[] readValue(MachineState state)
 	{
-	    return state.readMemory(address(state), length_);
+	    try {
+		return state.readMemory(address(state), length_);
+	    } catch (TargetException te) {
+		return null;
+	    }
 	}
 
 	void writeValue(MachineState state, ubyte[] value)
 	{
 	    assert(value.length == length_);
-	    return state.writeMemory(address(state), value);
+	    try {
+		return state.writeMemory(address(state), value);
+	    } catch (TargetException te) {
+	    }
 	}
 
 	bool hasAddress(MachineState)
@@ -1557,7 +1565,6 @@ class NoLocation: Location
 
 	ubyte[] readValue(MachineState state)
 	{
-	    assert(false);
 	    return null;
 	}
 
