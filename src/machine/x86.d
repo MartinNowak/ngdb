@@ -625,6 +625,24 @@ class X86State: MachineState
 	    return end;
 	}
 
+	ulong findJump(ulong start, ulong end)
+	{
+	    char readByte(ulong loc) {
+		ubyte[] t = readMemory(loc, 1);
+		return cast(char) t[0];
+	    }
+
+	    Disassembler dis = new Disassembler;
+	    ulong loc = start;
+	    while (loc < end) {
+		ulong tloc = loc;
+		ulong target;
+		if (dis.isJump(loc, target, &readByte))
+		    return target;
+	    }
+	    return end;
+	}
+
 	string disassemble(ref ulong address,
 			   string delegate(ulong) lookupAddress)
 	{

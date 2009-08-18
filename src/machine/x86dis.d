@@ -126,6 +126,100 @@ class Disassembler
 	return false;
     }
 
+    bool isJump(ref ulong loc, out ulong target, char delegate(ulong) readByte)
+    {
+	DecodeState ds;
+	Instruction ip[];
+	ulong iloc = loc;
+
+	bool morePrefixes = true;
+	while (morePrefixes) {
+	    char b = readByte(loc);
+
+	    if (mode_ == 64 && (b & 0xf0) == 0x40) {
+		/*
+		 * This is a REX prefix in 64bit mode.
+		 */
+		ds.rex_ = b;
+		loc++;
+		continue;
+	    }
+
+	    switch (readByte(loc)) {
+	    case 0xf0:
+		ds.lockPrefix_ = true;
+		loc++;
+		break;
+
+	    case 0xf2:
+		ds.repnePrefix_ = true;
+		loc++;
+		break;
+
+	    case 0xf3:
+		ds.repePrefix_ = true;
+		loc++;
+		break;
+
+	    case 0x2e:
+	    case 0x36:
+	    case 0x3e:
+	    case 0x26:
+	    case 0x64:
+	    case 0x65:
+		// segment prefix
+		loc++;
+		break;
+
+	    case 0x67:
+		ds.addressSizePrefix_ = true;
+		loc++;
+		break;
+
+	    case 0x66:
+		ds.operandSizePrefix_ = true;
+		loc++;
+		break;
+
+	    default:
+		morePrefixes = false;
+	    }
+	}
+
+	ds.readByte_ = readByte;
+	ds.mode_ = mode_;
+
+	Instruction insn;
+	ds.loc_ = loc;
+	if (table_.lookup(&ds, insn)) {
+	    if (insn.opcodes_[0] == 0xe9) {
+		auto off = ds.fetchImmediate(
+		    ds.operandSizePrefix_ ? WORD : LONG);
+		if (ds.operandSizePrefix_) {
+		    if (off & 0x8000)
+			off |= -(1L << 16);
+		} else {
+		    if (off & 0x80000000)
+			off |= -(1L << 32);
+		}
+		loc = ds.loc_;
+		target = loc + off;
+		return true;
+	    }
+	    if (insn.opcodes_[0] == 0xeb) {
+		auto off = ds.fetchImmediate(BYTE);
+		if (off & 0x80)
+		    off |= -(1L << 8);
+		loc = ds.loc_;
+		target = loc + off;
+		return true;
+	    }
+	    insn.skipImmediate(&ds);
+	    loc = ds.loc_;
+	}
+	return false;
+    }
+
     string disassemble(ref ulong loc, char delegate(ulong) readByte,
 	string delegate(ulong) lookupAddress)
     {

@@ -323,6 +323,11 @@ class ArmState: MachineState
 	    return addr;
 	}
 
+	ulong findJump(ulong start, ulong end)
+	{
+	    return end;
+	}
+
 	string disassemble(ref ulong address,
 			   string delegate(ulong) lookupAddress)
 	{

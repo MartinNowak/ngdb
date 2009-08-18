@@ -227,6 +227,12 @@ interface MachineState: Scope
     ulong findFlowControl(ulong start, ulong end);
 
     /**
+     * Scan the interval [start..end) and return the target address of
+     * the first unconditional jump in the range or end if there are none.
+     */
+    ulong findJump(ulong start, ulong end);
+
+    /**
      * Disassemble the instruction at 'address' advancing the value of
      * 'address' to point at the next instruction in sequence. The
      * delegate 'lookupAddress' is used to translate machine addresses
