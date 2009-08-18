@@ -2442,12 +2442,9 @@ class DIE
 {
     CompilationUnit cu_;
     DIE parent_;
-    ulong offset;
-    int tag;
-    bool hasChildren;
-    bool is64;
-    AttributeValue attrs[int];
-    DIE[] children;
+    uint tag_;
+    AttributeValue attrs_[uint];
+    DIE[] children_;
     AddressRange[] addresses_; // set of address ranges for this DIE
     DebugItem debugItem_;
 
@@ -2460,18 +2457,17 @@ class DIE
 
 	auto dw = cu_.parent;
 	char* abbrevp = abbrevTable[abbrevCode];
-	tag = dw.parseULEB128(abbrevp);
-	hasChildren = *abbrevp++ == DW_CHILDREN_yes;
-	is64 = cu.is64;
+	tag_ = dw.parseULEB128(abbrevp);
+	auto hasChildren = *abbrevp++ == DW_CHILDREN_yes;
 
 	for (;;) {
-	    int at = dw.parseULEB128(abbrevp);
-	    int form = dw.parseULEB128(abbrevp);
+	    uint at = dw.parseULEB128(abbrevp);
+	    uint form = dw.parseULEB128(abbrevp);
 	    if (!at)
 		break;
 	    AttributeValue val = new AttributeValue(dw, form, diep,
 						    addrlen, strtab);
-	    attrs[at] = val;
+	    attrs_[at] = val;
 	}
 	static if (false) {
 	    if (tag == DW_TAG_compile_unit) {
@@ -2495,16 +2491,20 @@ class DIE
 				  addrlen, strtab);
 
 		cu.dieMap[p - base] = die;
-		die.offset = p - base;
-		children ~= die;
+		children_ ~= die;
 		p = diep;
 	    }
 	}
     }
 
+    uint tag()
+    {
+	return tag_;
+    }
+
     AttributeValue opIndex(int at)
     {
-	AttributeValue* p = (at in attrs);
+	AttributeValue* p = (at in attrs_);
 	if (p) {
 	    return *p;
 	} else {
@@ -2512,10 +2512,10 @@ class DIE
 	     * Check for DW_AT_specification or DW_AT_abstract_origin
 	     * and get the field from that if possible.
 	     */
-	    p = (DW_AT_specification in attrs);
+	    p = (DW_AT_specification in attrs_);
 	    if (p)
 		return cu_[*p][at];
-	    p = (DW_AT_abstract_origin in attrs);
+	    p = (DW_AT_abstract_origin in attrs_);
 	    if (p)
 		return cu_[*p][at];
 	    return null;
@@ -2559,8 +2559,8 @@ class DIE
 	    char* p = &ranges[this[DW_AT_ranges].ul];
 	    for (;;) {
 		ulong start, end;
-		start = dw.parseOffset(p, is64);
-		end = dw.parseOffset(p, is64);
+		start = dw.parseOffset(p, cu_.is64);
+		end = dw.parseOffset(p, cu_.is64);
 		if (start == 0 && end == 0)
 		    break;
 		start += offset;
@@ -2575,7 +2575,7 @@ class DIE
     bool findInlinedSubroutine(ulong pc, out DIE func)
     {
 	if (contains(pc)) {
-	    foreach (d; children)
+	    foreach (d; children_)
 		if (d.tag == DW_TAG_inlined_subroutine
 		    && d.findInlinedSubroutine(pc, func))
 		    return true;
@@ -2591,7 +2591,7 @@ class DIE
     {
 	if (tag == DW_TAG_subprogram && contains(pc)) {
 	    if (findInline) {
-		foreach (d; children)
+		foreach (d; children_)
 		    if ((d.tag == DW_TAG_inlined_subroutine
 			 || d.tag == DW_TAG_lexical_block)
 			&& d.findInlinedSubroutine(pc, func))
@@ -2600,7 +2600,7 @@ class DIE
 	    func = this;
 	    return true;
 	}
-	foreach (d; children)
+	foreach (d; children_)
 	    if (d.findSubprogram(pc, findInline, func))
 		return true;
 	return false;
@@ -2728,7 +2728,7 @@ class DIE
 	{
 	    ulong sz = this[DW_AT_byte_size] ? this[DW_AT_byte_size].ul: 1;
 	    auto et = new EnumType(lang, name, sz);
-	    foreach (elem; children) {
+	    foreach (elem; children_) {
 		if (elem.tag != DW_TAG_enumerator)
 		    continue;
 		et.addTag(elem.name, elem[DW_AT_const_value].ul);
@@ -2756,7 +2756,7 @@ class DIE
 	     * when structures reference each other.
 	     */
 	    debugItem_ = ct;
-	    foreach (elem; children) {
+	    foreach (elem; children_) {
 		if (elem.tag == DW_TAG_member)
 		    ct.addField(cast(Variable) elem.debugItem);
 		else if (elem.tag == DW_TAG_subprogram)
@@ -2774,7 +2774,7 @@ class DIE
 	     * when structures reference each other.
 	     */
 	    debugItem_ = at;
-	    foreach (elem; children) {
+	    foreach (elem; children_) {
 		if (elem.tag == DW_TAG_subrange_type) {
 		    uint lb, ub, count;
 		    lb = ub = 0;
@@ -2832,7 +2832,7 @@ class DIE
 	    auto ft = new FunctionType(lang);
 	    if (ty)
 		ft.returnType = ty;
-	    foreach (d; children) {
+	    foreach (d; children_) {
 		if (d.tag == DW_TAG_formal_parameter) {
 		    if (d[DW_AT_type])
 			ft.addArgumentType(cu_[d[DW_AT_type]].toType);
@@ -2849,7 +2849,7 @@ class DIE
 	    if (ty)
 		f.returnType = ty;
 	    f.containingType = this.containingType;
-	    foreach (d; children) {
+	    foreach (d; children_) {
 		if (d.tag == DW_TAG_formal_parameter)
 		    f.addArgument(cast(Variable) d.debugItem);
 		else if (d.tag == DW_TAG_unspecified_parameters)
@@ -2875,7 +2875,7 @@ class DIE
 
 	case DW_TAG_lexical_block:
 	    auto ls = new LexicalScope(cu_.lang, addresses);
-	    foreach (d; children) {
+	    foreach (d; children_) {
 		if (d.tag == DW_TAG_variable)
 		    ls.addVariable(cast(Variable) d.debugItem);
 		if (d.tag == DW_TAG_lexical_block)
@@ -2891,20 +2891,6 @@ class DIE
 	return debugItem_;
     }
 
-    Variable[] findVars(int tag)
-    {
-	Variable[] vars;
-	Variable var;
-	foreach (die; children) {
-	    if (die.tag != tag)
-		continue;
-	    var = cast(Variable) die.debugItem;
-	    if (var)
-		vars ~= var;
-	}
-	return vars;
-    }
-
     Type toType()
     {
 	return cast(Type) debugItem;
@@ -2914,15 +2900,13 @@ class DIE
     {
 	printIndent(indent);
 	writefln("%s", tagNames[tag]);
-	foreach (at, val; attrs) {
+	foreach (at, val; attrs_) {
 	    printIndent(indent + 1);
 	    writef("%s = ", attrNames[at]);
 	    val.print();
 	}
-	if (hasChildren) {
-	    foreach (kid; children)
-		kid.print(indent + 2);
-	}
+	foreach (kid; children_)
+	    kid.print(indent + 2);
     }
 }
 
@@ -3002,7 +2986,7 @@ class CompilationUnit
 	     * some from the top-level DIEs in the CU.
 	     */
 	    if (addresses.length == 0) {
-		foreach (kid; die.children)
+		foreach (kid; die.children_)
 		    if (kid.contains(pc))
 			return true;
 		return false;
@@ -3029,7 +3013,7 @@ class CompilationUnit
 
     bool findSubprogram(ulong pc, bool findInline, out DIE func)
     {
-	foreach (kid; die.children)
+	foreach (kid; die.children_)
 	    if (kid.findSubprogram(pc, findInline, func))
 		return true;
 	return false;
