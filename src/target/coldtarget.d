@@ -203,7 +203,7 @@ class ColdThread: TargetThread
 	state_ = target.modules_[0].getState(target);
 	if (p)
 	    state.setGRs(p);
-	else
+	else if (target.modules_[0].obj_)
 	    state.pc = target.modules_[0].obj_.entry;
     }
 
