@@ -2179,7 +2179,7 @@ struct Loclist
 	if (lpc)
 	    base = lpc.ul + offset;
 	else
-	    base = 0;
+	    base = offset;
 	for (;;) {
 	    sOff = dw.parseOffset(p, is64);
 	    eOff = dw.parseOffset(p, is64);
