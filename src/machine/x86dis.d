@@ -638,9 +638,9 @@ private:
 	ins(VV|N, "D9 /r76",		"FSIN");
 	ins(VV|N, "D9 /r77",		"FCOS");
 
-	ins(VV|S, "D9 /0",		"FLD Md");
-	ins(VV|S, "D9 /2",		"FST Md");
-	ins(VV|S, "D9 /3",		"FSTP Md");
+	ins(VV|S, "D9 /0",		"FLD Mf");
+	ins(VV|S, "D9 /2",		"FST Mf");
+	ins(VV|S, "D9 /3",		"FSTP Mf");
 	ins(VV|S, "D9 /4",		"FLDENV Mb");
 	ins(VV|S, "D9 /5",		"FLDCW Mw");
 	ins(VV|S, "D9 /6",		"FNSTENV Mb");
@@ -672,8 +672,8 @@ private:
 	ins(VV|L, "DB /1",		"FISTTP Md");
 	ins(VV|L, "DB /2",		"FIST Md");
 	ins(VV|L, "DB /3",		"FISTP Md");
-	ins(VV|LD, "DB /5",		"FLD Md");
-	ins(VV|LD, "DB /7",		"FSTP Md");
+	ins(VV|LD, "DB /5",		"FLD Mld");
+	ins(VV|LD, "DB /7",		"FSTP Mld");
 
 	ins(VV|N, "DC /r0",		"FADD ST(i),ST(0)");
 	ins(VV|N, "DC /r1",		"FMUL ST(i),ST(0)");
@@ -683,14 +683,14 @@ private:
 	ins(VV|N, "DC /r5",		"FSUB ST(i),ST(0)");
 	ins(VV|N, "DC /r6",		"FDIVR ST(i),ST(0)");
 	ins(VV|N, "DC /r7",		"FDIV ST(i),ST(0)");
-	ins(VV|D, "DC /0",		"FADD Mdq");
-	ins(VV|D, "DC /1",		"FMUL Mdq");
-	ins(VV|D, "DC /2",		"FCOM Mdq");
-	ins(VV|D, "DC /3",		"FCOMP Mdq");
-	ins(VV|D, "DC /4",		"FSUB Mdq");
-	ins(VV|D, "DC /5",		"FSUBR Mdq");
-	ins(VV|D, "DC /6",		"FDIV Mdq");
-	ins(VV|D, "DC /7",		"FDIVR Mdq");
+	ins(VV|D, "DC /0",		"FADD Mq");
+	ins(VV|D, "DC /1",		"FMUL Mq");
+	ins(VV|D, "DC /2",		"FCOM Mq");
+	ins(VV|D, "DC /3",		"FCOMP Mq");
+	ins(VV|D, "DC /4",		"FSUB Mq");
+	ins(VV|D, "DC /5",		"FSUBR Mq");
+	ins(VV|D, "DC /6",		"FDIV Mq");
+	ins(VV|D, "DC /7",		"FDIVR Mq");
 
 	ins(VV|N, "DD /r0",		"FFREE ST(i)");
 	ins(VV|N, "DD /r2",		"FST ST(i)");
@@ -702,10 +702,10 @@ private:
 	ins(VV|N, "DD /6",		"FNSAVE Mb");
 	ins(VV|N, "DD /7",		"FNSTSW Mb");
 
-	ins(VV|D, "DD /0",		"FLD Mdq");
-	ins(VV|Q, "DD /1",		"FISTTP Mdq");
-	ins(VV|D, "DD /2",		"FST Mdq");
-	ins(VV|D, "DD /3",		"FSTP Mdq");
+	ins(VV|D, "DD /0",		"FLD Mq");
+	ins(VV|Q, "DD /1",		"FISTTP Mq");
+	ins(VV|D, "DD /2",		"FST Mq");
+	ins(VV|D, "DD /3",		"FSTP Mq");
 	ins(VV|N, "DD /4",		"FRSTOR Mb");
 	ins(VV|N, "DD /6",		"FNSAVE Mb");
 	ins(VV|N, "DD /7",		"FNSTSW Mb");
@@ -724,13 +724,13 @@ private:
 	ins(VV|N, "DE /r7",		"FDIVP ST(i),ST(0)");
 	ins(VV|N, "DE /r71",		"FDIVP");
 	ins(VV|W, "DE /0",		"FIADD Mw");
-	ins(VV|Q, "DE /1",		"FIMUL Mdq");
+	ins(VV|Q, "DE /1",		"FIMUL Mq");
 	ins(VV|W, "DE /2",		"FICOM Mw");
 	ins(VV|W, "DE /3",		"FICOMP Mw");
 	ins(VV|W, "DE /4",		"FISUB Mw");
 	ins(VV|W, "DE /5",		"FISUBR Mw");
-	ins(VV|Q, "DE /7",		"FIDIVR Mdq");
-	ins(VV|Q, "DE /6",		"FIDIV Mdq");
+	ins(VV|Q, "DE /7",		"FIDIVR Mq");
+	ins(VV|Q, "DE /6",		"FIDIV Mq");
 
 	ins(VV|N, "DF /r40",		"FNSTSW AX");
 	ins(VV|N, "DF /r5",		"FUCOMIP ST(0),ST(i)");
@@ -741,8 +741,8 @@ private:
 	ins(VV|W, "DF /2",		"FIST Mw");
 	ins(VV|W, "DF /3",		"FISTP Mw");
 	ins(VV|D, "DF /4",		"FBLD Mb"); // m80
-	ins(VV|Q, "DF /5",		"FILD Mdq");
-	ins(VV|Q, "DF /7",		"FISTP Mdq");
+	ins(VV|Q, "DF /5",		"FILD Mq");
+	ins(VV|Q, "DF /7",		"FISTP Mq");
 
 	ins(VV|F, "E0",			"LOOPNE Jb");
 	ins(VV|F, "E1",			"LOOPZ Jb");
@@ -2407,6 +2407,12 @@ struct DecodeState
 		break;
 	    case "dq":
 		size = XMM;
+		break;
+	    case "f":
+		size = FLOAT;
+		break;
+	    case "ld":
+		size = LDOUBLE;
 		break;
 	    case "n":
 		size = NONE;
