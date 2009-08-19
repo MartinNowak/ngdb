@@ -1088,7 +1088,33 @@ class AArrayType: TypeBase
 	}
 	string valueToString(string fmt, MachineState state, Location loc)
 	{
-	    return lang_.renderArrayConstant("...");
+	    struct keyval {
+		Location k;
+		Location v;
+	    }
+	    keyval[] kvs;
+
+	    void addKv(Location k, Location v)
+	    {
+		kvs ~= keyval(k, v);
+	    }
+
+	    iterateElements(state, loc, &addKv);
+	    string res;
+
+	    foreach (i, kv; kvs) {
+		if (i > 0)
+		    res ~= ", ";
+		if (i == 3) {
+		    res ~= "...";
+		    break;
+		}
+		res ~= keyType_.valueToString(fmt, state, kv.k);
+		res ~= ":";
+		res ~= baseType_.valueToString(fmt, state, kv.v);
+	    }
+
+	    return lang_.renderArrayConstant(res);
 	}
 	size_t byteWidth()
 	{
@@ -1105,6 +1131,64 @@ class AArrayType: TypeBase
     }
 
 private:
+    void iterateElements(MachineState state, Location loc,
+			 void delegate(Location, Location) dg)
+    {
+// 	struct aaA
+// 	{
+// 	    aaA *left;
+// 	    aaA *right;
+// 	    hash_t hash;
+// 	    /* key   */
+// 	    /* value */
+// 	}
+
+// 	struct BB
+// 	{
+// 	    aaA*[] b;
+// 	    size_t nodes;       // total number of aaA nodes
+// 	    TypeInfo keyti;
+// 	}
+
+	/*
+	 * First get the pointer to the BB structure and make a
+	 * location which describes the aaA*[] array.
+	 */
+	auto pw = state.pointerWidth;
+	auto p = state.readInteger(loc.readValue(state));
+	if (!p)
+	    return;
+	loc = new MemoryLocation(p, 2*pw);
+	auto val = loc.readValue(state);
+	auto aaAlen = state.readInteger(val[0..pw]);
+	auto aaAptr = state.readInteger(val[pw..$]);
+
+	for (auto i = 0; i < aaAlen; i++) {
+	    loc = new MemoryLocation(aaAptr + i * pw,
+				     pw);
+	    auto aaAp = state.readInteger(loc.readValue(state));
+	    
+	    void visitNode(ulong p)
+	    {
+		if (!p)
+		    return;
+
+		loc = new MemoryLocation(p, 3*pw);
+		auto keyLoc = new MemoryLocation(p + 3*pw,
+						 keyType_.byteWidth);
+		auto valLoc = new MemoryLocation(p + 3*pw
+						 + keyType_.byteWidth,
+						 baseType_.byteWidth);
+		auto rec = loc.readValue(state);
+		visitNode(state.readInteger(rec[0..pw]));
+		dg(keyLoc, valLoc);
+		visitNode(state.readInteger(rec[pw..2*pw]));
+	    }
+
+	    visitNode(aaAp);
+	}
+    }
+
     Type baseType_;
     Type keyType_;
     size_t byteWidth_;
