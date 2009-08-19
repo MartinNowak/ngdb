@@ -98,6 +98,7 @@ class Language
     abstract string renderCharConstant(int ch);
     abstract string renderStructConstant(string);
     abstract string renderArrayConstant(string);
+    abstract string renderNullPointer();
 
     abstract Expr parseExpr(string s);
 
@@ -191,6 +192,10 @@ class CLikeLanguage: Language
 	string renderArrayConstant(string s)
 	{
 	    return format("{%s}", s);
+	}
+	string renderNullPointer()
+	{
+	    return "NULL";
 	}
 
 	Expr parseExpr(string s)
@@ -898,6 +903,10 @@ class DLanguage: CLikeLanguage
 	string renderArrayConstant(string s)
 	{
 	    return format("[%s]", s);
+	}
+	string renderNullPointer()
+	{
+	    return "null";
 	}
 
 	Expr parseExpr(string s)

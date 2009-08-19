@@ -2639,8 +2639,11 @@ class DIE
 	auto offset = cu_.parent.obj_.offset;
 	auto t = this[DW_AT_type];
 	Type ty = null;
-	if (t)
-	    ty = cu_[t].toType;
+	if (t) {
+	    auto d = cu_[t];
+	    if (d)
+		ty = d.toType;
+	}
 
 	Type subType()
 	{
@@ -2797,6 +2800,18 @@ class DIE
 	case DW_TAG_darray_type:
 	    debugItem_ = new DArrayType(lang, subType,
 					this[DW_AT_byte_size].ui);
+	    break;
+
+	case DW_TAG_aarray_type:
+	    auto keyType = this[DW_AT_containing_type];
+	    if (keyType) {
+		debugItem_ = new AArrayType(lang, subType,
+					    cu_[keyType].toType,
+					    this[DW_AT_byte_size].ui);
+	    } else {
+		writefln("No DW_AT_containing_type attribute for DW_TAG_aarray_type");
+		debugItem_ = lang.voidType;
+	    }
 	    break;
 
 	case DW_TAG_typedef:

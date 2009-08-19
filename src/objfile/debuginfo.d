@@ -557,9 +557,13 @@ class PointerType: TypeBase
 	{
 	    string v;
 	    ulong p = state.readInteger(loc.readValue(state));
-	    v = std.string.format("0x%x", p);
-	    if (lang_.isStringType(this) && p)
-		v ~= " " ~ lang_.renderStringConstant(state, this, loc);
+	    if (p) {
+		v = std.string.format("0x%x", p);
+		if (lang_.isStringType(this) && p)
+		    v ~= " " ~ lang_.renderStringConstant(state, this, loc);
+	    } else {
+		v = lang_.renderNullPointer;
+	    }
 	    return v;
 	}
 
@@ -1058,6 +1062,51 @@ class DArrayType: TypeBase
 
 private:
     Type baseType_;
+    size_t byteWidth_;
+}
+
+class AArrayType: TypeBase
+{
+    this(Language lang, Type baseType, Type keyType, size_t byteWidth)
+    {
+	super(lang);
+	baseType_ = baseType;
+	keyType_ = keyType;
+	byteWidth_ = byteWidth;
+    }
+
+    Type baseType()
+    {
+	return baseType_;
+    }
+
+    override
+    {
+	string toString()
+	{
+	    return baseType_.toString ~ "[" ~ keyType_.toString ~"]";
+	}
+	string valueToString(string fmt, MachineState state, Location loc)
+	{
+	    return lang_.renderArrayConstant("...");
+	}
+	size_t byteWidth()
+	{
+	    return byteWidth_;
+	}
+	bool isCharType()
+	{
+	    return false;
+	}
+	bool isIntegerType()
+	{
+	    return false;
+	}
+    }
+
+private:
+    Type baseType_;
+    Type keyType_;
     size_t byteWidth_;
 }
 
