@@ -690,6 +690,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	}
 
 	std.format.doFormat(&putc, _arguments, _argptr);
+	s = expandtabs(s);
 	while (s.length) {
 	    uint n = s.length;
 	    if (n > 80) n = 80;
@@ -942,6 +943,8 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 		s = bestSym.name ~ "+" ~ .toString(addr - bestSym.value);
 	    else
 		s = bestSym.name;
+	    if (s.length > 33)
+		s = s[0..15] ~ "..." ~ s[$-15..$];
 	    return std.string.format("%#x <%s>", addr, s);
 	}
 	return std.string.format("%#x", addr);
@@ -1927,7 +1930,8 @@ class BreakCommand: Command
 	    if (args.length != 1)
 		return null;
 
-	    string[] syms = db.contents(db.currentThread.state);
+	    auto state = db.currentThread ? db.currentThread.state : null;
+	    string[] syms = db.contents(state);
 	    string[] matches;
 	    string s = args[0];
 	    foreach (sym; syms)
