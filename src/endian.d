@@ -99,8 +99,8 @@ class LittleEndian: Endian
     }
     void write(ulong val, ubyte[] bytes)
     {
-	for (int i = 0; i < bytes.length; i++) {
-	    bytes[i] = val & 0xff;
+	foreach (ref b; bytes) {
+	    b = val & 0xff;
 	    val >>= 8;
 	}
     }
@@ -165,8 +165,8 @@ class BigEndian: Endian
     }
     void write(ulong val, ubyte[] bytes)
     {
-	for (int i = bytes.length - 1; i >= 0; i--) {
-	    bytes[i] = val & 0xff;
+	foreach_reverse(ref b; bytes) {
+	    b = val & 0xff;
 	    val >>= 8;
 	}
     }

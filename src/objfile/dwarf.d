@@ -2984,8 +2984,8 @@ class CompilationUnit
     bool contains(ulong pc)
     {
 	if (addresses.length) {
-	    for (int i = 0; i < addresses.length; i++)
-		if (addresses[i].contains(pc))
+	    foreach (ref a; addresses)
+		if (a.contains(pc))
 		    return true;
 	    return false;
 	} else {

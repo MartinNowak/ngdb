@@ -267,8 +267,8 @@ class ArmState: MachineState
 
 	void writeInteger(ulong val, ubyte[] bytes)
 	{
-	    for (int i = 0; i < bytes.length; i++) {
-		bytes[i] = val & 0xff;
+	    foreach (ref b; bytes) {
+		b = val & 0xff;
 		val >>= 8;
 	    }
 	}
