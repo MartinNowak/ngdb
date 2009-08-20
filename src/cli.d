@@ -1476,7 +1476,7 @@ private:
 	    string m0 = matches[0];
 	    for (i = 0; i < m0.length; i++) {
 		foreach (m; matches[1..$]) {
-		    if (i > m.length || m[i] != m0[i])
+		    if (i >= m.length || m[i] != m0[i])
 			goto gotPrefix;
 		}
 	    }
