@@ -248,18 +248,17 @@ private class Breakpoint: TargetBreakpointListener
 	 * Try to guess a source language for parsing the expression.
 	 */
 	Language lang;
-	foreach (address; addresses_) {
+	gotLang: foreach (address; addresses_) {
 	    foreach (mod; db_.modules_) {
 		auto di = mod.debugInfo;
 		if (di)
 		    lang = di.findLanguage(address);
 		if (lang)
-		    goto gotLang;
+		    break gotLang;
 	    }
 	}
 	if (!lang)
 	    lang = CLikeLanguage.instance;
-    gotLang:
 	try {
 	    auto e = lang.parseExpr(s);
 	    condition_ = s;
@@ -872,7 +871,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
     void displaySourceLine(SourceFile sf, uint line)
     {
 	string bpmark = " ";
-	foreach (mod; modules_) {
+	showline: foreach (mod; modules_) {
 	    DebugInfo di = mod.debugInfo;
 	    if (!di)
 		continue;
@@ -882,11 +881,10 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 		    foreach (bp; breakpoints_)
 			if (bp.matches(li.address))  {
 			    bpmark = "*";
-			    goto showline;
+			    break showline;
 			}
 	    }
 	}
-    showline:
 	auto s = sf[line];
 	if (s) {
 	    string a = "  ";
@@ -1474,13 +1472,12 @@ private:
 		return CC_ERROR;
 	    int i;
 	    string m0 = matches[0];
-	    for (i = 0; i < m0.length; i++) {
+	    gotPrefix: for (i = 0; i < m0.length; i++) {
 		foreach (m; matches[1..$]) {
 		    if (i >= m.length || m[i] != m0[i])
-			goto gotPrefix;
+			break gotPrefix;
 		}
 	    }
-	gotPrefix:
 	    if (i > lastArg.length) {
 		string s = m0[lastArg.length..i];
 		if (el_insertstr(el, toStringz(s)) == -1)
