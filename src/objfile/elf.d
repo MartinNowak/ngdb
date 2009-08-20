@@ -50,6 +50,9 @@
  */
 
 module objfile.elf;
+
+//debug = elf;
+
 import std.stdint;
 
 version (GDC)
@@ -1049,8 +1052,8 @@ template ElfFileBase()
 	debug (elf)
 	    writefln("%d program headers", read(eh.e_phnum));
 	ph_.length = read(eh.e_phnum);
-	for (int i = 0; i < ph_.length; i++) {
-	    if (pread(fd, &ph_[i], eh.e_phentsize,
+	foreach (i, ref ph; ph_) {
+	    if (pread(fd, &ph, eh.e_phentsize,
 		      eh.e_phoff + i * eh.e_phentsize) != eh.e_phentsize)
 		throw new Exception("Can't read program headers");
 	}
@@ -1070,8 +1073,8 @@ template ElfFileBase()
 	debug (elf)
 	    writefln("%d sections", read(eh.e_shnum));
 	sections_.length = read(eh.e_shnum);
-	for (int i = 0; i < sections_.length; i++) {
-	    if (pread(fd, &sections_[i], eh.e_shentsize,
+	foreach (i, ref sh; sections_) {
+	    if (pread(fd, &sh, eh.e_shentsize,
 		      eh.e_shoff + i * eh.e_shentsize) != eh.e_shentsize)
 		throw new Exception("Can't read section headers");
 	}
@@ -1081,8 +1084,7 @@ template ElfFileBase()
 	}
 
 	debug (elf)
-	    for (int i = 0; i < sections_.length; i++) {
-		Shdr *sh = &sections_[i];
+	    foreach (i, ref sh; sections_) {
 		if (read(sh.sh_type) == SHT_NULL)
 		    continue;
 		writefln("Section %d type %d, name %s, off %d, size %d",
@@ -1091,8 +1093,7 @@ template ElfFileBase()
 			 read(sh.sh_offset), read(sh.sh_size));
 	    }
 
-	for (int i = 0; i < sections_.length; i++) {
-	    Shdr *sh = &sections_[i];
+	foreach (ref sh; sections_) {
 	    if (read(sh.sh_type) == SHT_NULL)
 		continue;
 	    if (.toString(&shStrings_[sh.sh_name]) != ".plt")
@@ -1103,8 +1104,7 @@ template ElfFileBase()
 
 	Symbol[] symtab;
 	Symbol[] dynsym;
-	for (int i = 0; i < sections_.length; i++) {
-	    Shdr *sh = &sections_[i];
+	foreach (i, ref sh; sections_) {
 	    if (read(sh.sh_type) == SHT_SYMTAB)
 		symtab = readSymbols(i);
 	    else if (read(sh.sh_type) == SHT_DYNSYM)
@@ -1187,8 +1187,7 @@ template ElfFileBase()
 
     int lookupSection(string name)
     {
-	for (int i = 0; i < sections_.length; i++) {
-	    Shdr *sh = &sections_[i];
+	foreach (i, ref sh; sections_) {
 	    if (std.string.toString(&shStrings_[sh.sh_name]) == name)
 		return i;
 	}
@@ -1452,8 +1451,7 @@ private:
 
 	Symbol[] symbols;
 	symbols.length = syms.length;
-	for (int i = 0; i < syms.length; i++) {
-	    Sym* sym = &syms[i];
+	foreach (i, ref sym; syms) {
 	    Symbol* s = &symbols[i];
 	    s.name = std.string.toString(&strings[read(sym.st_name)]);
 	    s.value = read(sym.st_value) + offset_;
@@ -1469,25 +1467,23 @@ private:
     Symbol* _lookupSymbol(uintptr_t addr, Symbol[] syms)
     {
 	Symbol* best = null;
-	for (int i = 0; i < syms.length; i++) {
-	    Symbol* s = &syms[i];
+	foreach (ref s; syms) {
 	    if (s.type != STT_FUNC && s.type != STT_OBJECT)
 		continue;
 	    if (addr >= s.value && addr < s.value + s.size)
-		return s;
+		return &s;
 	    if (addr >= s.value
 		&& (!best || addr - s.value < addr - best.value))
-		best = s;
+		best = &s;
 	}
 	return best;
     }
 
     Symbol* _lookupSymbol(string name, Symbol[] syms)
     {
-	for (int i = 0; i < syms.length; i++) {
-	    Symbol* s = &syms[i];
+	foreach (ref s; syms) {
 	    if (s.name == name)
-		return s;
+		return &s;
 	}
 	return null;
     }
