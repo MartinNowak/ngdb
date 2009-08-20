@@ -516,7 +516,7 @@ class X86State: MachineState
 	ulong readInteger(ubyte[] bytes)
 	{
 	    ulong value = 0;
-	    foreach (b; bytes.reverse)
+	    foreach_reverse (b; bytes)
 		value = (value << 8L) | b;
 	    return value;
 	}

@@ -74,7 +74,7 @@ class LittleEndian: Endian
     ulong read(ubyte[] bytes)
     {
 	ulong value = 0;
-	foreach (b; bytes.reverse)
+	foreach_reverse (b; bytes)
 	    value = (value << 8) | b;
 	return value;
     }
