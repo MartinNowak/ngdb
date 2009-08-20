@@ -495,7 +495,7 @@ class CLikeLanguage: Language
 	/*
 	 * AndExpression:
 	 *	CmpExpression
-	 *	AndExpression ^ CmpExpression
+	 *	AndExpression & CmpExpression
 	 *
 	 * eliminating left recursion:
 	 *
@@ -732,6 +732,7 @@ class CLikeLanguage: Language
 	 * PostfixExpression:
 	 *	PrimaryExpression
 	 *	PostfixExpression . Identifier
+	 *	PostfixExpression -> Identifier
 	 *	PostfixExpression ++
 	 *	PostfixExpression --
 	 *	PostfixExpression ( )
