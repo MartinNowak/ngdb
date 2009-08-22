@@ -222,7 +222,7 @@ class CLikeLanguage: Language
 	    auto e = expr(lex);
 	    auto tok = lex.nextToken;
 	    if (tok.id != "EOF")
-		return unexpected(tok);
+		throw unexpected(tok);
 	    return e;
 	}
     }
@@ -269,20 +269,25 @@ class CLikeLanguage: Language
 	return sv;
     }
 
-    void error(Token tok, string message)
+    Exception error(Token tok, string message)
     {
 	writefln("%s", tok.parent_.source);
 	for (uint i = 0; i < tok.start; i++)
 	    writef(" ");
-	for (uint i = tok.start; i < tok.end; i++)
+	if (tok.end > tok.start)
+	    for (uint i = tok.start; i < tok.end; i++)
+		writef("^");
+	else
 	    writef("^");
 	writefln("");
-	throw new EvalException(message);
+	return new EvalException(message);
     }
-    Expr unexpected(Token tok)
+    Exception unexpected(Token tok)
     {
-	error(tok, format("Unexpected token '%s'", tok.value));
-	return null;
+	if (cast(EOFToken) tok)
+	    return error(tok, "Unexpected end of expression");
+	else
+	    return error(tok, format("Unexpected token '%s'", tok.value));
     }
     Expr expr(Lexer lex)
     {
@@ -366,7 +371,7 @@ class CLikeLanguage: Language
 		e2 = new IntegerBinaryExpr!(">>", "right shift")(this, e, e2);
 		break;
 	    default:
-		return unexpected(tok);
+		throw unexpected(tok);
 	    }
 	    return new AssignExpr(this, e, e2);
 	}
@@ -390,7 +395,7 @@ class CLikeLanguage: Language
 		return null;
 	    tok = lex.nextToken;
 	    if (tok.id != ":")
-		return unexpected(tok);
+		throw unexpected(tok);
 	    lex.consume;
 	    auto e3 = conditionalExpr(lex);
 	    return new IfElseExpr(this, e, e2, e3);
@@ -720,7 +725,7 @@ class CLikeLanguage: Language
 	    }
 	    tok = lex.nextToken;
 	    if (tok.id != ")")
-		return unexpected(tok);
+		throw unexpected(tok);
 	    lex.consume;
 	    auto e = castExpr(lex);
 	    return new CastExpr(this, ty, e);
@@ -784,7 +789,7 @@ class CLikeLanguage: Language
 		if (ty) {
 		    tok = lex.nextToken;
 		    if (tok.id != ")")
-			unexpected(tok);
+			throw unexpected(tok);
 		    lex.consume;
 		    return new SizeofTypeExpr(this, ty);
 		} else {
@@ -831,13 +836,13 @@ class CLikeLanguage: Language
 		lex.consume;
 		tok = lex.nextToken;
 		if (tok.id != "identifier")
-		    unexpected(tok);
+		    throw unexpected(tok);
 		e = new MemberExpr(this, e, (cast(IdentifierToken) tok).value);
 	    } else if (tok.id == "->") {
 		lex.consume;
 		tok = lex.nextToken;
 		if (tok.id != "identifier")
-		    unexpected(tok);
+		    throw unexpected(tok);
 		e = new PointsToExpr(this, e, (cast(IdentifierToken) tok).value);
 	    } else if (tok.id == "++" || tok.id == "--") {
 		lex.consume;
@@ -852,7 +857,7 @@ class CLikeLanguage: Language
 		auto e2 = assignExpr(lex);
 		tok = lex.nextToken;
 		if (tok.id != "]")
-		    return unexpected(tok);
+		    throw unexpected(tok);
 		e = new IndexExpr(this, e, e2);
 	    } else {
 		return e;
@@ -884,11 +889,11 @@ class CLikeLanguage: Language
 	    Expr e = expr(lex);
 	    tok = lex.nextToken;
 	    if (tok.id != ")")
-		return unexpected(tok);
+		throw unexpected(tok);
 	    lex.consume;
 	    return e;
 	}
-	return unexpected(tok);
+	throw unexpected(tok);
     }
     Type typeName(Lexer lex)
     {
@@ -1086,7 +1091,7 @@ class CLikeLanguage: Language
 	    lex.consume;
 	    tok = lex.nextToken;
 	    if (tok.id != "identifier")
-		unexpected(tok);
+		throw unexpected(tok);
 	    lex.consume;
 	    Type ty;
 	    if (lex.sc.lookupStruct(tok.value, ty))
@@ -1096,14 +1101,14 @@ class CLikeLanguage: Language
 	    lex.consume;
 	    tok = lex.nextToken;
 	    if (tok.id != "identifier")
-		unexpected(tok);
+		throw unexpected(tok);
 	    lex.consume;
 	    Type ty;
 	    if (lex.sc.lookupUnion(tok.value, ty))
 		return ty;
 	    throw new EvalException(format("Can't find union %s", tok.value));
 	} else {
-	    unexpected(tok);
+	    throw unexpected(tok);
 	}
 	return null;
     }
@@ -1214,10 +1219,8 @@ class CLikeLanguage: Language
 		ptr.pend_ = functionParameters(ptr.pend_, lex);
 	    }
 	    tok = lex.nextToken;
-	    if (tok.id != ")") {
-		unexpected(tok);
-		return null;
-	    }
+	    if (tok.id != ")")
+		throw unexpected(tok);
 	    lex.consume;
 	    tok = lex.nextToken;
 	}
@@ -1235,26 +1238,22 @@ class CLikeLanguage: Language
 		lex.consume;
 		tok = lex.nextToken;
 		if (tok.id != "number")
-		    unexpected(tok);
+		    throw unexpected(tok);
 		lex.consume;
 		ptr.pend_ = new arrayTransform(this, ptr.pend_,
 					       strtoul(toStringz(tok.value),
 						       null, 0));
 		tok = lex.nextToken;
-		if (tok.id != "]") {
-		    unexpected(tok);
-		    return null;
-		}
+		if (tok.id != "]")
+		    throw unexpected(tok);
 		lex.consume;
 		tok = lex.nextToken;
 	    } else if (tok.id == "(") {
 		lex.consume;
 		ptr.pend_ = functionParameters(ptr.pend_, lex);
 		tok = lex.nextToken;
-		if (tok.id != ")") {
-		    unexpected(tok);
-		    return null;
-		}
+		if (tok.id != ")")
+		    throw unexpected(tok);
 		lex.consume;
 		tok = lex.nextToken;
 	    }
@@ -1292,10 +1291,10 @@ class CLikeLanguage: Language
 		lex.consume;
 		tok = lex.nextToken;
 		if (tok.id == ")")
-		    unexpected(tok);
+		    throw unexpected(tok);
 		continue;
 	    } else if (tok.id != ")") {
-		unexpected(tok);
+		throw unexpected(tok);
 	    }
 	}
 	return new functionTransform(this, tr, isVarargs, argTypes);
@@ -1535,7 +1534,7 @@ class DLanguage: CLikeLanguage
 	    auto e = expr(lex);
 	    auto tok = lex.nextToken;
 	    if (tok.id != "EOF")
-		return unexpected(tok);
+		throw unexpected(tok);
 	    return e;
 	}
     }
@@ -1551,14 +1550,14 @@ class DLanguage: CLikeLanguage
 	    lex.consume;
 	    tok = lex.nextToken;
 	    if (tok.id != "(")
-		return unexpected(tok);
+		throw unexpected(tok);
 	    lex.consume;
 	    auto ty = typeName(lex);
 	    if (!ty)
 		return unaryExpr(lex);
 	    tok = lex.nextToken;
 	    if (tok.id != ")")
-		return unexpected(tok);
+		throw unexpected(tok);
 	    lex.consume;
 	    auto e = castExpr(lex);
 	    return new CastExpr(this, ty, e);
@@ -1647,7 +1646,7 @@ class DLanguage: CLikeLanguage
 		lex.consume;
 		tok = lex.nextToken;
 		if (tok.id != "identifier")
-		    unexpected(tok);
+		    throw unexpected(tok);
 		lex.consume;
 		auto idtok = cast(IdentifierToken) tok;
 		switch (idtok.value) {
@@ -1676,7 +1675,7 @@ class DLanguage: CLikeLanguage
 		auto e2 = assignExpr(lex);
 		tok = lex.nextToken;
 		if (tok.id != "]")
-		    return unexpected(tok);
+		    throw unexpected(tok);
 		e = new IndexExpr(this, e, e2);
 	    } else {
 		return e;
@@ -1711,14 +1710,14 @@ class DLanguage: CLikeLanguage
 	if (ty) {
 	    tok = lex.nextToken;
 	    if (tok.id != ".")
-		return unexpected(tok);
+		throw unexpected(tok);
 	    lex.consume;
 	    tok = lex.nextToken;
 	    if (tok.id != "identifier")
-		return unexpected(tok);
+		throw unexpected(tok);
 	    lex.consume;
 	    if (tok.value != "sizeof")
-		return unexpected(tok);
+		throw unexpected(tok);
 	    return new SizeofTypeExpr(this, ty);
 	}
 	if (tok.id == "(") {
@@ -1726,11 +1725,11 @@ class DLanguage: CLikeLanguage
 	    Expr e = expr(lex);
 	    tok = lex.nextToken;
 	    if (tok.id != ")")
-		return unexpected(tok);
+		throw unexpected(tok);
 	    lex.consume;
 	    return e;
 	}
-	return unexpected(tok);
+	throw unexpected(tok);
     }
     Type typeName(Lexer lex)
     {
@@ -1914,7 +1913,7 @@ class DLanguage: CLikeLanguage
 	    tr = declarator2(ptr, lex);
 	    tok = lex.nextToken;
 	    if (tok.id != ")")
-		unexpected(tok);
+		throw unexpected(tok);
 	    lex.consume;
 	    tok = lex.nextToken;
 	    if (tok.id == "[")
@@ -1960,7 +1959,7 @@ class DLanguage: CLikeLanguage
 	 */
 	auto tok = lex.nextToken;
 	if (tok.id != "[")
-	    unexpected(tok);
+	    throw unexpected(tok);
 	/*
 	 * For now, just support [ ] and [ number ].
 	 */
@@ -1971,13 +1970,13 @@ class DLanguage: CLikeLanguage
 	    return new darrayTransform(this, tr);
 	}
 	if (tok.id != "number")
-	    unexpected(tok);
+	    throw unexpected(tok);
 	lex.consume;
 	tr = new arrayTransform(this, tr,
 				strtoul(toStringz(tok.value), null, 0));
 	tok = lex.nextToken;
 	if (tok.id != "]")
-	    unexpected(tok);
+	    throw unexpected(tok);
 	lex.consume;
 	return tr;
     }
@@ -2009,13 +2008,13 @@ class DLanguage: CLikeLanguage
 		return new darrayTransform(this, tr);
 	    }
 	    if (tok.id != "number")
-		unexpected(tok);
+		throw unexpected(tok);
 	    lex.consume;
 	    tr = new arrayTransform(this, tr,
 				    strtoul(toStringz(tok.value), null, 0));
 	    tok = lex.nextToken;
 	    if (tok.id != "]")
-		unexpected(tok);
+		throw unexpected(tok);
 	    lex.consume;
 	    return tr;
 	case "delegate":
@@ -2048,14 +2047,14 @@ class DLanguage: CLikeLanguage
 	bool isVarargs;
 
 	if (tok.id != "(")
-	    unexpected(tok);
+	    throw unexpected(tok);
 	lex.consume;
 	tok = lex.nextToken;
 	if (tok.id == "...") {
 	    lex.consume;
 	    tok = lex.nextToken;
 	    if (tok.id != ")")
-		unexpected(tok);
+		throw unexpected(tok);
 	    lex.consume;
 	    return new functionTransform(this, tr, true, null);
 	}
@@ -2077,15 +2076,15 @@ class DLanguage: CLikeLanguage
 		lex.consume;
 		tok = lex.nextToken;
 		if (tok.id == ")")
-		    unexpected(tok);
+		    throw unexpected(tok);
 		continue;
 	    } else if (tok.id != ")") {
-		unexpected(tok);
+		throw unexpected(tok);
 	    }
 	}
 	tok = lex.nextToken;
 	if (tok.id != ")")
-	    unexpected(tok);
+	    throw unexpected(tok);
 	lex.consume;
 	return new functionTransform(this, tr, isVarargs, argTypes);
     }
@@ -2094,7 +2093,7 @@ class DLanguage: CLikeLanguage
 	string[] ids;
 	auto tok = lex.nextToken;
 	if (tok.id != "identifier")
-	    unexpected(tok);
+	    throw unexpected(tok);
 	lex.consume;
 	ids ~= tok.value;
 	tok = lex.nextToken;
@@ -2102,7 +2101,7 @@ class DLanguage: CLikeLanguage
 	    lex.consume;
 	    tok = lex.nextToken;
 	    if (tok.id != "identifier")
-		unexpected(tok);
+		throw unexpected(tok);
 	    ids ~= tok.value;
 	    tok = lex.nextToken;
 	}
