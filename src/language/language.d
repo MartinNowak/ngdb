@@ -867,6 +867,7 @@ class CLikeLanguage: Language
 		tok = lex.nextToken;
 		if (tok.id != "]")
 		    throw unexpected(tok);
+		lex.consume;
 		e = new IndexExpr(this, e, e2);
 	    } else {
 		return e;
@@ -1707,6 +1708,7 @@ class DLanguage: CLikeLanguage
 		tok = lex.nextToken;
 		if (tok.id != "]")
 		    throw unexpected(tok);
+		lex.consume;
 		e = new IndexExpr(this, e, e2);
 	    } else {
 		return e;
@@ -2503,6 +2505,8 @@ class Lexer
 				next_--;
 			}
 			return new FloatToken(this, tokStart, next_);
+		    } else {
+			next_--;
 		    }
 		}
 	    }
