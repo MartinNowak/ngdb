@@ -128,9 +128,13 @@ class CLikeLanguage: Language
 	bool isStringType(Type type)
 	{
 	    PointerType pt = cast(PointerType) type;
-	    if (pt) {
+	    if (pt)
 		return pt.baseType.isCharType;
-	    }
+
+	    ArrayType at = cast(ArrayType) type;
+	    if (at)
+		return at.baseType.isCharType;
+
 	    return false;
 	}
 
@@ -173,8 +177,12 @@ class CLikeLanguage: Language
 	    PointerType pt = cast(PointerType) type;
 	    if (pt) {
 		ulong p = state.readInteger(loc.readValue(state));
-		return _stringConstant(state, p, 0);
+		loc = new MemoryLocation(p, ~0);
+		return _stringConstant(state, loc, 0, true);
 	    }
+	    ArrayType at = cast(ArrayType) type;
+	    if (at)
+		return _stringConstant(state, loc, at.byteWidth, false);
 	    return "";
 	}
         string renderNamespaceSeparator()
@@ -227,10 +235,11 @@ class CLikeLanguage: Language
 	}
     }
 
-    string _stringConstant(MachineState state, ulong p, size_t len)
+    string _stringConstant(MachineState state, Location loc, size_t len,
+			   bool zt)
     {
 	string sv;
-	bool zt = (len == 0);
+	uint off = 0;
 	bool more;
 	string specials[char] = [
 	    '\0': "\\0",
@@ -248,16 +257,16 @@ class CLikeLanguage: Language
 	    sv = "\"";
 	    more = zt ? true : len > 0;
 	    while (more) {
-		b = state.readMemory(p++, 1);
-		c = cast(char) b[0];
-		if (c) {
+		auto bloc = loc.subrange(off++, 1, state);
+		c = cast(char) state.readInteger(bloc.readValue(state));
+		if (c || !zt) {
 		    if (isprint(c)) {
 			sv ~= c;
 		    } else {
 			if (c in specials)
 			    sv ~= specials[c];
 			else
-			    sv ~= std.string.format("%02x", c);
+			    sv ~= std.string.format("\\x%02x", c);
 		    }
 		}
 		more = zt ? c != 0 : --len > 0;
@@ -894,6 +903,14 @@ class CLikeLanguage: Language
 					(cast(CharToken) tok).ch,
 					charType("char", true, 1));
 	}
+	if (tok.id == "string literal") {
+	    lex.consume;
+	    auto cTy = charType("char", true, 1);
+	    auto aTy = new ArrayType(this, cTy);
+	    auto s = tok.value ~ "\0";
+	    aTy.addDim(0, s.length);
+	    return new StringConstantExpr(this, s, aTy);
+	}
 	if (tok.id == "(") {
 	    lex.consume;
 	    Expr e = expr(lex);
@@ -1514,6 +1531,10 @@ class DLanguage: CLikeLanguage
 	    if (pt)
 		return super.renderStringConstant(state, type, loc);
 
+	    ArrayType at = cast(ArrayType) type;
+	    if (at)
+		return super.renderStringConstant(state, type, loc);
+
 	    /*
 	     * Assume the representation is two pointer-sized
 	     * quantities - the length followed by the base pointer.
@@ -1522,8 +1543,8 @@ class DLanguage: CLikeLanguage
 	    ulong ptr = state.readInteger(val[state.pointerWidth..$]);
 	    ulong len = state.readInteger(val[0..state.pointerWidth]);
 	    if (len > 256) len = 256;	// XXX
-	    return _stringConstant(state, ptr, len);
-		
+	    loc = new MemoryLocation(ptr, len);
+	    return _stringConstant(state, loc, len, false);
 	}
         string renderNamespaceSeparator()
 	{
@@ -1725,6 +1746,14 @@ class DLanguage: CLikeLanguage
 	    return new CharConstantExpr(this,
 					(cast(CharToken) tok).ch,
 					charType("char", false, 1));
+	}
+	if (tok.id == "string literal") {
+	    lex.consume;
+	    auto cTy = charType("char", false, 1);
+	    auto aTy = new ArrayType(this, cTy);
+	    auto s = tok.value;
+	    aTy.addDim(0, s.length);
+	    return new StringConstantExpr(this, s, aTy);
 	}
 	auto ty = typeName(lex);
 	if (ty) {
@@ -2255,6 +2284,24 @@ class CharToken: Token
     char ch_;
 }
 
+class StringToken: Token
+{
+    this(Lexer parent, uint start, uint end, string s)
+    {
+	super(parent, start, end);
+	s_ = s;
+    }
+    string id()
+    {
+	return "string literal";
+    }
+    string value()
+    {
+	return s_;
+    }
+    string s_;
+}
+
 class Lexer
 {
     this(string s, Scope sc)
@@ -2491,6 +2538,87 @@ class Lexer
 	    return new IntegerToken(this, tokStart, next_);
 	}
 
+	bool parseEscape(out char res)
+	{
+	    if (atEOF)
+		return false;
+	    auto c = nextChar;
+	    switch (c) {
+	    case '?':
+		c = '\?';
+		break;
+	    case 'a':
+		c = '\a';
+		break;
+	    case 'b':
+		c = '\b';
+		break;
+	    case 'f':
+		c = '\f';
+		break;
+	    case 'n':
+		c = '\n';
+		break;
+	    case 'r':
+		c = '\r';
+		break;
+	    case 't':
+		c = '\t';
+		break;
+	    case 'v':
+		c = '\v';
+		break;
+	    case 'x':
+		if (atEOF)
+		    return false;
+		c = nextChar;
+		if (!isxdigit(c))
+		    return false;
+		n = fromhex(c);
+		if (atEOF)
+		    return false;
+		c = nextChar;
+		if (!isxdigit(c))
+		    return false;
+		n = n * 16 + fromhex(c);
+		c = cast(char) n;
+		break;
+	    case '0':
+	    case '1':
+	    case '2':
+	    case '3':
+	    case '4':
+	    case '5':
+	    case '6':
+	    case '7':
+		n = c - '0';
+		if (!atEOF) {
+		    c = nextChar;
+		    if (isoctal(c)) {
+			n = 8 * n + (c - '0');
+			if (!atEOF) {
+			    c = nextChar;
+			    if (isoctal(c))
+				n = 8 * n + (c - '0');
+			    else
+				next_--;
+			}
+		    } else {
+			next_--;
+		    }
+		}
+		c = cast(char) n;
+		break;
+	    default:
+		/*
+		 * Allow \<any> to represent <any>
+		 */
+		break;
+	    }
+	    res = c;
+	    return true;
+	}
+
 	if (c == '\'') {
 	    /*
 	     * Only allow single character constants.
@@ -2525,87 +2653,35 @@ class Lexer
 	    if (c == '\'')
 		return new ErrorToken(this, tokStart, next_);
 	    if (c == '\\') {
-		if (atEOF)
+		if (!parseEscape(c))
 		    return new ErrorToken(this, tokStart, next_);
-		c = nextChar;
-		switch (c) {
-		case '?':
-		    c = '\?';
-		    break;
-		case 'a':
-		    c = '\a';
-		    break;
-		case 'b':
-		    c = '\b';
-		    break;
-		case 'f':
-		    c = '\f';
-		    break;
-		case 'n':
-		    c = '\n';
-		    break;
-		case 'r':
-		    c = '\r';
-		    break;
-		case 't':
-		    c = '\t';
-		    break;
-		case 'v':
-		    c = '\v';
-		    break;
-		case 'x':
-		    if (atEOF)
-			return new ErrorToken(this, tokStart, next_);
-		    c = nextChar;
-		    if (!isxdigit(c))
-			return new ErrorToken(this, tokStart, next_);
-		    n = fromhex(c);
-		    if (atEOF)
-			return new ErrorToken(this, tokStart, next_);
-		    c = nextChar;
-		    if (!isxdigit(c))
-			return new ErrorToken(this, tokStart, next_);
-		    n = n * 16 + fromhex(c);
-		    c = cast(char) n;
-		    break;
-		case '0':
-		case '1':
-		case '2':
-		case '3':
-		case '4':
-		case '5':
-		case '6':
-		case '7':
-		    n = c - '0';
-		    if (!atEOF) {
-			c = nextChar;
-			if (isoctal(c)) {
-			    n = 8 * n + (c - '0');
-			    if (!atEOF) {
-				c = nextChar;
-				if (isoctal(c))
-				    n = 8 * n + (c - '0');
-				else
-				    next_--;
-			    }
-			} else {
-			    next_--;
-			}
-		    }
-		    c = cast(char) n;
-		    break;
-		default:
-		    /*
-		     * Allow \<any> to represent <any>
-		     */
-		    break;
-		}
 	    }
 	    if (atEOF)
 		return new ErrorToken(this, tokStart, next_);
 	    if (nextChar != '\'')
 		return new ErrorToken(this, tokStart, next_);
 	    return new CharToken(this, tokStart, next_, c);
+	}
+
+	if (c == '"') {
+	    /*
+	     * string:
+	     *		" <quotedcharacter>* "
+	     */
+	    string s;
+	    if (atEOF)
+		return new ErrorToken(this, tokStart, next_);
+	    c = nextChar;
+	    while (c != '"') {
+		if (c == '\\')
+		    if (!parseEscape(c))
+			return new ErrorToken(this, tokStart, next_);
+		s ~= c;
+		if (atEOF)
+		    return new ErrorToken(this, tokStart, next_);
+		c = nextChar;
+	    }
+	    return new StringToken(this, tokStart, next_, s);
 	}
 
 	string[] toks = tokens;

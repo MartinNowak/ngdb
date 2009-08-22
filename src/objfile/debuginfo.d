@@ -1014,6 +1014,8 @@ class ArrayType: TypeBase
 	}
 	string valueToString(string fmt, MachineState state, Location loc)
 	{
+	    if (lang_.isStringType(this))
+		return lang_.renderStringConstant(state, this, loc);
 	    size_t off = 0;
 	    return valueToString(fmt, state, loc, off, 0);
 	}
@@ -1577,7 +1579,7 @@ class MemoryLocation: Location
 
 	Location subrange(size_t start, size_t length, MachineState state)
 	{
-	    assert(start + length <= length_);
+	    assert(length == ~0 || start + length <= length_);
 	    return new MemoryLocation(address_ + start, length);
 	}
 
@@ -2217,6 +2219,31 @@ class CharConstantExpr: ExprBase
     }
 private:
     uint ch_;
+    Type ty_;
+}
+
+class StringConstantExpr: ExprBase
+{
+    this(Language lang, string s, Type ty)
+    {
+	super(lang);
+	s_ = s;
+	ty_ = ty;
+    }
+    override {
+	string toString()
+	{
+	    return "\"" ~ s_ ~ "\"";
+	}
+	DebugItem eval(Scope sc, MachineState state)
+	{
+	    assert(s_.length == ty_.byteWidth);
+	    auto val = cast(ubyte[]) s_;
+	    return new Value(new ConstantLocation(val), ty_);
+	}
+    }
+private:
+    string s_;
     Type ty_;
 }
 
