@@ -884,6 +884,10 @@ class CLikeLanguage: Language
 	    lex.consume;
 	    return new NumericExpr(this, tok.value);
 	}
+	if (tok.id == "float number") {
+	    lex.consume;
+	    return new FloatNumericExpr(this, tok.value);
+	}
 	if (tok.id == "(") {
 	    lex.consume;
 	    Expr e = expr(lex);
@@ -1706,6 +1710,10 @@ class DLanguage: CLikeLanguage
 	    lex.consume;
 	    return new NumericExpr(this, tok.value);
 	}
+	if (tok.id == "float number") {
+	    lex.consume;
+	    return new FloatNumericExpr(this, tok.value);
+	}
 	auto ty = typeName(lex);
 	if (ty) {
 	    tok = lex.nextToken;
@@ -2205,6 +2213,18 @@ class NumberToken: Token
     }
 }
 
+class FloatToken: Token
+{
+    this(Lexer parent, uint start, uint end)
+    {
+	super(parent, start, end);
+    }
+    string id()
+    {
+	return "float number";
+    }
+}
+
 class Lexer
 {
     this(string s, Scope sc)
@@ -2272,46 +2292,170 @@ class Lexer
 
 	if (isdigit(c)) {
 	    /*
-	     * Allow 0xNNN for hex or 0NNN for octal
+	     * numeric:
+	     *		<integer> <integersuffix>?
+	     *		<float> <floatsuffix>?
+	     *
+	     * integer:
+	     *		0
+	     *		0 x <hexdigit>+
+	     *		0 <octaldigit>+
+	     *		<decimaldigit>+
+	     *
+	     * integersuffix:
+	     *		L
+	     *		u
+	     *		U
+	     *		Lu
+	     *		LU
+	     *		uL
+	     *		UL
+	     *
+	     * float:
+	     *		<decimaldigit>+ .
+	     *		<decimaldigit>+ . <decimaldigit>+
+	     *		<decimaldigit>+ . <decimaldigit>+ <exponent>
+	     *		<decimaldigit>+ <exponent>
+	     *
+	     * <exponent>
+	     *		e <decimaldigit>+
+	     *		E <decimaldigit>+
+	     *		e + <decimaldigit>+
+	     *		E + <decimaldigit>+
+	     *		e - <decimaldigit>+
+	     *		E - <decimaldigit>+
+	     *
+	     * floatsuffix:
+	     *		f
+	     *		F
 	     */
-	    bool ishex = false;
-	    bool isoctal = false;
-	    if (c == '0' && next_ < source_.length) {
-		c = nextChar;
-		if (c != 'x' && c != 'X' && !isdigit(c)) {
-		    next_--;
+	    if (c == '0') {
+		if (atEOF)
 		    return new NumberToken(this, tokStart, next_);
-		}
-		if (isdigit(c)) {
-		    if (c > '7')
-			return new ErrorToken(this, tokStart, next_);
-		    isoctal = true;
-		} else {
-		    ishex = true;
-		}
-	    }
-	    for (;;) {
-		if (next_ == source_.length)
-		    break;
 		c = nextChar;
-		if (ishex) {
-		    if (!isxdigit(c)) {
-			next_--;
-			break;
+		if (c == 'x' || c == 'X') {
+		    if (atEOF)
+			return new ErrorToken(this, tokStart, next_);
+		    c = nextChar;
+		    if (!isxdigit(c))
+			return new ErrorToken(this, tokStart, next_);
+		    for (;;) {
+			if (atEOF)
+			    break;
+			c = nextChar;
+			if (!isxdigit(c)) {
+			    next_--;
+			    break;
+			}
 		    }
+		} else if (c >= '0' && c <= '7') {
+		    for (;;) {
+			if (atEOF)
+			    break;
+			c = nextChar;
+			if (!(c >= '0' && c <= '7')) {
+			    next_--;
+			    break;
+			}
+		    }
+		    return new NumberToken(this, tokStart, next_);
 		} else {
+		    next_--;
+		}
+	    } else {
+		for (;;) {
+		    if (atEOF)
+			break;
+		    c = nextChar;
 		    if (!isdigit(c)) {
 			next_--;
 			break;
 		    }
-		    if (isoctal && c > '7')
-			return new ErrorToken(this, tokStart, next_);
+		}
+		/*
+		 * Check for floating point.
+		 */
+		if (!atEOF) {
+		    c = nextChar;
+		    if (c == '.' || c == 'e' || c == 'E') {
+			if (c == '.' && !atEOF) {
+			    c = nextChar;
+			    for (;;) {
+				if (atEOF)
+				    break;
+				c = nextChar;
+				if (!isdigit(c)) {
+				    next_--;
+				    break;
+				}
+			    }
+			} else {
+			    next_--;
+			}
+			if (!atEOF) {
+			    c = nextChar;
+			    if (c == 'e' || c == 'E') {
+				if (atEOF)
+				    return new ErrorToken(
+					this, tokStart, next_);
+				c = nextChar;
+				if (c == '+' || c == '-') {
+				    if (atEOF)
+					return new ErrorToken(
+					    this, tokStart, next_);
+				    c = nextChar;
+				}
+				if (!isdigit(c))
+				    return new ErrorToken(
+					this, tokStart, next_);
+				for (;;) {
+				    if (atEOF)
+					break;
+				    c = nextChar;
+				    if (!isdigit(c)) {
+					next_--;
+					break;
+				    }
+				}				
+			    }
+			}
+			if (!atEOF) {
+			    c = nextChar;
+			    if (c != 'f' && c != 'F' && c != 'L')
+				next_--;
+			}
+			return new FloatToken(this, tokStart, next_);
+		    }
 		}
 	    }
-	    if (next_ < source_.length) {
+	    /*
+	     * Parse integer suffix, if any.
+	     */
+	    if (!atEOF) {
+		auto t = next_;
 		c = nextChar;
-		if (c != 'u' && c != 'U')
+		if (c == 'L' || c == 'u' || c == 'U') {
+		    if (!atEOF) {
+			c = nextChar;
+			if (c != 'L' && c != 'u' && c != 'U')
+			    next_--;
+		    }
+		    auto suffix = source_[t..next_];
+		    switch (suffix) {
+		    case "L":
+		    case "u":
+		    case "U":
+		    case "Lu":
+		    case "LU":
+		    case "uL":
+		    case "UL":
+			break;
+		    default:
+			next_ = t;
+		    }
+		} else {
 		    next_--;
+		}
 	    }
 	    return new NumberToken(this, tokStart, next_);
 	}
@@ -2370,6 +2514,11 @@ class Lexer
     {
 	next_ = tok.start_;
 	tok_ = _nextToken;
+    }
+
+    bool atEOF()
+    {
+	return next_ == source_.length;
     }
 
     char nextChar()

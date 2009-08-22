@@ -2162,6 +2162,38 @@ private:
     }
 }
 
+class FloatNumericExpr: ExprBase
+{
+    this(Language lang, string num)
+    {
+	super(lang);
+	num_ = strtold(toStringz(num), null);
+	if (num[$-1] == 'f' || num[$-1] == 'F')
+	    ty_ = lang_.floatType("float", 4);
+	else if (num[$-1] == 'L')
+	    ty_ = lang_.floatType("real", 12);
+	else
+	    ty_ = lang_.floatType("double", 8);
+    }
+    override {
+	string toString()
+	{
+	    return std.string.toString(num_);
+	}
+	DebugItem eval(Scope sc, MachineState state)
+	{
+	    Type ty;
+	    ubyte[] val;
+	    val.length = ty_.byteWidth;
+	    state.writeFloat(num_, val);
+	    return new Value(new ConstantLocation(val), ty_);
+	}
+    }
+private:
+    Type ty_;
+    real num_;
+}
+
 class UnaryExpr: ExprBase
 {
     this(Language lang, Expr e)
