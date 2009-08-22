@@ -281,12 +281,12 @@ class CLikeLanguage: Language
 	if (tok.id == "EOF")
 	    return e;
 	if (tok.id == ",") {
+	    lex.consume;
 	    auto e2 = expr(lex);
 	    if (!e2)
 		return null;
 	    return new CommaExpr(this, e, e2);
 	}
-	lex.pushBack(tok);
 	return e;
     }
     Expr assignExpr(Lexer lex)
@@ -311,6 +311,7 @@ class CLikeLanguage: Language
 	    return null;
 	auto tok = lex.nextToken;
 	if (isAssignToken(tok.id)) {
+	    lex.consume;
 	    auto e2 = assignExpr(lex);
 	    if (!e2)
 		return null;
@@ -352,7 +353,6 @@ class CLikeLanguage: Language
 	    }
 	    return new AssignExpr(this, e, e2);
 	}
-	lex.pushBack(tok);
 	return e;
     }
     Expr conditionalExpr(Lexer lex)
@@ -367,16 +367,17 @@ class CLikeLanguage: Language
 	    return null;
 	auto tok = lex.nextToken;
 	if (tok.id == "?") {
+	    lex.consume;
 	    auto e2 = expr(lex);
 	    if (!e2)
 		return null;
 	    tok = lex.nextToken;
 	    if (tok.id != ":")
 		return unexpected(tok);
+	    lex.consume;
 	    auto e3 = conditionalExpr(lex);
 	    return new IfElseExpr(this, e, e2, e3);
 	}
-	lex.pushBack(tok);
 	return e;
     }
     Expr ororExpr(Lexer lex)
@@ -399,13 +400,13 @@ class CLikeLanguage: Language
 	    return null;
 	auto tok = lex.nextToken;
 	while (tok.id == "||") {
+	    lex.consume;
 	    auto e2 = andandExpr(lex);
 	    if (!e2)
 		return null;
 	    e = new IntegerBinaryExpr!("||", "logical or")(this, e, e2);
 	    tok = lex.nextToken;
 	}
-	lex.pushBack(tok);
 	return e;
     }
     Expr andandExpr(Lexer lex)
@@ -428,13 +429,13 @@ class CLikeLanguage: Language
 	    return null;
 	auto tok = lex.nextToken;
 	while (tok.id == "&&") {
+	    lex.consume;
 	    auto e2 = orExpr(lex);
 	    if (!e2)
 		return null;
 	    e = new IntegerBinaryExpr!("&&", "logical and")(this, e, e2);
 	    tok = lex.nextToken;
 	}
-	lex.pushBack(tok);
 	return e;
     }
     Expr orExpr(Lexer lex)
@@ -457,13 +458,13 @@ class CLikeLanguage: Language
 	    return null;
 	auto tok = lex.nextToken;
 	while (tok.id == "|") {
+	    lex.consume;
 	    auto e2 = xorExpr(lex);
 	    if (!e2)
 		return null;
 	    e = new IntegerBinaryExpr!("|", "bitwise or")(this, e, e2);
 	    tok = lex.nextToken;
 	}
-	lex.pushBack(tok);
 	return e;
     }
     Expr xorExpr(Lexer lex)
@@ -486,13 +487,13 @@ class CLikeLanguage: Language
 	    return null;
 	auto tok = lex.nextToken;
 	while (tok.id == "^") {
+	    lex.consume;
 	    auto e2 = andExpr(lex);
 	    if (!e2)
 		return null;
 	    e = new IntegerBinaryExpr!("^", "bitwise exclusive or")(this, e, e2);
 	    tok = lex.nextToken;
 	}
-	lex.pushBack(tok);
 	return e;
     }
     Expr andExpr(Lexer lex)
@@ -515,13 +516,13 @@ class CLikeLanguage: Language
 	    return null;
 	auto tok = lex.nextToken;
 	while (tok.id == "&") {
+	    lex.consume;
 	    auto e2 = andExpr(lex);
 	    if (!e2)
 		return null;
 	    e = new IntegerBinaryExpr!("&", "bitwise and")(this, e, e2);
 	    tok = lex.nextToken;
 	}
-	lex.pushBack(tok);
 	return e;
     }
     Expr cmpExpr(Lexer lex)
@@ -550,6 +551,7 @@ class CLikeLanguage: Language
 	if (tok.id == "==" || tok.id == "!="
 	    || tok.id == "<" || tok.id == "<="
 	    || tok.id == ">" || tok.id == ">=") {
+	    lex.consume;
 	    auto e2 = shiftExpr(lex);
 	    if (!e2)
 		return null;
@@ -575,8 +577,7 @@ class CLikeLanguage: Language
 	    default:
 		assert(false);
 	    }
-	} else
-	    lex.pushBack(tok);
+	}
 	return e;
     }
     Expr shiftExpr(Lexer lex)
@@ -601,6 +602,7 @@ class CLikeLanguage: Language
 	    return null;
 	auto tok = lex.nextToken;
 	while (tok.id == "<<" || tok.id == ">>") {
+	    lex.consume;
 	    auto e2 = addExpr(lex);
 	    if (!e2)
 		return null;
@@ -610,7 +612,6 @@ class CLikeLanguage: Language
 		e = new IntegerBinaryExpr!(">>", "right shift")(this, e, e2);
 	    tok = lex.nextToken;
 	}
-	lex.pushBack(tok);
 	return e;
     }
     Expr addExpr(Lexer lex)
@@ -635,6 +636,7 @@ class CLikeLanguage: Language
 	    return null;
 	auto tok = lex.nextToken;
 	while (tok.id == "+" || tok.id == "-") {
+	    lex.consume;
 	    auto e2 = mulExpr(lex);
 	    if (!e2)
 		return null;
@@ -644,7 +646,6 @@ class CLikeLanguage: Language
 		e = new SubtractExpr(this, e, e2);
 	    tok = lex.nextToken;
 	}
-	lex.pushBack(tok);
 	return e;
     }
     Expr mulExpr(Lexer lex)
@@ -671,6 +672,7 @@ class CLikeLanguage: Language
 	    return null;
 	auto tok = lex.nextToken;
 	while (tok.id == "*" || tok.id == "/" || tok.id == "%") {
+	    lex.consume;
 	    auto e2 = castExpr(lex);
 	    if (!e2)
 		return null;
@@ -682,7 +684,6 @@ class CLikeLanguage: Language
 		e = new IntegerBinaryExpr!("%", "remainder")(this, e, e2);
 	    tok = lex.nextToken;
 	}
-	lex.pushBack(tok);
 	return e;
     }
     Expr castExpr(Lexer lex)
@@ -694,6 +695,7 @@ class CLikeLanguage: Language
 	 */
 	auto tok = lex.nextToken;
 	if (tok.id == "(") {
+	    lex.consume;
 	    auto ty = typeName(lex);
 	    if (!ty) {
 		lex.pushBack(tok);
@@ -702,10 +704,10 @@ class CLikeLanguage: Language
 	    tok = lex.nextToken;
 	    if (tok.id != ")")
 		return unexpected(tok);
+	    lex.consume;
 	    auto e = castExpr(lex);
 	    return new CastExpr(this, ty, e);
 	} else {
-	    lex.pushBack(tok);
 	    return unaryExpr(lex);
 	}
     }
@@ -725,6 +727,7 @@ class CLikeLanguage: Language
 	 */
 	auto tok = lex.nextToken;
 	if (tok.id == "++" || tok.id == "--") {
+	    lex.consume;
 	    auto e = unaryExpr(lex);
 	    auto one = new NumericExpr(this, "1");
 	    Expr e2;
@@ -737,6 +740,7 @@ class CLikeLanguage: Language
 	if (tok.id == "&"
 	    || tok.id == "*" || tok.id == "-" || tok.id == "+"
 	    || tok.id == "!" || tok.id == "~") {
+	    lex.consume;
 	    auto e = unaryExpr(lex);
 	    if (tok.id == "&")
 		return new AddressOfExpr(this, e);
@@ -752,7 +756,6 @@ class CLikeLanguage: Language
 		return new ComplementExpr(this, e);
 	    assert(false);
 	}
-	lex.pushBack(tok);
 	return postfixExpr(lex);
     }
     Expr postfixExpr(Lexer lex)
@@ -787,16 +790,19 @@ class CLikeLanguage: Language
 	auto e = primaryExpr(lex);
 	for (auto tok = lex.nextToken; ; tok = lex.nextToken) {
 	    if (tok.id == ".") {
+		lex.consume;
 		tok = lex.nextToken;
 		if (tok.id != "identifier")
 		    unexpected(tok);
 		e = new MemberExpr(this, e, (cast(IdentifierToken) tok).value);
 	    } else if (tok.id == "->") {
+		lex.consume;
 		tok = lex.nextToken;
 		if (tok.id != "identifier")
 		    unexpected(tok);
 		e = new PointsToExpr(this, e, (cast(IdentifierToken) tok).value);
 	    } else if (tok.id == "++" || tok.id == "--") {
+		lex.consume;
 		auto one = new NumericExpr(this, "1");
 		if (tok.id == "++")
 		    e = new AddExpr(this, e, one);
@@ -804,13 +810,13 @@ class CLikeLanguage: Language
 		    e = new SubtractExpr(this, e, one);
 		e = new PostIncrementExpr(this, tok.id, e);
 	    } else if (tok.id == "[") {
+		lex.consume;
 		auto e2 = assignExpr(lex);
 		tok = lex.nextToken;
 		if (tok.id != "]")
 		    return unexpected(tok);
 		e = new IndexExpr(this, e, e2);
 	    } else {
-		lex.pushBack(tok);
 		return e;
 	    }
 	    /*
@@ -827,15 +833,21 @@ class CLikeLanguage: Language
 	 *	( Expression )
 	 */
 	auto tok = lex.nextToken;
-	if (tok.id == "identifier")
+	if (tok.id == "identifier") {
+	    lex.consume;
 	    return new VariableExpr(this, tok.value);
-	if (tok.id == "number")
+	}
+	if (tok.id == "number") {
+	    lex.consume;
 	    return new NumericExpr(this, tok.value);
+	}
 	if (tok.id == "(") {
+	    lex.consume;
 	    Expr e = expr(lex);
 	    tok = lex.nextToken;
 	    if (tok.id != ")")
 		return unexpected(tok);
+	    lex.consume;
 	    return e;
 	}
 	return unexpected(tok);
@@ -901,6 +913,7 @@ class CLikeLanguage: Language
 	    case "const":
 	    case "restrict":
 	    case "volatile":
+		lex.consume;
 		bool seenQual = false;
 		foreach (q; quals)
 		    if (q == tok.id)
@@ -918,6 +931,7 @@ class CLikeLanguage: Language
 	    case "double":
 	    case "signed":
 	    case "unsigned":
+		lex.consume;
 		if (ty)
 		    twoTypes(lastTok);
 		specs ~= tok.id;
@@ -927,7 +941,6 @@ class CLikeLanguage: Language
 	    case "union":
 		if (ty || specs.length > 0)
 		    twoTypes(lastTok);
-		lex.pushBack(tok);
 		ty = structOrUnionSpecifier(lex);
 		break;
 
@@ -940,11 +953,11 @@ class CLikeLanguage: Language
 	    case "identifier":
 		if (ty)
 		    twoTypes(lastTok);
+		lex.consume;
 		if (lex.sc.lookupTypedef(tok.value, ty))
 		    break;
 		throw new EvalException(format("Can't find typedef %s", tok.value));
 	    default:
-		lex.pushBack(tok);
 		break sqlist;
 	    }
 	}
@@ -1032,17 +1045,21 @@ class CLikeLanguage: Language
 	 */
 	auto tok = lex.nextToken;
 	if (tok.id == "struct") {
+	    lex.consume;
 	    tok = lex.nextToken;
 	    if (tok.id != "identifier")
 		unexpected(tok);
+	    lex.consume;
 	    Type ty;
 	    if (lex.sc.lookupStruct(tok.value, ty))
 		return ty;
 	    throw new EvalException(format("Can't find struct %s", tok.value));
 	} else if (tok.id == "union") {
+	    lex.consume;
 	    tok = lex.nextToken;
 	    if (tok.id != "identifier")
 		unexpected(tok);
+	    lex.consume;
 	    Type ty;
 	    if (lex.sc.lookupUnion(tok.value, ty))
 		return ty;
@@ -1073,10 +1090,10 @@ class CLikeLanguage: Language
 	 */
 	auto tok = lex.nextToken;
 	while (tok.id == "*") {
+	    lex.consume;
 	    tr = new pointerTransform(tr, typeQualifierList(lex));
 	    tok = lex.nextToken;
 	}
-	lex.pushBack(tok);
 	auto ntr = directAbstractDeclarator(tr, lex);
 	if (ntr)
 	    return ntr;
@@ -1142,6 +1159,7 @@ class CLikeLanguage: Language
 	auto ptr = new pendingTransform(tr);
 	typeTransform ntr = ptr;
 	if (tok.id == "(") {
+	    lex.consume;
 	    tok = lex.nextToken;
 	    /*
 	     * See if this token can start an abstractDeclarator
@@ -1150,7 +1168,6 @@ class CLikeLanguage: Language
 	    case "*":
 	    case "(":
 	    case "[":
-		lex.pushBack(tok);
 		ntr = abstractDeclarator(ptr, lex);
 		if (!ntr)
 		    return tr;
@@ -1162,6 +1179,7 @@ class CLikeLanguage: Language
 		unexpected(tok);
 		return null;
 	    }
+	    lex.consume;
 	    tok = lex.nextToken;
 	}
 
@@ -1174,9 +1192,11 @@ class CLikeLanguage: Language
 	    /*
 	     * We ought to parse a full assignment expression here.
 	     */
+	    lex.consume;
 	    tok = lex.nextToken;
 	    if (tok.id != "number")
 		unexpected(tok);
+	    lex.consume;
 	    ptr.pend_ = new arrayTransform(this, ptr.pend_,
 					   strtoul(toStringz(tok.value),
 						   null, 0));
@@ -1185,9 +1205,9 @@ class CLikeLanguage: Language
 		unexpected(tok);
 		return null;
 	    }
+	    lex.consume;
 	    tok = lex.nextToken;
 	}
-	lex.pushBack(tok);
 	return ntr;
     }
     string[] typeQualifierList(Lexer lex)
@@ -1204,6 +1224,7 @@ class CLikeLanguage: Language
 	    case "const":
 	    case "restrict":
 	    case "volatile":
+		lex.consume;
 		bool seenQual = false;
 		foreach (q; quals)
 		    if (q == tok.id)
@@ -1212,7 +1233,6 @@ class CLikeLanguage: Language
 		    quals ~= tok.id;
 		break;
 	    default:
-		lex.pushBack(tok);
 		return quals;
 	    }
 	}
@@ -1400,21 +1420,21 @@ class DLanguage: CLikeLanguage
 	 */
 	auto tok = lex.nextToken;
 	if (tok.id == "cast") {
+	    lex.consume;
 	    tok = lex.nextToken;
 	    if (tok.id != "(")
 		return unexpected(tok);
+	    lex.consume;
 	    auto ty = typeName(lex);
-	    if (!ty) {
-		lex.pushBack(tok);
+	    if (!ty)
 		return unaryExpr(lex);
-	    }
 	    tok = lex.nextToken;
 	    if (tok.id != ")")
 		return unexpected(tok);
+	    lex.consume;
 	    auto e = castExpr(lex);
 	    return new CastExpr(this, ty, e);
 	} else {
-	    lex.pushBack(tok);
 	    return unaryExpr(lex);
 	}
     }
@@ -1449,24 +1469,27 @@ class DLanguage: CLikeLanguage
 	auto e = primaryExpr(lex);
 	for (auto tok = lex.nextToken; ; tok = lex.nextToken) {
 	    if (tok.id == ".") {
+		lex.consume;
 		tok = lex.nextToken;
 		if (tok.id != "identifier")
 		    unexpected(tok);
+		lex.consume;
 		auto idtok = cast(IdentifierToken) tok;
 		switch (idtok.value) {
 		case "ptr":
-		   e = new PtrExpr(this, e);
-		   break;
+		    e = new PtrExpr(this, e);
+		    break;
 		case "length":
-		   e = new LengthExpr(this, e);
-		   break;
+		    e = new LengthExpr(this, e);
+		    break;
 		case "sizeof":
-		   e = new SizeofExpr(this, e);
-		   break;
+		    e = new SizeofExpr(this, e);
+		    break;
 		default:
 		    e = new DMemberExpr(this, e, idtok.value);
 		}
 	    } else if (tok.id == "++" || tok.id == "--") {
+		lex.consume;
 		auto one = new NumericExpr(this, "1");
 		if (tok.id == "++")
 		    e = new AddExpr(this, e, one);
@@ -1474,13 +1497,13 @@ class DLanguage: CLikeLanguage
 		    e = new SubtractExpr(this, e, one);
 		e = new PostIncrementExpr(this, tok.id, e);
 	    } else if (tok.id == "[") {
+		lex.consume;
 		auto e2 = assignExpr(lex);
 		tok = lex.nextToken;
 		if (tok.id != "]")
 		    return unexpected(tok);
 		e = new IndexExpr(this, e, e2);
 	    } else {
-		lex.pushBack(tok);
 		return e;
 	    }
 	    /*
@@ -1528,12 +1551,10 @@ class DLanguage: CLikeLanguage
 	    case "delegate":
 	    case "function":
 	    case "(":
-		lex.pushBack(tok);
 		auto tr = new nullTransform(ty);
 		ty = declarator2(tr, lex).transform;
 		break;
 	    default:
-		lex.pushBack(tok);
 	    }
 	}
 	return ty;
@@ -1576,34 +1597,49 @@ class DLanguage: CLikeLanguage
 	auto tok = lex.nextToken;
 	switch (tok.id) {
 	case "bool":
+	    lex.consume;
 	    return booleanType(tok.id, 1);
 	case "byte":
+	    lex.consume;
 	    return integerType(tok.id, true, 1);
 	case "ubyte":
+	    lex.consume;
 	    return integerType(tok.id, false, 1);
 	case "short":
+	    lex.consume;
 	    return integerType(tok.id, true, 2);
 	case "ushort":
+	    lex.consume;
 	    return integerType(tok.id, false, 2);
 	case "int":
+	    lex.consume;
 	    return integerType(tok.id, true, 4);
 	case "uint":
+	    lex.consume;
 	    return integerType(tok.id, false, 4);
 	case "long":
+	    lex.consume;
 	    return integerType(tok.id, true, 8);
 	case "ulong":
+	    lex.consume;
 	    return integerType(tok.id, false, 8);
 	case "char":
+	    lex.consume;
 	    return charType(tok.id, false, 1);
 	case "wchar":
+	    lex.consume;
 	    return charType(tok.id, false, 2);
 	case "dchar":
+	    lex.consume;
 	    return charType(tok.id, false, 4);
 	case "float":
+	    lex.consume;
 	    return floatType(tok.id, 4);
 	case "double":
+	    lex.consume;
 	    return floatType(tok.id, 8);
 	case "real":
+	    lex.consume;
 	    return floatType(tok.id, 12);
 	case "ifloat":
 	case "idouble":
@@ -1611,12 +1647,15 @@ class DLanguage: CLikeLanguage
 	case "cfloat":
 	case "cdouble":
 	case "creal":
+	    lex.consume;
 	    throw new EvalException("complex types not supported");
 	case "void":
+	    lex.consume;
 	    return voidType;
-	case "identifier":
-	    lex.pushBack(tok);
 	case ".":
+	    lex.consume;
+	    // fall through
+	case "identifier":
 	    auto ids = join(identifierList(lex), ".");
 	    Type ty;
 	    if (lex.sc.lookupStruct(ids, ty))
@@ -1629,6 +1668,9 @@ class DLanguage: CLikeLanguage
 
 	case "typeof":
 	    throw new EvalException("typeof not supported");
+
+	default:
+	    unexpected(tok);
 	}
     }
     typeTransform declarator2(typeTransform tr, Lexer lex)
@@ -1646,18 +1688,17 @@ class DLanguage: CLikeLanguage
 	     *
 	     *		int (*)[3];
 	     */
+	    lex.consume;
 	    auto ptr = new pendingTransform(tr);
 	    tr = declarator2(ptr, lex);
 	    tok = lex.nextToken;
 	    if (tok.id != ")")
 		unexpected(tok);
+	    lex.consume;
 	    tok = lex.nextToken;
-	    if (tok.id == "[") {
-		lex.pushBack(tok);
+	    if (tok.id == "[")
 		ptr.pend_ = declaratorSuffixes(ptr.pend_, lex);
-	    }
 	} else {
-	    lex.pushBack(tok);
 	    tr = basicType2(tr, lex);
 	    tok = lex.nextToken;
 	    switch (tok.id) {
@@ -1665,11 +1706,9 @@ class DLanguage: CLikeLanguage
 	    case "[":
 	    case "delegate":
 	    case "function":
-		lex.pushBack(tok);
 		tr = declarator2(tr, lex);
 		break;
 	    default:
-		lex.pushBack(tok);
 	    }
 	}
 	return tr;
@@ -1684,10 +1723,9 @@ class DLanguage: CLikeLanguage
 	tr = declaratorSuffix(tr, lex);
 	auto tok = lex.nextToken;
 	while (tok.id == "[") {
-	    lex.pushBack(tok);
 	    tr = declaratorSuffix(tr, lex);
+	    tok = lex.nextToken;
 	}
-	lex.pushBack(tok);
 	return tr;
     }
     typeTransform declaratorSuffix(typeTransform tr, Lexer lex)
@@ -1705,16 +1743,21 @@ class DLanguage: CLikeLanguage
 	/*
 	 * For now, just support [ ] and [ number ].
 	 */
+	lex.consume;
 	tok = lex.nextToken;
-	if (tok.id == "]")
+	if (tok.id == "]") {
+	    lex.consume;
 	    return new darrayTransform(this, tr);
+	}
 	if (tok.id != "number")
 	    unexpected(tok);
+	lex.consume;
 	tr = new arrayTransform(this, tr,
 				strtoul(toStringz(tok.value), null, 0));
 	tok = lex.nextToken;
 	if (tok.id != "]")
 	    unexpected(tok);
+	lex.consume;
 	return tr;
     }
     typeTransform basicType2(typeTransform tr, Lexer lex)
@@ -1732,21 +1775,25 @@ class DLanguage: CLikeLanguage
 	auto tok = lex.nextToken;
 	switch (tok.id) {
 	case "*":
+	    lex.consume;
 	    return new pointerTransform(tr, null);
 	case "[":
 	    /*
 	     * For now, just support [ ] and [ number ].
 	     */
+	    lex.consume;
 	    tok = lex.nextToken;
 	    if (tok.id == "]")
 		return new darrayTransform(this, tr);
 	    if (tok.id != "number")
 		unexpected(tok);
+	    lex.consume;
 	    tr = new arrayTransform(this, tr,
 				    strtoul(toStringz(tok.value), null, 0));
 	    tok = lex.nextToken;
 	    if (tok.id != "]")
 		unexpected(tok);
+	    lex.consume;
 	    return tr;
 	case "delegate":
 	case "function":
@@ -1759,16 +1806,17 @@ class DLanguage: CLikeLanguage
 	auto tok = lex.nextToken;
 	if (tok.id != "identifier")
 	    unexpected(tok);
+	lex.consume;
 	ids ~= tok.value;
 	tok = lex.nextToken;
 	while (tok.id == ".") {
+	    lex.consume;
 	    tok = lex.nextToken;
 	    if (tok.id != "identifier")
 		unexpected(tok);
 	    ids ~= tok.value;
 	    tok = lex.nextToken;
 	}
-	lex.pushBack(tok);
 	return ids;
     }
     static class darrayTransform: typeTransform
@@ -1876,6 +1924,7 @@ class Lexer
 	source_ = s;
 	next_ = 0;
 	sc_ = sc;
+	tok_ = _nextToken;
     }
 
     string source()
@@ -1889,6 +1938,16 @@ class Lexer
     }
 
     Token nextToken()
+    {
+	return tok_;
+    }
+
+    void consume()
+    {
+	tok_ = _nextToken;
+    }
+
+    Token _nextToken()
     {
 	uint tokStart = next_;
 	char c;
@@ -2024,6 +2083,7 @@ class Lexer
     void pushBack(Token tok)
     {
 	next_ = tok.start_;
+	tok_ = _nextToken;
     }
 
     char nextChar()
@@ -2040,6 +2100,7 @@ class Lexer
     string source_;
     Scope sc_;
     uint next_;
+    Token tok_;
 }
 
 class CLikeLexer: Lexer
