@@ -1166,13 +1166,14 @@ class CLikeLanguage: Language
 	     */
 	    switch (tok.id) {
 	    case "*":
-	    case "(":
 	    case "[":
+	    case "(":
 		ntr = abstractDeclarator(ptr, lex);
 		if (!ntr)
 		    return tr;
+		break;
 	    default:
-		/* XXX parse function argument types here */
+		ptr.pend_ = functionParameters(ptr.pend_, lex);
 	    }
 	    tok = lex.nextToken;
 	    if (tok.id != ")") {
@@ -1188,27 +1189,78 @@ class CLikeLanguage: Language
 	 * and we have zero or more array/function suffixes.
 	 * XXX just arrays to start with.
 	 */
-	while (tok.id == "[") {
-	    /*
-	     * We ought to parse a full assignment expression here.
-	     */
-	    lex.consume;
-	    tok = lex.nextToken;
-	    if (tok.id != "number")
-		unexpected(tok);
-	    lex.consume;
-	    ptr.pend_ = new arrayTransform(this, ptr.pend_,
-					   strtoul(toStringz(tok.value),
-						   null, 0));
-	    tok = lex.nextToken;
-	    if (tok.id != "]") {
-		unexpected(tok);
-		return null;
+	while (tok.id == "[" || tok.id == "(") {
+	    if (tok.id == "[") {
+		/*
+		 * We ought to parse a full assignment expression here.
+		 */
+		lex.consume;
+		tok = lex.nextToken;
+		if (tok.id != "number")
+		    unexpected(tok);
+		lex.consume;
+		ptr.pend_ = new arrayTransform(this, ptr.pend_,
+					       strtoul(toStringz(tok.value),
+						       null, 0));
+		tok = lex.nextToken;
+		if (tok.id != "]") {
+		    unexpected(tok);
+		    return null;
+		}
+		lex.consume;
+		tok = lex.nextToken;
+	    } else if (tok.id == "(") {
+		lex.consume;
+		ptr.pend_ = functionParameters(ptr.pend_, lex);
+		tok = lex.nextToken;
+		if (tok.id != ")") {
+		    unexpected(tok);
+		    return null;
+		}
+		lex.consume;
+		tok = lex.nextToken;
 	    }
-	    lex.consume;
-	    tok = lex.nextToken;
 	}
 	return ntr;
+    }
+    typeTransform functionParameters(typeTransform tr, Lexer lex)
+    {
+	/*
+	 * ParameterTypeList:
+	 *	ParameterList
+	 *	ParameterList , ...
+	 *
+	 * ParameterList:
+	 *	Parameter
+	 *	Parameter , ParameterList
+	 *
+	 * Parameter:
+	 *	Type
+	 */
+	auto tok = lex.nextToken;
+	Type[] argTypes;
+	bool isVarargs;
+
+	tok = lex.nextToken;
+	while (tok.id != ")") {
+	    if (tok.id == "...") {
+		lex.consume;
+		isVarargs = true;
+		break;
+	    }
+	    argTypes ~= typeName(lex);
+	    tok = lex.nextToken;
+	    if (tok.id == ",") {
+		lex.consume;
+		tok = lex.nextToken;
+		if (tok.id == ")")
+		    unexpected(tok);
+		continue;
+	    } else if (tok.id != ")") {
+		unexpected(tok);
+	    }
+	}
+	return new functionTransform(this, tr, isVarargs, argTypes);
     }
     string[] typeQualifierList(Lexer lex)
     {
@@ -1320,6 +1372,30 @@ class CLikeLanguage: Language
 	Language lang_;
 	typeTransform base_;
 	uint dim_;
+    }
+    static class functionTransform: typeTransform
+    {
+	this(Language lang, typeTransform base, bool isVarargs,
+	     Type[] argTypes)
+	{
+	    lang_ = lang;
+	    base_ = base;
+	    isVarargs_ = isVarargs;
+	    argTypes_ = argTypes;
+	}
+	Type transform()
+	{
+	    auto ty = new FunctionType(lang_);
+	    ty.returnType = base_.transform;
+	    ty.varargs = isVarargs_;
+	    foreach (arg; argTypes_)
+		ty.addArgumentType(arg);
+	    return ty;
+	}
+	Language lang_;
+	typeTransform base_;
+	bool isVarargs_;
+	Type[] argTypes_;
     }
 }
 
@@ -1796,9 +1872,75 @@ class DLanguage: CLikeLanguage
 	    lex.consume;
 	    return tr;
 	case "delegate":
+	    throw new EvalException("delegate not supported yet");
 	case "function":
-	    throw new EvalException("delegate/function not supported yet");
+	    lex.consume;
+	    tr = functionParameters(tr, lex);
+	    return new pointerTransform(tr, null);
 	}
+    }
+    typeTransform functionParameters(typeTransform tr, Lexer lex)
+    {
+	/*
+	 * Parameters:
+	 *	( ParameterList )
+	 *	( )
+	 *
+	 * ParameterList:
+	 *	Parameter
+	 *	Parameter , ParameterList
+	 *	Parameter ...
+	 *	...
+	 *
+	 * Parameter:
+	 *	Type
+	 *	InOut Type
+	 */
+	auto tok = lex.nextToken;
+	Type[] argTypes;
+	bool isVarargs;
+
+	if (tok.id != "(")
+	    unexpected(tok);
+	lex.consume;
+	tok = lex.nextToken;
+	if (tok.id == "...") {
+	    lex.consume;
+	    tok = lex.nextToken;
+	    if (tok.id != ")")
+		unexpected(tok);
+	    lex.consume;
+	    return new functionTransform(this, tr, true, null);
+	}
+	while (tok.id != ")") {
+	    if (tok.id == "in"
+		|| tok.id == "out"
+		|| tok.id == "ref"
+		|| tok.id == "lazy") {
+		lex.consume;
+	    }
+	    argTypes ~= typeName(lex);
+	    tok = lex.nextToken;
+	    if (tok.id == "...") {
+		lex.consume;
+		isVarargs = true;
+		tok = lex.nextToken;
+	    }
+	    if (tok.id == ",") {
+		lex.consume;
+		tok = lex.nextToken;
+		if (tok.id == ")")
+		    unexpected(tok);
+		continue;
+	    } else if (tok.id != ")") {
+		unexpected(tok);
+	    }
+	}
+	tok = lex.nextToken;
+	if (tok.id != ")")
+	    unexpected(tok);
+	lex.consume;
+	return new functionTransform(this, tr, isVarargs, argTypes);
     }
     string[] identifierList(Lexer lex)
     {
@@ -2057,6 +2199,7 @@ class Lexer
 		 * match.
 		 */
 		next_--;
+		return new Token(this, tokStart, next_);
 	    }
 
 	    toks = matchingToks;
@@ -2065,14 +2208,11 @@ class Lexer
 		return new ErrorToken(this, tokStart, next_);
 	    }
 
-	    if (toks.length == 1) {
-		string t = toks[0];
+	    if (toks.length == 1 && opindex == toks[0].length - 1)
 		return new Token(this, tokStart, next_);
-	    }
 
-	    if (next_ == source_.length) {
+	    if (next_ == source_.length)
 		return new ErrorToken(this, tokStart, next_);
-	    }
 
 	    c = nextChar;
 
@@ -2116,6 +2256,7 @@ class CLikeLexer: Lexer
 	    "/",
 	    "/=",
 	    ".",
+	    "...",
 	    "&",
 	    "&=",
 	    "&&",
