@@ -1048,7 +1048,7 @@ class CLikeLanguage: Language
 		ty = floatType("float", 4);
 	    else if (specs == ["double"])
 		ty = floatType("double", 8);
-	    else if (specs == ["long double"])
+	    else if (specs == ["double", "long"])
 		ty = floatType("long double", 12);
 	    else
 		error(lastTok, "unrecognised type specifiers");
