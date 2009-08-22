@@ -571,9 +571,17 @@ class PointerType: TypeBase
     {
 	string toString()
 	{
-	    if (baseType_)
+	    if (baseType_) {
+		auto aTy = cast(ArrayType) baseType_;
+		if (aTy)
+		    return lang_.renderPointerToArray(
+			aTy.baseType.toString, aTy.renderDims);
+		auto fTy = cast(FunctionType) baseType_;
+		if (fTy)
+		    return lang_.renderPointerToFunction(
+			fTy.returnType.toString, fTy.renderArgs);
 		return lang_.renderPointerType(baseType_.toString);
-	    else
+	    } else
 		return lang_.renderPointerType("void");
 	}
 
@@ -1002,15 +1010,7 @@ class ArrayType: TypeBase
     {
 	string toString()
 	{
-	    string v = baseType_.toString;
-	    foreach (d; dims_) {
-		if (d.indexBase > 0)
-		    v ~= std.string.format("[%d..%d]", d.indexBase,
-					   d.indexBase + d.count - 1);
-		else
-		    v ~= std.string.format("[%d]", d.count);
-	    }
-	    return v;
+	    return baseType_.toString ~ renderDims;
 	}
 	string valueToString(string fmt, MachineState state, Location loc)
 	{
@@ -1034,6 +1034,19 @@ class ArrayType: TypeBase
 	    return false;
 	}
     }
+
+    string renderDims()
+	{
+	    string v;
+	    foreach (d; dims_) {
+		if (d.indexBase > 0)
+		    v ~= std.string.format("[%d..%d]", d.indexBase,
+					   d.indexBase + d.count - 1);
+		else
+		    v ~= std.string.format("[%d]", d.count);
+	    }
+	    return v;
+	}
 
 private:
     string valueToString(string fmt, MachineState state,
@@ -1301,16 +1314,7 @@ class FunctionType: TypeBase
 	    else
 		s = "void";
 	    s ~= " (";
-	    foreach (i, at; argumentTypes_) {
-		if (i > 0)
-		    s ~= ", ";
-		s ~= at.toString;
-	    }
-	    if (varargs_) {
-		if (argumentTypes_.length > 0)
-		    s ~= ", ";
-		s ~= "...";
-	    }
+	    s ~= renderArgs;
 	    s ~= ")";
 
 	    return s;
@@ -1332,6 +1336,20 @@ class FunctionType: TypeBase
 	    return false;
 	}
     }
+
+    string renderArgs()
+    {
+	string s;
+	foreach (i, at; argumentTypes_) {
+	    if (i > 0)
+		s ~= ", ";
+	    s ~= at.toString;
+	}
+	if (varargs_)
+	    s = lang_.renderVarargs(s);
+	return s;
+    }
+
 private:
     Type returnType_;
     Type[] argumentTypes_;

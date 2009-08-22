@@ -93,6 +93,9 @@ class Language
     abstract string renderStructureType(string baseType);
     abstract string renderUnionType(string baseType);
     abstract string renderPointerType(string baseType);
+    abstract string renderPointerToArray(string baseType, string dims);
+    abstract string renderPointerToFunction(string baseType, string args);
+    abstract string renderVarargs(string args);
     abstract string renderReferenceType(string baseType);
     abstract string renderStringConstant(MachineState state, Type type, Location loc);
     abstract string renderNamespaceSeparator();
@@ -146,6 +149,20 @@ class CLikeLanguage: Language
 	string renderPointerType(string baseType)
 	{
 	    return baseType ~ "*";
+	}
+	string renderPointerToArray(string baseType, string dims)
+	{
+	    return baseType ~ "(*)" ~ dims;
+	}
+	string renderPointerToFunction(string baseType, string args)
+	{
+	    return baseType ~ "(*)(" ~ args ~ ")";
+	}
+	string renderVarargs(string args)
+	{
+	    if (args.length)
+		return args ~ ", ...";
+	    return "...";
 	}
 	string renderReferenceType(string baseType)
 	{
@@ -1446,6 +1463,20 @@ class DLanguage: CLikeLanguage
 	string renderReferenceType(string baseType)
 	{
 	    return "ref " ~ baseType;
+	}
+	string renderPointerToArray(string baseType, string dims)
+	{
+	    return baseType ~ dims ~ "*";
+	}
+	string renderPointerToFunction(string baseType, string args)
+	{
+	    return baseType ~ " function(" ~ args ~ ")";
+	}
+	string renderVarargs(string args)
+	{
+	    if (args.length)
+		return args ~ " ...";
+	    return "...";
 	}
 	string renderStringConstant(MachineState state, Type type, Location loc)
 	{
