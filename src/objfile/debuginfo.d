@@ -2556,9 +2556,110 @@ template IntegerBinaryExpr(string op, string name)
 		
 		mixin("lval = lval " ~ op ~ "rval;");
 		ubyte[] v;
-		v.length = left.loc.length;
+		Type ty;
+		if (left.type.byteWidth > right.type.byteWidth)
+		    ty = left.type;
+		else
+		    ty = right.type;
+		v.length = ty.byteWidth;
 		state.writeInteger(lval, v);
-		return new Value(new ConstantLocation(v), left.type);
+		return new Value(new ConstantLocation(v), ty);
+	    }
+	}
+    }
+}
+
+template NumericBinaryExpr(string op, string name)
+{
+    class NumericBinaryExpr: BinaryExpr
+    {
+	this(Language lang, Expr l, Expr r)
+	{
+	    super(lang, l, r);
+	}
+
+	override {
+	    string toString()
+	    {
+		return "(" ~ left_.toString ~ " " ~ op ~ " " ~ right_.toString ~ ")";
+	    }
+	    DebugItem eval(Scope sc, MachineState state)
+	    {
+		Value left = left_.eval(sc, state).toValue(state);
+		if (!left.type.isNumericType)
+		    throw new EvalException(
+			format("Attempting to %s a value of type %s",
+			       name,
+			       left.type.toString));
+		Value right = right_.eval(sc, state).toValue(state);
+		if (!right.type.isNumericType)
+		    throw new EvalException(
+			format("Attempting to %s a value of type %s",
+			       name,
+			       right.type.toString));
+
+		if (!left.type.isIntegerType ||
+		    !right.type.isIntegerType) {
+		    /*
+		     * Cast everything to real and do the operation in
+		     * floating point.
+		     */
+		    real lval, rval;
+		    auto v = left.loc.readValue(state);
+		    if (left.type.isIntegerType)
+			lval = cast(real) state.readInteger(v);
+		    else
+			lval = state.readFloat(v);
+		    v = right.loc.readValue(state);
+		    if (right.type.isIntegerType)
+			rval = cast(real) state.readInteger(v);
+		    else
+			rval = state.readFloat(v);
+		    static if (op == "/" || op == "%") {
+			if (!rval)
+			    throw new EvalException(
+				"Divide or remainder with zero");
+		    }
+		    mixin("lval = lval " ~ op ~ "rval;");
+
+		    /*
+		     * Pick the widest float type for the result.
+		     */
+		    Type ty;
+		    if (!left.type.isIntegerType
+			&& !right.type.isIntegerType)
+			if (left.type.byteWidth > right.type.byteWidth)
+			    ty = left.type;
+			else
+			    ty = right.type;
+		    else if (!left.type.isIntegerType)
+			ty = left.type;
+		    else
+			ty = right.type;
+		    v.length = ty.byteWidth;
+		    state.writeFloat(lval, v);
+		    return new Value(new ConstantLocation(v), ty);
+		} else {
+		    ulong lval = state.readInteger(left.loc.readValue(state));
+		    ulong rval = state.readInteger(right.loc.readValue(state));
+		
+		    static if (op == "/" || op == "%") {
+			if (!rval)
+			    throw new EvalException(
+				"Divide or remainder with zero");
+		    }
+		
+		    mixin("lval = lval " ~ op ~ "rval;");
+		    ubyte[] v;
+		    Type ty;
+		    if (left.type.byteWidth > right.type.byteWidth)
+			ty = left.type;
+		    else
+			ty = right.type;
+		    v.length = ty.byteWidth;
+		    state.writeInteger(lval, v);
+		    return new Value(new ConstantLocation(v), ty);
+		}
 	    }
 	}
     }
@@ -2584,7 +2685,7 @@ class CommaExpr: BinaryExpr
     }
 }
 
-class AddExpr: IntegerBinaryExpr!("+", "add")
+class AddExpr: NumericBinaryExpr!("+", "add")
 {
     this(Language lang, Expr l, Expr r)
     {
@@ -2613,7 +2714,7 @@ class AddExpr: IntegerBinaryExpr!("+", "add")
     }
 }
 
-class SubtractExpr: IntegerBinaryExpr!("-", "add")
+class SubtractExpr: NumericBinaryExpr!("-", "add")
 {
     this(Language lang, Expr l, Expr r)
     {

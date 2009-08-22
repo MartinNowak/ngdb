@@ -342,13 +342,13 @@ class CLikeLanguage: Language
 		e2 = new SubtractExpr(this, e, e2);
 		break;
 	    case "*=":
-		e2 = new IntegerBinaryExpr!("*", "multiply")(this, e, e2);
+		e2 = new NumericBinaryExpr!("*", "multiply")(this, e, e2);
 		break;
 	    case "/=":
-		e2 = new IntegerBinaryExpr!("/", "divide")(this, e, e2);
+		e2 = new NumericBinaryExpr!("/", "divide")(this, e, e2);
 		break;
 	    case "%=":
-		e2 = new IntegerBinaryExpr!("%", "modulus")(this, e, e2);
+		e2 = new NumericBinaryExpr!("%", "modulus")(this, e, e2);
 		break;
 	    case "&=":
 		e2 = new IntegerBinaryExpr!("&", "bitwise and")(this, e, e2);
@@ -694,11 +694,11 @@ class CLikeLanguage: Language
 	    if (!e2)
 		return null;
 	    if (tok.id == "*")
-		e = new IntegerBinaryExpr!("*", "multiply")(this, e, e2);
+		e = new NumericBinaryExpr!("*", "multiply")(this, e, e2);
 	    else if (tok.id == "/")
-		e = new IntegerBinaryExpr!("/", "divide")(this, e, e2);
+		e = new NumericBinaryExpr!("/", "divide")(this, e, e2);
 	    else
-		e = new IntegerBinaryExpr!("%", "remainder")(this, e, e2);
+		e = new NumericBinaryExpr!("%", "remainder")(this, e, e2);
 	    tok = lex.nextToken;
 	}
 	return e;
@@ -2454,14 +2454,14 @@ class CLikeLexer: Lexer
 	    "break",
 	    "case",
 	    "char",
-	    "const"
+	    "const",
 	    "continue",
 	    "default",
 	    "do",
 	    "double",
 	    "else",
 	    "enum",
-	    "extern"
+	    "extern",
 	    "float",
 	    "for",
 	    "goto",
@@ -2470,7 +2470,7 @@ class CLikeLexer: Lexer
 	    "int",
 	    "long",
 	    "register",
-	    "restrict"
+	    "restrict",
 	    "return",
 	    "short",
 	    "signed",
