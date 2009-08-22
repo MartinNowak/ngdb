@@ -880,11 +880,11 @@ class CLikeLanguage: Language
 	    lex.consume;
 	    return new VariableExpr(this, tok.value);
 	}
-	if (tok.id == "number") {
+	if (tok.id == "int literal") {
 	    lex.consume;
 	    return new IntegerConstantExpr(this, tok.value);
 	}
-	if (tok.id == "float number") {
+	if (tok.id == "float literal") {
 	    lex.consume;
 	    return new FloatConstantExpr(this, tok.value);
 	}
@@ -1247,7 +1247,7 @@ class CLikeLanguage: Language
 		 */
 		lex.consume;
 		tok = lex.nextToken;
-		if (tok.id != "number")
+		if (tok.id != "int literal")
 		    throw unexpected(tok);
 		lex.consume;
 		ptr.pend_ = new arrayTransform(this, ptr.pend_,
@@ -1712,11 +1712,11 @@ class DLanguage: CLikeLanguage
 	    lex.consume;
 	    return new VariableExpr(this, "this");
 	}
-	if (tok.id == "number") {
+	if (tok.id == "int literal") {
 	    lex.consume;
 	    return new IntegerConstantExpr(this, tok.value);
 	}
-	if (tok.id == "float number") {
+	if (tok.id == "float literal") {
 	    lex.consume;
 	    return new FloatConstantExpr(this, tok.value);
 	}
@@ -1989,7 +1989,7 @@ class DLanguage: CLikeLanguage
 	    lex.consume;
 	    return new darrayTransform(this, tr);
 	}
-	if (tok.id != "number")
+	if (tok.id != "int literal")
 	    throw unexpected(tok);
 	lex.consume;
 	tr = new arrayTransform(this, tr,
@@ -2027,7 +2027,7 @@ class DLanguage: CLikeLanguage
 		lex.consume;
 		return new darrayTransform(this, tr);
 	    }
-	    if (tok.id != "number")
+	    if (tok.id != "int literal")
 		throw unexpected(tok);
 	    lex.consume;
 	    tr = new arrayTransform(this, tr,
@@ -2213,7 +2213,7 @@ class IdentifierToken: Token
     }
 }
 
-class NumberToken: Token
+class IntegerToken: Token
 {
     this(Lexer parent, uint start, uint end)
     {
@@ -2221,7 +2221,7 @@ class NumberToken: Token
     }
     string id()
     {
-	return "number";
+	return "int literal";
     }
 }
 
@@ -2233,7 +2233,7 @@ class FloatToken: Token
     }
     string id()
     {
-	return "float number";
+	return "float literal";
     }
 }
 
@@ -2362,7 +2362,7 @@ class Lexer
 	     */
 	    if (c == '0') {
 		if (atEOF)
-		    return new NumberToken(this, tokStart, next_);
+		    return new IntegerToken(this, tokStart, next_);
 		c = nextChar;
 		if (c == 'x' || c == 'X') {
 		    if (atEOF)
@@ -2389,7 +2389,7 @@ class Lexer
 			    break;
 			}
 		    }
-		    return new NumberToken(this, tokStart, next_);
+		    return new IntegerToken(this, tokStart, next_);
 		} else {
 		    next_--;
 		}
@@ -2488,7 +2488,7 @@ class Lexer
 		    next_--;
 		}
 	    }
-	    return new NumberToken(this, tokStart, next_);
+	    return new IntegerToken(this, tokStart, next_);
 	}
 
 	if (c == '\'') {
