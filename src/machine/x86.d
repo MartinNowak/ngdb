@@ -698,6 +698,18 @@ class X86State: MachineState
 		
 	    return false;
 	}
+	bool lookupStruct(string reg, out Type)
+	{
+	    return false;
+	}
+	bool lookupUnion(string reg, out Type)
+	{
+	    return false;
+	}
+	bool lookupTypedef(string reg, out Type)
+	{
+	    return false;
+	}
     }
 
     Value regAsValue(uint i, Type ty)

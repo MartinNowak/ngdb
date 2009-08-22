@@ -246,6 +246,24 @@ class PtraceModule: TargetModule
 		return dwarf_.lookup(name, state, val);
 	    return false;
 	}
+	bool lookupStruct(string name, out Type ty)
+	{
+	    if (dwarf_)
+		return dwarf_.lookupStruct(name, ty);
+	    return false;
+	}
+	bool lookupUnion(string name, out Type ty)
+	{
+	    if (dwarf_)
+		return dwarf_.lookupUnion(name, ty);
+	    return false;
+	}
+	bool lookupTypedef(string name, out Type ty)
+	{
+	    if (dwarf_)
+		return dwarf_.lookupTypedef(name, ty);
+	    return false;
+	}
     }
 
     MachineState getState(Target target)

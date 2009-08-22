@@ -835,6 +835,30 @@ class DwarfFile: public DebugInfo
 	    }
 	    return false;
 	}
+	bool lookupStruct(string name, out Type res)
+	{
+	    /*
+	     * Brute force all CUs.
+	     */
+	    foreach (cu; compilationUnits_) {
+		cu.loadDIE;
+		foreach (d; cu.die.children_) {
+		    if (d.tag == DW_TAG_structure_type && d.name == name) {
+			res = d.toType;
+			return true;
+		    }
+		}
+	    }
+	    return false;
+	}
+	bool lookupUnion(string name, out Type)
+	{
+	    return false;
+	}
+	bool lookupTypedef(string name, out Type)
+	{
+	    return false;
+	}
 	Language findLanguage(ulong address)
 	{
 	    CompilationUnit cu;

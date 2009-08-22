@@ -30,6 +30,7 @@ version(tangobos) import std.compat;
 import std.string;
 import std.ctype;
 import std.stdio;
+import std.c.stdlib;
 
 import objfile.debuginfo;
 import machine.machine;
@@ -100,7 +101,7 @@ class Language
     abstract string renderArrayConstant(string);
     abstract string renderNullPointer();
 
-    abstract Expr parseExpr(string s);
+    abstract Expr parseExpr(string s, Scope sc);
 
 private:
     Type voidType_;
@@ -198,9 +199,9 @@ class CLikeLanguage: Language
 	    return "NULL";
 	}
 
-	Expr parseExpr(string s)
+	Expr parseExpr(string s, Scope sc)
 	{
-	    auto lex = new CLikeLexer(s);
+	    auto lex = new CLikeLexer(s, sc);
 	    auto e = expr(lex);
 	    auto tok = lex.nextToken;
 	    if (tok.id != "EOF")
@@ -251,7 +252,7 @@ class CLikeLanguage: Language
 	return sv;
     }
 
-    Expr unexpected(Token tok)
+    void error(Token tok, string message)
     {
 	writefln("%s", tok.parent_.source);
 	for (uint i = 0; i < tok.start; i++)
@@ -259,7 +260,11 @@ class CLikeLanguage: Language
 	for (uint i = tok.start; i < tok.end; i++)
 	    writef("^");
 	writefln("");
-	throw new EvalException(format("Unexpected token '%s'", tok.value));
+	throw new EvalException(message);
+    }
+    Expr unexpected(Token tok)
+    {
+	error(tok, format("Unexpected token '%s'", tok.value));
 	return null;
     }
     Expr expr(Lexer lex)
@@ -646,27 +651,27 @@ class CLikeLanguage: Language
     {
 	/*
 	 * MulExpression:
-	 *	UnaryExpression
-	 *	MulExpression * UnaryExpression
-	 *	MulExpression / UnaryExpression
-	 *	MulExpression % UnaryExpression
+	 *	CastExpression
+	 *	MulExpression * CastExpression
+	 *	MulExpression / CastExpression
+	 *	MulExpression % CastExpression
 	 *
 	 * eliminating left recursion:
 	 *
 	 * MulExpression:
-	 *	UnaryExpression MulExpression2
+	 *	CastExpression MulExpression2
 	 * MulExpression2:
-	 *	* UnaryExpression MulExpression2
-	 *	/ UnaryExpression MulExpression2
-	 *	% UnaryExpression MulExpression2
+	 *	* CastExpression MulExpression2
+	 *	/ CastExpression MulExpression2
+	 *	% CastExpression MulExpression2
 	 *	empty
 	 */
-	auto e = unaryExpr(lex);
+	auto e = castExpr(lex);
 	if (!e)
 	    return null;
 	auto tok = lex.nextToken;
 	while (tok.id == "*" || tok.id == "/" || tok.id == "%") {
-	    auto e2 = unaryExpr(lex);
+	    auto e2 = castExpr(lex);
 	    if (!e2)
 		return null;
 	    if (tok.id == "*")
@@ -679,6 +684,30 @@ class CLikeLanguage: Language
 	}
 	lex.pushBack(tok);
 	return e;
+    }
+    Expr castExpr(Lexer lex)
+    {
+	/*
+	 * CastExpresion:
+	 *	UnaryExpression
+	 *	( TypeName ) CastExpression
+	 */
+	auto tok = lex.nextToken;
+	if (tok.id == "(") {
+	    auto ty = typeName(lex);
+	    if (!ty) {
+		lex.pushBack(tok);
+		return unaryExpr(lex);
+	    }
+	    tok = lex.nextToken;
+	    if (tok.id != ")")
+		return unexpected(tok);
+	    auto e = castExpr(lex);
+	    return new CastExpr(this, ty, e);
+	} else {
+	    lex.pushBack(tok);
+	    return unaryExpr(lex);
+	}
     }
     Expr unaryExpr(Lexer lex)
     {
@@ -811,6 +840,383 @@ class CLikeLanguage: Language
 	}
 	return unexpected(tok);
     }
+    Type typeName(Lexer lex)
+    {
+	/*
+	 * TypeName:
+	 *	SpecifierQualifierList
+	 *	SpecifierQualifierList AbstractDeclarator
+	 */
+	auto ty = specifierQualifierList(lex);
+	if (ty) {
+	    auto tr = new nullTransform(ty);
+	    auto ntr = abstractDeclarator(tr, lex);
+	    ty = ntr.transform;
+	}
+	return ty;
+    }
+    Type specifierQualifierList(Lexer lex)
+    {
+	/*
+	 * SpecifierQualifierList:
+	 *	TypeSpecifier SpecifierQualifierListOpt
+	 *	TypeQualifier SpecifierQualifierListOpt
+	 *
+	 * TypeQualifier:
+	 *	const
+	 *	restrict
+	 *	volatile
+	 *
+	 * TypeSpecifier:
+	 *	void
+	 *	char
+	 *	short
+	 *	int
+	 *	long
+	 *	float
+	 *	double
+	 *	signed
+	 *	unsigned
+	 *	StructOrUnionSpecifier
+	 *	EnumSpecifier
+	 *	TypedefName
+	 *
+	 * TypedefName:
+	 *	identifier
+	 */
+	string[] quals;
+	string[] specs;
+	Type ty;
+
+	void twoTypes(Token tok)
+	{
+	    error(tok, "two or more date types in type declaration");
+	}
+
+	Token lastTok;
+    sqlist: for (;;) {
+	    auto tok = lex.nextToken;
+	    lastTok = tok;
+	    switch (tok.id) {
+	    case "const":
+	    case "restrict":
+	    case "volatile":
+		bool seenQual = false;
+		foreach (q; quals)
+		    if (q == tok.id)
+			seenQual = true;
+		if (!seenQual)
+		    quals ~= tok.id;
+		break;
+
+	    case "void":
+	    case "char":
+	    case "short":
+	    case "int":
+	    case "long":
+	    case "float":
+	    case "double":
+	    case "signed":
+	    case "unsigned":
+		if (ty)
+		    twoTypes(lastTok);
+		specs ~= tok.id;
+		break;
+
+	    case "struct":
+	    case "union":
+		if (ty || specs.length > 0)
+		    twoTypes(lastTok);
+		lex.pushBack(tok);
+		ty = structOrUnionSpecifier(lex);
+		break;
+
+	    case "enum":
+		if (ty)
+		    twoTypes(lastTok);
+		ty = enumSpecifier(lex);
+		break;
+
+	    case "identifier":
+		if (ty)
+		    twoTypes(lastTok);
+		if (lex.sc.lookupTypedef(tok.value, ty))
+		    break;
+		throw new EvalException(format("Can't find typedef %s", tok.value));
+	    default:
+		lex.pushBack(tok);
+		break sqlist;
+	    }
+	}
+	if (!ty && specs.length == 0 && quals.length == 0)
+	    return null;
+	if (!ty) {
+	    /*
+	     * Try to make sense of the specifier list
+	     */
+	    specs = specs.sort;
+	    if (specs == ["void"])
+		ty = voidType;
+	    else if (specs == ["char"]
+		     || specs == ["char", "signed"])
+		ty = charType("char", true, 1);
+	    else if (specs == ["char", "unsigned"])
+		ty = charType("unsignedchar", false, 1);
+	    else if (specs == ["short"]
+		     || specs == ["short", "signed"]
+		     || specs == ["int", "short"]
+		     || specs == ["int", "short", "signed"])
+		ty = integerType("short", true, 2);
+	    else if (specs == ["short", "unsigned"]
+		     || specs == ["int", "short", "unsigned"])
+		ty = integerType("unsigned short", false, 2);
+	    else if (specs == ["int"]
+		     || specs == ["signed"]
+		     || specs == ["int", "signed"])
+		ty = integerType("int", true, 4);
+	    else if (specs == ["unsigned"]
+		     || specs == ["int", "unsigned"])
+		ty = integerType("unsigned int", false, 4);
+	    else if (specs == ["long"]
+		     || specs == ["long", "signed"]
+		     || specs == ["int", "long"]
+		     || specs == ["int", "long", "signed"])
+		ty = integerType("long", true, 4); // XXX 64bit
+	    else if (specs == ["long", "unsigned"]
+		     || specs == ["int", "long", "unsigned"])
+		ty = integerType("unsigned long", false, 4); // XXX 64bit
+	    else if (specs == ["long", "long"]
+		     || specs == ["long", "long", "signed"]
+		     || specs == ["int", "long", "long"]
+		     || specs == ["int", "long", "long", "signed"])
+		ty = integerType("long long", true, 8);
+	    else if (specs == ["long", "long", "unsigned"]
+		     || specs == ["int", "long", "long", "unsigned"])
+		ty = integerType("unsigned long long", false, 8);
+	    else if (specs == ["float"])
+		ty = floatType("float", 4);
+	    else if (specs == ["double"])
+		ty = floatType("double", 8);
+	    else if (specs == ["long double"])
+		ty = floatType("long double", 12);
+	    else
+		error(lastTok, "unrecognised type specifiers");
+	} else {
+	    /*
+	     * Remove any qualifiers from our list that are already present
+	     * in the type we parsed (e.g. if we parsed a typedef to a type
+	     * with qualifiers).
+	     */
+	    for (auto modTy = cast(ModifierType) ty; modTy;
+		 modTy = cast(ModifierType) modTy.baseType) {
+		string[] newQuals;
+		foreach (q; quals)
+		    if (q != modTy.modifier)
+			newQuals ~= q;
+		quals = newQuals;
+	    }
+	}
+	foreach (q; quals)
+	    ty = ty.modifierType(q);
+	return ty;
+    }
+    Type structOrUnionSpecifier(Lexer lex)
+    {
+	/*
+	 * StructOrUnionSpecifier:
+	 *	StructOrUnion identifier
+	 *
+	 * StructOrUnion:
+	 *	struct
+	 *	union
+	 */
+	auto tok = lex.nextToken;
+	if (tok.id == "struct") {
+	    tok = lex.nextToken;
+	    if (tok.id != "identifier")
+		unexpected(tok);
+	    Type ty;
+	    if (lex.sc.lookupStruct(tok.value, ty))
+		return ty;
+	    throw new EvalException(format("Can't find struct %s", tok.value));
+	} else if (tok.id == "union") {
+	    tok = lex.nextToken;
+	    if (tok.id != "identifier")
+		unexpected(tok);
+	    Type ty;
+	    if (lex.sc.lookupUnion(tok.value, ty))
+		return ty;
+	    throw new EvalException(format("Can't find union %s", tok.value));
+	} else {
+	    unexpected(tok);
+	}
+	return null;
+    }
+    Type enumSpecifier(Lexer lex)
+    {
+	/*
+	 * EnumSpecifier:
+	 *	enum identifier
+	 */
+	return null;
+    }
+    typeTransform abstractDeclarator(typeTransform tr, Lexer lex)
+    {
+	/*
+	 * AbstractDeclarator:
+	 *	Pointer
+	 *	PointerOpt DirectAbstractDeclarator
+	 *
+	 * Pointer:
+	 *	* TypeQualifierListOpt
+	 *	* TypeQualifierListOpt Pointer
+	 */
+	auto tok = lex.nextToken;
+	while (tok.id == "*") {
+	    tr = new pointerTransform(tr, typeQualifierList(lex));
+	    tok = lex.nextToken;
+	}
+	lex.pushBack(tok);
+	auto ntr = directAbstractDeclarator(tr, lex);
+	if (ntr)
+	    return ntr;
+	return tr;
+    }
+    typeTransform directAbstractDeclarator(typeTransform tr, Lexer lex)
+    {
+	/*
+	 * DirectAbstractDeclarator:
+	 *	( AbstractDeclarator )
+	 *	DirectAbstractDeclaratorOpt [ TypeQualifierListOpt
+	 *		AssignmentExpression ]
+	 *	DirectAbstractDeclaratorOpt [ * ] // not supported
+	 *	DirectAbstractDeclaratorOpt ( ParameterTypeListOpt )
+	 *
+	 * left factoring
+	 *
+	 * DirectAbstractDeclarator:
+	 *	( AbstractDeclarator ) DirectAbstractDeclaratorTail
+	 *	DirectAbstractDeclaractor2 DirectAbstractDeclaratorTail
+	 *
+	 * DirectAbstractDeclarator2:
+	 *	( ParameterTypeListOpt )
+	 *	[ TypeQualifierListOpt AssignmentExpression ]
+
+	 * DirectAbstractDeclaratorTail:
+	 *	epsilon
+	 *	DirectAbstractDeclaractor2 DirectAbstractDeclaratorTail
+	 *
+	 * ParameterTypeList:
+	 *	ParameterList
+	 *	ParameterList , ...
+	 *
+	 * ParameterList:
+	 *	ParameterDeclaration
+	 *	ParameterList , ParameterDeclaration
+	 *
+	 * ParameterDeclaration:
+	 *	DeclarationSpecifiers Declarator
+	 *	DeclarationSpecifiers AbstractDeclaratorOpt
+	 *
+	 * DeclarationSpecifiers:
+	 *	StorageClassSpecifier DeclarationSpecifiersOpt
+	 *	TypeSpecifier DeclarationSpecifiersOpt
+	 *	TypeQualifier DeclarationSpecifiersOpt
+	 *	FunctionSpecifier DeclarationSpecifiersOpt
+	 *
+	 * StorageClassSpecifier:
+	 *	typedef
+	 *	extern
+	 *	static
+	 *	auto
+	 *	register
+	 *
+	 * FunctionSpecifier:
+	 *	inline
+	 *
+	 * Declarator:
+	 *	DirectDeclarator
+	 *	Pointer DirectDeclarator
+	 */
+	auto tok = lex.nextToken;
+	auto ptr = new pendingTransform(tr);
+	typeTransform ntr = ptr;
+	if (tok.id == "(") {
+	    tok = lex.nextToken;
+	    /*
+	     * See if this token can start an abstractDeclarator
+	     */
+	    switch (tok.id) {
+	    case "*":
+	    case "(":
+	    case "[":
+		lex.pushBack(tok);
+		ntr = abstractDeclarator(ptr, lex);
+		if (!ntr)
+		    return tr;
+	    default:
+		/* XXX parse function argument types here */
+	    }
+	    tok = lex.nextToken;
+	    if (tok.id != ")") {
+		unexpected(tok);
+		return null;
+	    }
+	    tok = lex.nextToken;
+	}
+
+	/*
+	 * At this point, we have parsed any ( AbstractDeclarator ) prefix
+	 * and we have zero or more array/function suffixes.
+	 * XXX just arrays to start with.
+	 */
+	while (tok.id == "[") {
+	    /*
+	     * We ought to parse a full assignment expression here.
+	     */
+	    tok = lex.nextToken;
+	    if (tok.id != "number")
+		unexpected(tok);
+	    ptr.pend_ = new arrayTransform(this, ptr.pend_,
+					   strtoul(toStringz(tok.value),
+						   null, 0));
+	    tok = lex.nextToken;
+	    if (tok.id != "]") {
+		unexpected(tok);
+		return null;
+	    }
+	    tok = lex.nextToken;
+	}
+	lex.pushBack(tok);
+	return ntr;
+    }
+    string[] typeQualifierList(Lexer lex)
+    {
+	/*
+	 * TypeQualifierList:
+	 *	TypeQualifier
+	 *	TypeQualifierList TypeQualifier
+	 */
+	auto tok = lex.nextToken;
+	string[] quals;
+	for (;;) {
+	    switch (tok.id) {
+	    case "const":
+	    case "restrict":
+	    case "volatile":
+		bool seenQual = false;
+		foreach (q; quals)
+		    if (q == tok.id)
+			seenQual = true;
+		if (!seenQual)
+		    quals ~= tok.id;
+		break;
+	    default:
+		lex.pushBack(tok);
+		return quals;
+	    }
+	}
+    }
     bool isAssignToken(string s)
     {
 	switch (s) {
@@ -829,6 +1235,71 @@ class CLikeLanguage: Language
 	default:
 	    return false;
 	}
+    }
+
+    interface typeTransform
+    {
+	Type transform();
+    }
+    static class nullTransform: typeTransform
+    {
+	this(Type ty)
+	{
+	    ty_ = ty;
+	}
+	Type transform()
+	{
+	    return ty_;
+	}
+	Type ty_;
+    }
+    static class pendingTransform: typeTransform
+    {
+	this(typeTransform tr)
+	{
+	    pend_ = tr;
+	}
+	Type transform()
+	{
+	    return pend_.transform;
+	}
+	typeTransform pend_;
+    }
+    static class pointerTransform: typeTransform
+    {
+	this(typeTransform base, string[] quals)
+	{
+	    base_ = base;
+	    quals_ = quals;
+	}
+	Type transform()
+	{
+	    auto ty = base_.transform;
+	    ty = ty.pointerType(4);	// XXX 64bit
+	    foreach (q; quals_)
+		ty = ty.modifierType(q);
+	    return ty;
+	}
+	typeTransform base_;
+	string[] quals_;
+    }
+    static class arrayTransform: typeTransform
+    {
+	this(Language lang, typeTransform base, uint dim)
+	{
+	    lang_ = lang;
+	    base_ = base;
+	    dim_ = dim;
+	}
+	Type transform()
+	{
+	    auto ty = new ArrayType(lang_, base_.transform);
+	    ty.addDim(0, dim_);
+	    return ty;
+	}
+	Language lang_;
+	typeTransform base_;
+	uint dim_;
     }
 }
 
@@ -910,14 +1381,41 @@ class DLanguage: CLikeLanguage
 	    return "null";
 	}
 
-	Expr parseExpr(string s)
+	Expr parseExpr(string s, Scope sc)
 	{
-	    auto lex = new DLexer(s);
+	    auto lex = new DLexer(s, sc);
 	    auto e = expr(lex);
 	    auto tok = lex.nextToken;
 	    if (tok.id != "EOF")
 		return unexpected(tok);
 	    return e;
+	}
+    }
+    Expr castExpr(Lexer lex)
+    {
+	/*
+	 * CastExpresion:
+	 *	UnaryExpression
+	 *	cast ( TypeName ) CastExpression
+	 */
+	auto tok = lex.nextToken;
+	if (tok.id == "cast") {
+	    tok = lex.nextToken;
+	    if (tok.id != "(")
+		return unexpected(tok);
+	    auto ty = typeName(lex);
+	    if (!ty) {
+		lex.pushBack(tok);
+		return unaryExpr(lex);
+	    }
+	    tok = lex.nextToken;
+	    if (tok.id != ")")
+		return unexpected(tok);
+	    auto e = castExpr(lex);
+	    return new CastExpr(this, ty, e);
+	} else {
+	    lex.pushBack(tok);
+	    return unaryExpr(lex);
 	}
     }
     Expr postfixExpr(Lexer lex)
@@ -989,6 +1487,304 @@ class DLanguage: CLikeLanguage
 	     * XXX Handle function call
 	     */
 	}
+    }
+    Type typeName(Lexer lex)
+    {
+	/*
+	 * Type:
+	 *	BasicType
+	 *	BasicType Declarator2
+	 *
+	 * Declarator2:
+	 *	BasicType2 Declarator2
+	 *	( Declarator2 )
+	 *	( Declarator2 ) DeclaratorSuffixes
+	 *
+	 * BasicType2:
+	 *	*
+	 *	[ ]
+	 *	[ Expression ]
+	 *	[ Expression .. Expression ]
+	 *	[ Type ]
+	 *	delegate Parameters
+	 *	function Parameters
+	 *
+	 * DeclaratorSuffixes:
+	 *	DeclaratorSuffix
+	 *	DeclaratorSuffix DeclaratorSuffixes
+	 *
+	 * DeclaratorSuffix
+	 *	[ ]
+	 *	[ Expression ]
+	 *	[ Type ]
+	 *	TemplateParameterList_opt Parameters
+	 */
+	Type ty = basicType(lex);
+	if (ty) {
+	    auto tok = lex.nextToken;
+	    switch (tok.id) {
+	    case "*":
+	    case "[":
+	    case "delegate":
+	    case "function":
+	    case "(":
+		lex.pushBack(tok);
+		auto tr = new nullTransform(ty);
+		ty = declarator2(tr, lex).transform;
+		break;
+	    default:
+		lex.pushBack(tok);
+	    }
+	}
+	return ty;
+    }
+    Type basicType(Lexer lex)
+    {
+	/*
+	 * BasicType:
+	 *	bool
+	 *	byte
+	 *	ubyte
+	 *	short
+	 *	ushort
+	 *	int
+	 *	uint
+	 *	long
+	 *	ulong
+	 *	char
+	 *	wchar
+	 *	dchar
+	 *	float
+	 *	double
+	 *	real
+	 *	ifloat
+	 *	idouble
+	 *	ireal
+	 *	cfloat
+	 *	cdouble
+	 *	creal
+	 *	void
+	 *	.IdentifierList
+	 *	IdentifierList
+	 *	Typeof
+	 *	Typeof . IdentifierList
+	 *
+	 * Typeof:
+	 *	typeof ( Expression )
+	 *	typeof ( return )
+	 */
+	auto tok = lex.nextToken;
+	switch (tok.id) {
+	case "bool":
+	    return booleanType(tok.id, 1);
+	case "byte":
+	    return integerType(tok.id, true, 1);
+	case "ubyte":
+	    return integerType(tok.id, false, 1);
+	case "short":
+	    return integerType(tok.id, true, 2);
+	case "ushort":
+	    return integerType(tok.id, false, 2);
+	case "int":
+	    return integerType(tok.id, true, 4);
+	case "uint":
+	    return integerType(tok.id, false, 4);
+	case "long":
+	    return integerType(tok.id, true, 8);
+	case "ulong":
+	    return integerType(tok.id, false, 8);
+	case "char":
+	    return charType(tok.id, false, 1);
+	case "wchar":
+	    return charType(tok.id, false, 2);
+	case "dchar":
+	    return charType(tok.id, false, 4);
+	case "float":
+	    return floatType(tok.id, 4);
+	case "double":
+	    return floatType(tok.id, 8);
+	case "real":
+	    return floatType(tok.id, 12);
+	case "ifloat":
+	case "idouble":
+	case "ireal":
+	case "cfloat":
+	case "cdouble":
+	case "creal":
+	    throw new EvalException("complex types not supported");
+	case "void":
+	    return voidType;
+	case "identifier":
+	    lex.pushBack(tok);
+	case ".":
+	    auto ids = join(identifierList(lex), ".");
+	    Type ty;
+	    if (lex.sc.lookupStruct(ids, ty))
+		return ty;
+	    if (lex.sc.lookupUnion(ids, ty))
+		return ty;
+	    if (lex.sc.lookupTypedef(ids, ty))
+		return ty;
+	    throw new EvalException(format("Can't find type %s", ids));
+
+	case "typeof":
+	    throw new EvalException("typeof not supported");
+	}
+    }
+    typeTransform declarator2(typeTransform tr, Lexer lex)
+    {
+	/*
+	 * Declarator2:
+	 *	BasicType2 Declarator2
+	 *	( Declarator2 )
+	 *	( Declarator2 ) DeclaratorSuffixes
+	 */
+	auto tok = lex.nextToken;
+	if (tok.id == "(") {
+	    /*
+	     * Try for a C-Style declaraction, e.g.:
+	     *
+	     *		int (*)[3];
+	     */
+	    auto ptr = new pendingTransform(tr);
+	    tr = declarator2(ptr, lex);
+	    tok = lex.nextToken;
+	    if (tok.id != ")")
+		unexpected(tok);
+	    tok = lex.nextToken;
+	    if (tok.id == "[") {
+		lex.pushBack(tok);
+		ptr.pend_ = declaratorSuffixes(ptr.pend_, lex);
+	    }
+	} else {
+	    lex.pushBack(tok);
+	    tr = basicType2(tr, lex);
+	    tok = lex.nextToken;
+	    switch (tok.id) {
+	    case "*":
+	    case "[":
+	    case "delegate":
+	    case "function":
+		lex.pushBack(tok);
+		tr = declarator2(tr, lex);
+		break;
+	    default:
+		lex.pushBack(tok);
+	    }
+	}
+	return tr;
+    }
+    typeTransform declaratorSuffixes(typeTransform tr, Lexer lex)
+    {
+	/*
+	 * DeclaratorSuffixes:
+	 *	DeclaratorSuffix
+	 *	DeclaratorSuffix DeclaratorSuffixes
+	 */
+	tr = declaratorSuffix(tr, lex);
+	auto tok = lex.nextToken;
+	while (tok.id == "[") {
+	    lex.pushBack(tok);
+	    tr = declaratorSuffix(tr, lex);
+	}
+	lex.pushBack(tok);
+	return tr;
+    }
+    typeTransform declaratorSuffix(typeTransform tr, Lexer lex)
+    {
+	/*
+	 * DeclaratorSuffix
+	 *	[ ]
+	 *	[ Expression ]
+	 *	[ Type ]
+	 *	TemplateParameterList_opt Parameters
+	 */
+	auto tok = lex.nextToken;
+	if (tok.id != "[")
+	    unexpected(tok);
+	/*
+	 * For now, just support [ ] and [ number ].
+	 */
+	tok = lex.nextToken;
+	if (tok.id == "]")
+	    return new darrayTransform(this, tr);
+	if (tok.id != "number")
+	    unexpected(tok);
+	tr = new arrayTransform(this, tr,
+				strtoul(toStringz(tok.value), null, 0));
+	tok = lex.nextToken;
+	if (tok.id != "]")
+	    unexpected(tok);
+	return tr;
+    }
+    typeTransform basicType2(typeTransform tr, Lexer lex)
+    {
+	/*
+	 * BasicType2:
+	 *	*
+	 *	[ ]
+	 *	[ Expression ]
+	 *	[ Expression .. Expression ]
+	 *	[ Type ]
+	 *	delegate Parameters
+	 *	function Parameters
+	 */
+	auto tok = lex.nextToken;
+	switch (tok.id) {
+	case "*":
+	    return new pointerTransform(tr, null);
+	case "[":
+	    /*
+	     * For now, just support [ ] and [ number ].
+	     */
+	    tok = lex.nextToken;
+	    if (tok.id == "]")
+		return new darrayTransform(this, tr);
+	    if (tok.id != "number")
+		unexpected(tok);
+	    tr = new arrayTransform(this, tr,
+				    strtoul(toStringz(tok.value), null, 0));
+	    tok = lex.nextToken;
+	    if (tok.id != "]")
+		unexpected(tok);
+	    return tr;
+	case "delegate":
+	case "function":
+	    throw new EvalException("delegate/function not supported yet");
+	}
+    }
+    string[] identifierList(Lexer lex)
+    {
+	string[] ids;
+	auto tok = lex.nextToken;
+	if (tok.id != "identifier")
+	    unexpected(tok);
+	ids ~= tok.value;
+	tok = lex.nextToken;
+	while (tok.id == ".") {
+	    tok = lex.nextToken;
+	    if (tok.id != "identifier")
+		unexpected(tok);
+	    ids ~= tok.value;
+	    tok = lex.nextToken;
+	}
+	lex.pushBack(tok);
+	return ids;
+    }
+    static class darrayTransform: typeTransform
+    {
+	this(Language lang, typeTransform base)
+	{
+	    lang_ = lang;
+	    base_ = base;
+	}
+	Type transform()
+	{
+	    auto ty = new DArrayType(lang_, base_.transform, 8); // XXX 64bit
+	    return ty;
+	}
+	Language lang_;
+	typeTransform base_;
     }
 }
 
@@ -1075,15 +1871,21 @@ class NumberToken: Token
 
 class Lexer
 {
-    this(string s)
+    this(string s, Scope sc)
     {
 	source_ = s;
 	next_ = 0;
+	sc_ = sc;
     }
 
     string source()
     {
 	return source_;
+    }
+
+    Scope sc()
+    {
+	return sc_;
     }
 
     Token nextToken()
@@ -1109,6 +1911,12 @@ class Lexer
 		if (!isalnum(c) && c != '_') {
 		    next_--;
 		    break;
+		}
+	    }
+
+	    foreach (k; keywords) {
+		if (source_[tokStart..next_] == k) {
+		    return new Token(this, tokStart, next_);
 		}
 	    }
 
@@ -1227,16 +2035,18 @@ class Lexer
     }
 
     abstract string[] tokens();
+    abstract string[] keywords();
 
     string source_;
+    Scope sc_;
     uint next_;
 }
 
 class CLikeLexer: Lexer
 {
-    this(string s)
+    this(string s, Scope sc)
     {
-	super(s);
+	super(s, sc);
     }
 
     static this()
@@ -1290,6 +2100,45 @@ class CLikeLexer: Lexer
 	    "~",
 	    "~="
 	    ];
+	keywords_ = [
+	    "auto",
+	    "break",
+	    "case",
+	    "char",
+	    "const"
+	    "continue",
+	    "default",
+	    "do",
+	    "double",
+	    "else",
+	    "enum",
+	    "extern"
+	    "float",
+	    "for",
+	    "goto",
+	    "if",
+	    "inline",
+	    "int",
+	    "long",
+	    "register",
+	    "restrict"
+	    "return",
+	    "short",
+	    "signed",
+	    "sizeof",
+	    "static",
+	    "struct",
+	    "switch",
+	    "typedef",
+	    "union",
+	    "unsigned",
+	    "void",
+	    "volatile",
+	    "while",
+	    "_Bool",
+	    "_Complex",
+	    "_Imaginary"
+	    ];
     }
 
     override {
@@ -1297,16 +2146,21 @@ class CLikeLexer: Lexer
 	{
 	    return tokens_;
 	}
+	string[] keywords()
+	{
+	    return keywords_;
+	}
     }
 
     static string[] tokens_;
+    static string[] keywords_;
 }
 
 class DLexer: Lexer
 {
-    this(string s)
+    this(string s, Scope sc)
     {
-	super(s);
+	super(s, sc);
     }
 
     static this()
@@ -1373,6 +2227,123 @@ class DLexer: Lexer
 	    "~",
 	    "~="
 	    ];
+	keywords_ = [
+	    "abstract",
+	    "alias",
+	    "align",
+	    "asm",
+	    "assert",
+	    "auto",
+
+	    "body",
+	    "bool",
+	    "break",
+	    "byte",
+
+	    "case",
+	    "cast",
+	    "catch",
+	    "cdouble",
+	    "cent",
+	    "cfloat",
+	    "char",
+	    "class",
+	    "const",
+	    "continue",
+	    "creal",
+
+	    "dchar",
+	    "debug",
+	    "default",
+	    "delegate",
+	    "delete",
+	    "deprecated",
+	    "do",
+	    "double",
+
+	    "else",
+	    "enum",
+	    "export",
+	    "extern",
+
+	    "false",
+	    "final",
+	    "finally",
+	    "float",
+	    "for",
+	    "foreach",
+	    "foreach_reverse",
+	    "function",
+
+	    "goto",
+
+	    "idouble",
+	    "if",
+	    "ifloat",
+	    "import",
+	    "in",
+	    "inout",
+	    "int",
+	    "interface",
+	    "invariant",
+	    "ireal",
+	    "is",
+
+	    "lazy",
+	    "long",
+
+	    "macro",
+	    "mixin",
+	    "module",
+
+	    "new",
+	    "null",
+
+	    "out",
+	    "override",
+
+	    "package",
+	    "pragma",
+	    "private",
+	    "protected",
+	    "public",
+
+	    "real",
+	    "ref",
+	    "return",
+
+	    "scope",
+	    "short",
+	    "static",
+	    "struct",
+	    "super",
+	    "switch",
+	    "synchronized",
+
+	    "template",
+	    "this",
+	    "throw",
+	    "true",
+	    "try",
+	    "typedef",
+	    "typeid",
+	    "typeof",
+
+	    "ubyte",
+	    "ucent",
+	    "uint",
+	    "ulong",
+	    "union",
+	    "unittest",
+	    "ushort",
+
+	    "version",
+	    "void",
+	    "volatile",
+
+	    "wchar",
+	    "while",
+	    "with"];
     }
 
     override {
@@ -1380,7 +2351,12 @@ class DLexer: Lexer
 	{
 	    return tokens_;
 	}
+	string[] keywords()
+	{
+	    return keywords_;
+	}
     }
 
     static string[] tokens_;
+    static string[] keywords_;
 }

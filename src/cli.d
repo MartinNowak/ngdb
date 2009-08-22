@@ -260,7 +260,7 @@ private class Breakpoint: TargetBreakpointListener
 	if (!lang)
 	    lang = CLikeLanguage.instance;
 	try {
-	    auto e = lang.parseExpr(s);
+	    auto e = lang.parseExpr(s, db_);
 	    condition_ = s;
 	    expr_ = e;
 	} catch (EvalException ex) {
@@ -1420,6 +1420,27 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 		return false;
 	    }
 	}
+	bool lookupStruct(string name, out Type ty)
+	{
+	    foreach (mod; modules_)
+		if (mod.lookupStruct(name, ty))
+		    return true;
+	    return false;
+	}
+	bool lookupUnion(string name, out Type ty)
+	{
+	    foreach (mod; modules_)
+		if (mod.lookupTypedef(name, ty))
+		    return true;
+	    return false;
+	}
+	bool lookupTypedef(string name, out Type ty)
+	{
+	    foreach (mod; modules_)
+		if (mod.lookupTypedef(name, ty))
+		    return true;
+	    return false;
+	}
     }
 
 private:
@@ -2577,7 +2598,7 @@ class PrintCommand: Command
 	    }
 
 	    try {
-		auto e = lang.parseExpr(expr);
+		auto e = lang.parseExpr(expr, sc);
 		auto v = e.eval(sc, s).toValue(s);
 		db.pagefln("$%s = (%s) %s", db.valueHistory_.length, v.type.toString, v.toString(fmt, s));
 		db.valueHistory_ ~= v;
@@ -2654,7 +2675,7 @@ class ExamineCommand: Command
 		}
 
 		try {
-		    auto e = lang.parseExpr(expr);
+		    auto e = lang.parseExpr(expr, sc);
 		    auto v = e.eval(sc, s).toValue(s);
 		    addr = s.readInteger(v.loc.readValue(s));
 		} catch (EvalException ex) {

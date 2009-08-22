@@ -135,6 +135,18 @@ class ColdModule: TargetModule
 		return dwarf_.lookup(name, state, val);
 	    return false;
 	}
+	bool lookupStruct(string reg, out Type)
+	{
+	    return false;
+	}
+	bool lookupUnion(string reg, out Type)
+	{
+	    return false;
+	}
+	bool lookupTypedef(string reg, out Type)
+	{
+	    return false;
+	}
     }
 
     MachineState getState(Target target)

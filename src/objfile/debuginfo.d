@@ -158,6 +158,9 @@ interface Scope
 {
     string[] contents(MachineState);
     bool lookup(string, MachineState, out DebugItem);
+    bool lookupStruct(string, out Type);
+    bool lookupUnion(string, out Type);
+    bool lookupTypedef(string, out Type);
 }
 
 class UnionScope: Scope
@@ -177,10 +180,30 @@ class UnionScope: Scope
 	}
 	bool lookup(string name, MachineState state, out DebugItem val)
 	{
-	    foreach (sc; subScopes_) {
+	    foreach (sc; subScopes_)
 		if (sc.lookup(name, state, val))
 		    return true;
-	    }
+	    return false;
+	}
+	bool lookupStruct(string name, out Type ty)
+	{
+	    foreach (sc; subScopes_)
+		if (sc.lookupStruct(name, ty))
+		    return true;
+	    return false;
+	}
+	bool lookupUnion(string name, out Type ty)
+	{
+	    foreach (sc; subScopes_)
+		if (sc.lookupUnion(name, ty))
+		    return true;
+	    return false;
+	}
+	bool lookupTypedef(string name, out Type ty)
+	{
+	    foreach (sc; subScopes_)
+		if (sc.lookupTypedef(name, ty))
+		    return true;
 	    return false;
 	}
     }
@@ -250,7 +273,8 @@ class IntegerType: TypeBase
 
 	bool coerce(MachineState state, ref Value val)
 	{
-	    if (!val.type.isIntegerType)
+	    if (!val.type.isIntegerType
+		&& !cast(PointerType) val.type)
 		return false;
 
 	    ulong i = state.readInteger(val.loc.readValue(state));
@@ -553,6 +577,24 @@ class PointerType: TypeBase
 		return lang_.renderPointerType("void");
 	}
 
+	bool coerce(MachineState state, ref Value val)
+	{
+	    if (val.type.isIntegerType) {
+		ulong i = state.readInteger(val.loc.readValue(state));
+		ubyte[] v;
+		v.length = byteWidth_;
+		state.writeInteger(i, v);
+		val = new Value(new ConstantLocation(v), this);
+		return true;
+	    }
+	    auto pTy = cast(PointerType) val.type;
+	    if (pTy) {
+		val = new Value(val.loc, this);
+		return true;
+	    }
+	    return false;
+	}
+
 	string valueToString(string, MachineState state, Location loc)
 	{
 	    string v;
@@ -661,6 +703,16 @@ class ModifierType: TypeBase
 	super(lang);
 	modifier_ = modifier;
 	baseType_ = baseType;
+    }
+
+    string modifier()
+    {
+	return modifier_;
+    }
+
+    Type baseType()
+    {
+	return baseType_;
     }
 
     override
@@ -908,6 +960,18 @@ class CompoundScope: Scope
 		return true;
 	    }
 	}
+	return false;
+    }
+    bool lookupStruct(string name, out Type)
+    {
+	return false;
+    }
+    bool lookupUnion(string name, out Type)
+    {
+	return false;
+    }
+    bool lookupTypedef(string name, out Type)
+    {
 	return false;
     }
 private:
@@ -1986,6 +2050,33 @@ class ExprBase: Expr
     Language lang_;
 }
 
+class CastExpr: ExprBase
+{
+    this(Language lang, Type type, Expr expr)
+    {
+	super(lang);
+	type_ = type;
+	expr_ = expr;
+    }
+
+    override {
+	string toString()
+	{
+	    return "(" ~ type_.toString ~ ") " ~ expr_.toString;
+	}
+	DebugItem eval(Scope sc, MachineState state)
+	{
+	    Value expr = expr_.eval(sc, state).toValue(state);
+	    if (!type_.coerce(state, expr))
+		throw new EvalException("Incompatible types for cast");
+	    return expr;
+	}
+    }
+private:
+    Type type_;
+    Expr expr_;
+}
+
 class VariableExpr: ExprBase
 {
     this(Language lang, string name)
@@ -2885,6 +2976,18 @@ class LexicalScope: DebugItem, Scope
 	    }
 	    return false;
 	}
+	bool lookupStruct(string name, out Type)
+	{
+	    return false;
+	}
+	bool lookupUnion(string name, out Type)
+	{
+	    return false;
+	}
+	bool lookupTypedef(string name, out Type)
+	{
+	    return false;
+	}
     }
 
     void addVariable(Variable var)
@@ -2997,6 +3100,18 @@ class Function: DebugItem, Scope
 		    return true;
 		}
 	    }
+	    return false;
+	}
+	bool lookupStruct(string name, out Type)
+	{
+	    return false;
+	}
+	bool lookupUnion(string name, out Type)
+	{
+	    return false;
+	}
+	bool lookupTypedef(string name, out Type)
+	{
 	    return false;
 	}
     }
