@@ -2272,7 +2272,7 @@ class SizeofExpr: UnaryExpr
     override {
 	string toString()
 	{
-	    return expr_.toString() ~ ".length";
+	    return expr_.toString() ~ ".sizeof";
 	}
 	DebugItem eval(Scope sc, MachineState state)
 	{
@@ -2283,6 +2283,31 @@ class SizeofExpr: UnaryExpr
 	    return new Value(new ConstantLocation(val), ty);
 	}
     }
+}
+
+class SizeofTypeExpr: ExprBase
+{
+    this(Language lang, Type ty)
+    {
+	super(lang);
+	ty_ = ty;
+    }
+
+    override {
+	string toString()
+	{
+	    return ty_.toString ~ ".sizeof";
+	}
+	DebugItem eval(Scope sc, MachineState state)
+	{
+	    ubyte[4] val;
+	    state.writeInteger(ty_.byteWidth, val);
+	    auto ty = lang_.integerType("size_t", false, 4);
+	    return new Value(new ConstantLocation(val), ty);
+	}
+    }
+private:
+    Type ty_;
 }
 
 class AddressOfExpr: UnaryExpr

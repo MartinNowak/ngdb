@@ -741,6 +741,8 @@ class CLikeLanguage: Language
 	 *	+ UnaryExpression
 	 *	! UnaryExpression
 	 *	~ UnaryExpression
+	 *	sizeof UnaryExpression
+	 *	sizeof ( TypeName )
 	 */
 	auto tok = lex.nextToken;
 	if (tok.id == "++" || tok.id == "--") {
@@ -772,6 +774,25 @@ class CLikeLanguage: Language
 	    if (tok.id == "~")
 		return new ComplementExpr(this, e);
 	    assert(false);
+	}
+	if (tok.id == "sizeof") {
+	    lex.consume;
+	    tok = lex.nextToken;
+	    if (tok.id == "(") {
+		lex.consume;
+		auto ty = typeName(lex);
+		if (ty) {
+		    tok = lex.nextToken;
+		    if (tok.id != ")")
+			unexpected(tok);
+		    lex.consume;
+		    return new SizeofTypeExpr(this, ty);
+		} else {
+		    lex.pushBack(tok);
+		}
+	    }
+	    auto e = unaryExpr(lex);
+	    return new SizeofExpr(this, e);
 	}
 	return postfixExpr(lex);
     }
@@ -1545,6 +1566,53 @@ class DLanguage: CLikeLanguage
 	    return unaryExpr(lex);
 	}
     }
+    Expr unaryExpr(Lexer lex)
+    {
+	/*
+	 * UnaryExpression:
+	 *	PostfixExpression
+	 *	& UnaryExpression
+	 *	++ UnaryExpression
+	 *	-- UnaryExpression
+	 *	* UnaryExpression
+	 *	- UnaryExpression
+	 *	+ UnaryExpression
+	 *	! UnaryExpression
+	 *	~ UnaryExpression
+	 */
+	auto tok = lex.nextToken;
+	if (tok.id == "++" || tok.id == "--") {
+	    lex.consume;
+	    auto e = unaryExpr(lex);
+	    auto one = new NumericExpr(this, "1");
+	    Expr e2;
+	    if (tok.id == "++")
+		e2 = new AddExpr(this, e, one);
+	    else
+		e2 = new SubtractExpr(this, e, one);
+	    return new AssignExpr(this, e, e2);
+	}
+	if (tok.id == "&"
+	    || tok.id == "*" || tok.id == "-" || tok.id == "+"
+	    || tok.id == "!" || tok.id == "~") {
+	    lex.consume;
+	    auto e = unaryExpr(lex);
+	    if (tok.id == "&")
+		return new AddressOfExpr(this, e);
+	    if (tok.id == "*")
+		return new DereferenceExpr(this, e);
+	    if (tok.id == "-")
+		return new NegateExpr(this, e);
+	    if (tok.id == "+")
+		return e;
+	    if (tok.id == "!")
+		return new LogicalNegateExpr(this, e);
+	    if (tok.id == "~")
+		return new ComplementExpr(this, e);
+	    assert(false);
+	}
+	return postfixExpr(lex);
+    }
     Expr postfixExpr(Lexer lex)
     {
 	/*
@@ -1617,6 +1685,52 @@ class DLanguage: CLikeLanguage
 	     * XXX Handle function call
 	     */
 	}
+    }
+    Expr primaryExpr(Lexer lex)
+    {
+	/*
+	 * PrimaryExpression:
+	 *	Identifier
+	 *	Number
+	 *	( Expression )
+	 */
+	auto tok = lex.nextToken;
+	if (tok.id == "identifier") {
+	    lex.consume;
+	    return new VariableExpr(this, tok.value);
+	}
+	if (tok.id == "this") {
+	    lex.consume;
+	    return new VariableExpr(this, "this");
+	}
+	if (tok.id == "number") {
+	    lex.consume;
+	    return new NumericExpr(this, tok.value);
+	}
+	auto ty = typeName(lex);
+	if (ty) {
+	    tok = lex.nextToken;
+	    if (tok.id != ".")
+		return unexpected(tok);
+	    lex.consume;
+	    tok = lex.nextToken;
+	    if (tok.id != "identifier")
+		return unexpected(tok);
+	    lex.consume;
+	    if (tok.value != "sizeof")
+		return unexpected(tok);
+	    return new SizeofTypeExpr(this, ty);
+	}
+	if (tok.id == "(") {
+	    lex.consume;
+	    Expr e = expr(lex);
+	    tok = lex.nextToken;
+	    if (tok.id != ")")
+		return unexpected(tok);
+	    lex.consume;
+	    return e;
+	}
+	return unexpected(tok);
     }
     Type typeName(Lexer lex)
     {
@@ -1777,7 +1891,7 @@ class DLanguage: CLikeLanguage
 	    throw new EvalException("typeof not supported");
 
 	default:
-	    unexpected(tok);
+	    return null;
 	}
     }
     typeTransform declarator2(typeTransform tr, Lexer lex)
