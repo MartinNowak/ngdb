@@ -1890,8 +1890,10 @@ class DLanguage: CLikeLanguage
 	     */
 	    lex.consume;
 	    tok = lex.nextToken;
-	    if (tok.id == "]")
+	    if (tok.id == "]") {
+		lex.consume;
 		return new darrayTransform(this, tr);
+	    }
 	    if (tok.id != "number")
 		unexpected(tok);
 	    lex.consume;
