@@ -753,7 +753,7 @@ class CLikeLanguage: Language
 	if (tok.id == "++" || tok.id == "--") {
 	    lex.consume;
 	    auto e = unaryExpr(lex);
-	    auto one = new NumericExpr(this, "1");
+	    auto one = new IntegerConstantExpr(this, "1");
 	    Expr e2;
 	    if (tok.id == "++")
 		e2 = new AddExpr(this, e, one);
@@ -846,7 +846,7 @@ class CLikeLanguage: Language
 		e = new PointsToExpr(this, e, (cast(IdentifierToken) tok).value);
 	    } else if (tok.id == "++" || tok.id == "--") {
 		lex.consume;
-		auto one = new NumericExpr(this, "1");
+		auto one = new IntegerConstantExpr(this, "1");
 		if (tok.id == "++")
 		    e = new AddExpr(this, e, one);
 		else
@@ -882,11 +882,17 @@ class CLikeLanguage: Language
 	}
 	if (tok.id == "number") {
 	    lex.consume;
-	    return new NumericExpr(this, tok.value);
+	    return new IntegerConstantExpr(this, tok.value);
 	}
 	if (tok.id == "float number") {
 	    lex.consume;
-	    return new FloatNumericExpr(this, tok.value);
+	    return new FloatConstantExpr(this, tok.value);
+	}
+	if (tok.id == "char literal") {
+	    lex.consume;
+	    return new CharConstantExpr(this,
+					(cast(CharToken) tok).ch,
+					charType("char", true, 1));
 	}
 	if (tok.id == "(") {
 	    lex.consume;
@@ -1021,7 +1027,7 @@ class CLikeLanguage: Language
 		     || specs == ["char", "signed"])
 		ty = charType("char", true, 1);
 	    else if (specs == ["char", "unsigned"])
-		ty = charType("unsignedchar", false, 1);
+		ty = charType("unsigned char", false, 1);
 	    else if (specs == ["short"]
 		     || specs == ["short", "signed"]
 		     || specs == ["int", "short"]
@@ -1587,7 +1593,7 @@ class DLanguage: CLikeLanguage
 	if (tok.id == "++" || tok.id == "--") {
 	    lex.consume;
 	    auto e = unaryExpr(lex);
-	    auto one = new NumericExpr(this, "1");
+	    auto one = new IntegerConstantExpr(this, "1");
 	    Expr e2;
 	    if (tok.id == "++")
 		e2 = new AddExpr(this, e, one);
@@ -1668,7 +1674,7 @@ class DLanguage: CLikeLanguage
 		}
 	    } else if (tok.id == "++" || tok.id == "--") {
 		lex.consume;
-		auto one = new NumericExpr(this, "1");
+		auto one = new IntegerConstantExpr(this, "1");
 		if (tok.id == "++")
 		    e = new AddExpr(this, e, one);
 		else
@@ -1708,11 +1714,17 @@ class DLanguage: CLikeLanguage
 	}
 	if (tok.id == "number") {
 	    lex.consume;
-	    return new NumericExpr(this, tok.value);
+	    return new IntegerConstantExpr(this, tok.value);
 	}
 	if (tok.id == "float number") {
 	    lex.consume;
-	    return new FloatNumericExpr(this, tok.value);
+	    return new FloatConstantExpr(this, tok.value);
+	}
+	if (tok.id == "char literal") {
+	    lex.consume;
+	    return new CharConstantExpr(this,
+					(cast(CharToken) tok).ch,
+					charType("char", false, 1));
 	}
 	auto ty = typeName(lex);
 	if (ty) {
@@ -2225,6 +2237,24 @@ class FloatToken: Token
     }
 }
 
+class CharToken: Token
+{
+    this(Lexer parent, uint start, uint end, char ch)
+    {
+	super(parent, start, end);
+	ch_ = ch;
+    }
+    string id()
+    {
+	return "char literal";
+    }
+    char ch()
+    {
+	return ch_;
+    }
+    char ch_;
+}
+
 class Lexer
 {
     this(string s, Scope sc)
@@ -2259,6 +2289,7 @@ class Lexer
     {
 	uint tokStart = next_;
 	char c;
+	uint n;
 
 	do {
 	    if (next_ == source_.length)
@@ -2348,12 +2379,12 @@ class Lexer
 			    break;
 			}
 		    }
-		} else if (c >= '0' && c <= '7') {
+		} else if (isoctal(c)) {
 		    for (;;) {
 			if (atEOF)
 			    break;
 			c = nextChar;
-			if (!(c >= '0' && c <= '7')) {
+			if (!isoctal(c)) {
 			    next_--;
 			    break;
 			}
@@ -2460,6 +2491,123 @@ class Lexer
 	    return new NumberToken(this, tokStart, next_);
 	}
 
+	if (c == '\'') {
+	    /*
+	     * Only allow single character constants.
+	     *
+	     * character:
+	     *		' <quotedcharacter> '
+	     *
+	     * quotedcharacter:
+	     *		<character>
+	     *		<escape-sequence>
+	     *
+	     * escape-sequence:
+	     *		\'
+	     *		\"
+	     *		\?
+	     *		\\
+	     *		\a
+	     *		\b
+	     *		\f
+	     *		\n
+	     *		\r
+	     *		\t
+	     *		\v
+	     *		\x <hexdigit> <hexdigit>
+	     *		\ <octaldigit>
+	     *		\ <octaldigit> <octaldigit>
+	     *		\ <octaldigit> <octaldigit> <octaldigit>
+	     */
+	    if (atEOF)
+		return new ErrorToken(this, tokStart, next_);
+	    c = nextChar;
+	    if (c == '\'')
+		return new ErrorToken(this, tokStart, next_);
+	    if (c == '\\') {
+		if (atEOF)
+		    return new ErrorToken(this, tokStart, next_);
+		c = nextChar;
+		switch (c) {
+		case '?':
+		    c = '\?';
+		    break;
+		case 'a':
+		    c = '\a';
+		    break;
+		case 'b':
+		    c = '\b';
+		    break;
+		case 'f':
+		    c = '\f';
+		    break;
+		case 'n':
+		    c = '\n';
+		    break;
+		case 'r':
+		    c = '\r';
+		    break;
+		case 't':
+		    c = '\t';
+		    break;
+		case 'v':
+		    c = '\v';
+		    break;
+		case 'x':
+		    if (atEOF)
+			return new ErrorToken(this, tokStart, next_);
+		    c = nextChar;
+		    if (!isxdigit(c))
+			return new ErrorToken(this, tokStart, next_);
+		    n = fromhex(c);
+		    if (atEOF)
+			return new ErrorToken(this, tokStart, next_);
+		    c = nextChar;
+		    if (!isxdigit(c))
+			return new ErrorToken(this, tokStart, next_);
+		    n = n * 16 + fromhex(c);
+		    c = cast(char) n;
+		    break;
+		case '0':
+		case '1':
+		case '2':
+		case '3':
+		case '4':
+		case '5':
+		case '6':
+		case '7':
+		    n = c - '0';
+		    if (!atEOF) {
+			c = nextChar;
+			if (isoctal(c)) {
+			    n = 8 * n + (c - '0');
+			    if (!atEOF) {
+				c = nextChar;
+				if (isoctal(c))
+				    n = 8 * n + (c - '0');
+				else
+				    next_--;
+			    }
+			} else {
+			    next_--;
+			}
+		    }
+		    c = cast(char) n;
+		    break;
+		default:
+		    /*
+		     * Allow \<any> to represent <any>
+		     */
+		    break;
+		}
+	    }
+	    if (atEOF)
+		return new ErrorToken(this, tokStart, next_);
+	    if (nextChar != '\'')
+		return new ErrorToken(this, tokStart, next_);
+	    return new CharToken(this, tokStart, next_, c);
+	}
+
 	string[] toks = tokens;
 	uint opindex = 0;
 
@@ -2527,6 +2675,23 @@ class Lexer
 	    return source_[next_++];
 	else
 	    return 0;
+    }
+
+    bool isoctal(char c)
+    {
+	return c >= '0' && c <= '7';
+    }
+
+    int fromhex(char c)
+    {
+	if (c >= '0' && c <= '9')
+	    return c - '0';
+	else if (c >= 'A' && c <= 'F')
+	    return c - 'A' + 10;
+	else if (c >= 'a' && c <= 'f')
+	    return c - 'a' + 10;
+	else
+	    assert(false);
     }
 
     abstract string[] tokens();

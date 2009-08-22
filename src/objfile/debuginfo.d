@@ -2120,7 +2120,7 @@ private:
     string name_;
 }
 
-class NumericExpr: ExprBase
+class IntegerConstantExpr: ExprBase
 {
     this(Language lang, string num)
     {
@@ -2162,7 +2162,7 @@ private:
     }
 }
 
-class FloatNumericExpr: ExprBase
+class FloatConstantExpr: ExprBase
 {
     this(Language lang, string num)
     {
@@ -2192,6 +2192,32 @@ class FloatNumericExpr: ExprBase
 private:
     Type ty_;
     real num_;
+}
+
+class CharConstantExpr: ExprBase
+{
+    this(Language lang, uint ch, Type ty)
+    {
+	super(lang);
+	ch_ = ch;
+	ty_ = ty;
+    }
+    override {
+	string toString()
+	{
+	    return std.string.toString(ch_);
+	}
+	DebugItem eval(Scope sc, MachineState state)
+	{
+	    ubyte[] val;
+	    val.length = ty_.byteWidth;
+	    state.writeInteger(ch_, val);
+	    return new Value(new ConstantLocation(val), ty_);
+	}
+    }
+private:
+    uint ch_;
+    Type ty_;
 }
 
 class UnaryExpr: ExprBase
