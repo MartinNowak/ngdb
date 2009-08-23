@@ -30,6 +30,16 @@ import objfile.debuginfo;
 version(tangobos) import std.compat;
 
 /**
+ * A structure used to decribe how to use ptrace(2) to update the
+ * machine state.
+ */
+struct PtraceCommand
+{
+    uint	req;
+    ubyte*	data;
+}
+
+/**
  * A representation of the target machine. Registers are indexed by
  * dwarf register number.
  */
@@ -53,27 +63,22 @@ interface MachineState: Scope
     ulong tp();
 
     /**
-     * Set the thread pointer register.
-     */
-    void tp(ulong);
-
-    /**
      * Return the address of the TLS object at the given module index
      * and offset.
      */
     ulong tls_get_addr(uint index, ulong offset);
 
     /**
-     * Return the size of a structure which contains all the general
-     * registers. Typically used with ptrace(PT_GETREGS);
+     * Return a set of ptrace commands to read the machine state from
+     * a process or thread.
      */
-    size_t gregsSize();
+    PtraceCommand[] ptraceReadCommands();
 
     /**
-     * Return a value which increments each time the general register
-     * set changes.
+     * Return a set of ptrace commands to write the machine state back
+     * to a process or thread.
      */
-    uint grGen();
+    PtraceCommand[] ptraceWriteCommands();
 
     /**
      * Set the values of all the general registers.
@@ -116,34 +121,12 @@ interface MachineState: Scope
     void dumpFloat();
 
     /**
-     * Return the size of a structure which contains all the floating
-     * point registers. Typically used with ptrace(PT_GETFPREGS);
-     */
-    size_t fpregsSize();
-
-    /**
-     * Ptrace command to get the floating point state
-     */
-    int ptraceGetFP();
-
-    /**
-     * Ptrace command to set the floating point state
-     */
-    int ptraceSetFP();
-
-    /**
-     * Return a value which increments each time the general register
-     * set changes.
-     */
-    uint frGen();
-
-    /**
-     * Set the values of all the general registers.
+     * Set the values of all the floating point registers.
      */
     void setFRs(ubyte* regs);
 
     /**
-     * Get the values of all the general registers.
+     * Get the values of all the floating point registers.
      */
     void getFRs(ubyte* regs);
 
@@ -183,6 +166,19 @@ interface MachineState: Scope
      * corresponds to dwarf register number.
      */
     void writeRegister(uint regno, ubyte[]);
+
+    /**
+     * Return a byte array containing a breakpoint instruction for
+     * this architecture.
+     */
+    ubyte[] breakpoint();
+
+    /**
+     * Called after a thread hits a breakpoint to make any adjustments
+     * to the machine state so that the PC is at the breakpoint
+     * address.
+     */
+    void adjustPcAfterBreak();
 
     /**
      * Return the width of a pointer in bytes

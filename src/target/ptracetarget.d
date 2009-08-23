@@ -34,7 +34,6 @@ import objfile.elf;
 import objfile.debuginfo;
 import objfile.dwarf;
 import machine.machine;
-import machine.x86;
 
 import std.stdint;
 import std.stdio;
@@ -299,8 +298,8 @@ class PtraceBreakpoint
 	 * Write a breakpoint instruction, saving what was there
 	 * before.
 	 */
-	save_ = target_.readMemory(addr_, break_.length, false);
-	target_.writeMemory(addr_, break_, false);
+	save_ = target_.readMemory(addr_, target_.break_.length, false);
+	target_.writeMemory(addr_, target_.break_, false);
     }
 
     void deactivate()
@@ -351,7 +350,6 @@ private:
     TargetBreakpointListener[] listeners_;
     PtraceThread[] stoppedThreads_;
     ubyte[] save_;
-    static ubyte[] break_ = [ 0xcc ]; // XXX i386 int3
 }
 
 class PtraceThread: TargetThread
@@ -362,8 +360,6 @@ class PtraceThread: TargetThread
 	id_ = target.nextTid_++;
 	lwpid_ = lwpid;
 	state_ = target_.modules_[0].getState(target_);
-	regs_.length = state_.gregsSize;
-	fpregs_.length = state_.fpregsSize;
     }
     override
     {
@@ -392,16 +388,10 @@ private:
     }
     void readState()
     {
-	target_.ptrace(PT_GETREGS, lwpid_, cast(char*) regs_.ptr, 0);
-	state_.setGRs(regs_.ptr);
-	grGen_ = state_.grGen;
-	target_.ptrace(state_.ptraceGetFP, lwpid_, cast(char*) fpregs_.ptr, 0);
-	state_.setFRs(fpregs_.ptr);
-	frGen_ = state_.frGen;
 	try {
-	    uint32_t tp;
-	    target_.ptrace(PT_GETGSBASE, lwpid_, cast(char*) &tp, 0);
-	    state_.tp = tp;
+	    auto cmds = state_.ptraceReadCommands;
+	    foreach (cmd; cmds)
+		target_.ptrace(cmd.req, lwpid_, cast(char*) cmd.data, 0);
 	} catch (PtraceException pte) {
 	    /*
 	     * We may get an error reading GSBASE if the kernel doesn't 
@@ -411,29 +401,15 @@ private:
     }
     void writeState()
     {
-	if (grGen_ != state.grGen) {
-	    state_.getGRs(regs_.ptr);
-	    //writefln("write thread %d pc as %#x, eax as %#x", id, regs_.r_eip, regs_.r_eax);
-	    target_.ptrace(PT_SETREGS, lwpid_, cast(char*) regs_.ptr, 0);
-	    grGen_ = state.grGen;
-	}
-	if (frGen_ != state.frGen) {
-	    state_.getFRs(fpregs_.ptr);
-	    target_.ptrace(state.ptraceSetFP, lwpid_, cast(char*) fpregs_.ptr, 0);
-	    frGen_ = state.frGen;
-	}
+	auto cmds = state_.ptraceWriteCommands;
+	foreach (cmd; cmds)
+	    target_.ptrace(cmd.req, lwpid_, cast(char*) cmd.data, 0);
     }
-
-    static int pcRegno_ = X86Reg.EIP;
 
     PtraceTarget target_;
     uint id_;
     lwpid_t lwpid_;
     MachineState state_;
-    ubyte[] regs_;
-    uint grGen_;
-    ubyte[] fpregs_;
-    uint frGen_;
 }
 
 string signame(int sig)
@@ -742,6 +718,8 @@ private:
 		continue;
 	    }
 	    PtraceThread t = new PtraceThread(this, ntid);
+	    if (break_.length == 0)
+		break_ = t.state_.breakpoint;
 	    listener_.onThreadCreate(this, t);
 	    threads_[ntid] = t;
 	}
@@ -893,7 +871,7 @@ private:
 		     * informing our listener as appropriate.
 		     */
 		    PtraceThread pt = focusThread;
-		    pt.state.pc = pt.state.pc - 1; // XXX MachineState.adjustPcAfterBreak
+		    pt.state.adjustPcAfterBreak;
 		    foreach (pbp; breakpoints_.values) {
 			if (pt.state.pc == pbp.address) {
 			    pbp.stoppedThreads_ ~= pt;
@@ -946,6 +924,7 @@ private:
     ulong sharedLibraryBreakpoint_;
     uint linkmapOffset_;
     uint tlsindexOffset_;
+    ubyte[] break_;		// breakpoint instruction
 }
 
 class PtraceAttach: TargetFactory

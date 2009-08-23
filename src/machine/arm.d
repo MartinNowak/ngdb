@@ -32,9 +32,10 @@ import target.target;
 private import machine.armdis;
 import sys.ptrace;
 
-import std.stdio;
-import std.stdint;
 import std.format;
+import std.stdint;
+import std.stdio;
+import std.string;
 
 /**
  * Register numbers are chosen to match Dwarf debug info.
@@ -57,7 +58,8 @@ enum ArmReg
     R13,
     R14,
     PC,
-    GR_COUNT,
+    CPSR,
+    GR_COUNT
 }
 
 private string[] ArmRegNames =
@@ -78,6 +80,7 @@ private string[] ArmRegNames =
     "r13",
     "r14",
     "pc",
+    "cpsr",
 ];
 
 class ArmState: MachineState
@@ -105,17 +108,12 @@ class ArmState: MachineState
 	void pc(ulong pc)
 	{
 	    gregs_[ArmReg.PC] = pc;
-	    grGen_++;
+	    grdirty_ = true;
 	}
 
 	ulong tp()
 	{
 	    return tp_;
-	}
-
-	void tp(ulong v)
-	{
-	    tp_ = v;
 	}
 
 	ulong tls_get_addr(uint index, ulong offset)
@@ -127,19 +125,24 @@ class ArmState: MachineState
 	    return base + offset;
 	}
 
-	size_t gregsSize()
+	PtraceCommand[] ptraceReadCommands()
 	{
-	    return 4 * 16;
+	    grdirty_ = false;
+	    return [PtraceCommand(PT_GETREGS, cast(ubyte*) gregs_.ptr)];
 	}
 
-	uint grGen()
+	PtraceCommand[] ptraceWriteCommands()
 	{
-	    return grGen_;
+	    if (grdirty_) {
+		grdirty_ = false;
+		return [PtraceCommand(PT_GETREGS, cast(ubyte*) gregs_.ptr)];
+	    }
+	    return null;
 	}
 
 	void setGRs(ubyte* p)
 	{
-	    grGen_++;
+	    grdirty_ = true;
 	}
 
 	void getGRs(ubyte* p)
@@ -149,7 +152,7 @@ class ArmState: MachineState
 	void setGR(uint gregno, ulong val)
 	{
 	    gregs_[gregno] = val;
-	    grGen_++;
+	    grdirty_ = true;
 	}
 
 	ulong getGR(uint gregno)
@@ -182,26 +185,6 @@ class ArmState: MachineState
 
 	void dumpFloat()
 	{
-	}
-
-	size_t fpregsSize()
-	{
-	    return 0;
-	}
-
-	int ptraceGetFP()
-	{
-	    return PT_GETFPREGS;
-	}
-
-	int ptraceSetFP()
-	{
-	    return PT_SETFPREGS;
-	}
-
-	uint frGen()
-	{
-	    return 0;
 	}
 
 	void setFRs(ubyte* regs)
@@ -238,18 +221,40 @@ class ArmState: MachineState
 
 	ubyte[] readRegister(uint regno, size_t bytes)
 	{
-	    ubyte[] v;
-	    assert(bytes <= 4);
-	    v.length = bytes;
-	    v[] = (cast(ubyte*) &gregs_[regno])[0..bytes];
-	    return v;
+	    if (regno < ArmReg.GR_COUNT) {
+		ubyte[] v;
+		assert(bytes <= 4);
+		v.length = bytes;
+		v[] = (cast(ubyte*) &gregs_[regno])[0..bytes];
+		return v;
+	    } else {
+		throw new TargetException(
+		    format("Unsupported register index %d", regno));
+	    }
 	}
 
 	void writeRegister(uint regno, ubyte[] v)
 	{
-	    assert(v.length <= 4);
-	    (cast(ubyte*) &gregs_[regno])[0..v.length] = v[];
-	    grGen_++;
+	    if (regno < ArmReg.GR_COUNT) {
+		assert(v.length <= 4);
+		(cast(ubyte*) &gregs_[regno])[0..v.length] = v[];
+		grdirty_ = true;
+	    } else {
+		throw new TargetException(
+		    format("Unsupported register index %d", regno));
+	    }
+	}
+
+	ubyte[] breakpoint()
+	{
+	    static ubyte[] inst = [ 0x11,0x00,0x00,0xe6 ];
+	    return inst;
+	}
+
+	void adjustPcAfterBreak()
+	{
+	    gregs_[ArmReg.PC] -= 4;
+	    grdirty_ = true;
 	}
 
 	uint pointerWidth()
@@ -325,7 +330,14 @@ class ArmState: MachineState
 
 	ulong findJump(ulong start, ulong end)
 	{
-	    return end;
+	    ulong addr = start;
+	    while (start < end) {
+		uint insn = readInteger(readMemory(addr, 4));
+		if (((insn >> 24) & 7) == 5)	// B, BL
+		    break;
+		addr += 4;
+	    }
+	    return addr;
 	}
 
 	string disassemble(ref ulong address,
@@ -391,6 +403,6 @@ private:
     }
     Target	target_;
     uint32_t	gregs_[ArmReg.GR_COUNT];
-    uint	grGen_ = 1;
+    bool	grdirty_;
     uint32_t	tp_;
 }

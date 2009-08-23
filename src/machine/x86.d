@@ -195,7 +195,8 @@ class X86State: MachineState
     override {
 	void dumpState()
 	{
-	    foreach (i, val; gregs_) {
+	    for (auto i = 0; i < X86Reg.GR_COUNT; i++) {
+		uint32_t val = getGR(i);
 		writef("%6s:%08x ", X86RegNames[i], val);
 		if ((i & 3) == 3)
 		    writefln("");
@@ -204,23 +205,18 @@ class X86State: MachineState
 
 	ulong pc()
 	{
-	    return gregs_[X86Reg.EIP];
+	    return regs_.r_eip;
 	}
 
 	void pc(ulong pc)
 	{
-	    gregs_[X86Reg.EIP] = pc;
-	    grGen_++;
+	    regs_.r_eip = pc;
+	    grdirty_ = true;
 	}
 
 	ulong tp()
 	{
 	    return tp_;
-	}
-
-	void tp(ulong v)
-	{
-	    tp_ = v;
 	}
 
 	ulong tls_get_addr(uint index, ulong offset)
@@ -232,40 +228,49 @@ class X86State: MachineState
 	    return base + offset;
 	}
 
-	size_t gregsSize()
+	PtraceCommand[] ptraceReadCommands()
 	{
-	    return reg.sizeof;
+	    grdirty_ = false;
+	    fpdirty_ = false;
+	    return [PtraceCommand(PT_GETREGS, cast(ubyte*) &regs_),
+		    PtraceCommand(PT_GETXMMREGS, cast(ubyte*) &fpregs_),
+		    PtraceCommand(PT_GETGSBASE, cast(ubyte*) &tp_)];
 	}
 
-	uint grGen()
+	PtraceCommand[] ptraceWriteCommands()
 	{
-	    return grGen_;
+	    PtraceCommand[] res;
+	    if (grdirty_) {
+		res ~= PtraceCommand(PT_SETREGS, cast(ubyte*) &regs_);
+		grdirty_ = false;
+	    }
+	    if (fpdirty_) {
+		res ~= PtraceCommand(PT_SETXMMREGS, cast(ubyte*) &fpregs_);
+		fpdirty_ = false;
+	    }
+	    return res;
 	}
 
 	void setGRs(ubyte* p)
 	{
-	    foreach (map; regmap_) {
-		gregs_[map.gregno] = *cast(uint32_t*) (p + map.regoff);
-	    }
-	    grGen_++;
+	    regs_ = *cast(reg*) p;
+	    grdirty_ = true;
 	}
 
 	void getGRs(ubyte* p)
 	{
-	    foreach (map; regmap_) {
-		*cast(uint32_t*) (p + map.regoff) = gregs_[map.gregno];
-	    }
+	    *cast(reg*) p = regs_;
 	}
 
 	void setGR(uint gregno, ulong val)
 	{
-	    gregs_[gregno] = val;
-	    grGen_++;
+	    *grAddr(gregno) = val;
+	    grdirty_ = true;
 	}
 
 	ulong getGR(uint gregno)
 	{
-	    return gregs_[gregno];
+	    return *grAddr(gregno);
 	}
 
 	size_t grWidth(int greg)
@@ -286,7 +291,8 @@ class X86State: MachineState
 	MachineState dup()
 	{
 	    X86State newState = new X86State(target_);
-	    newState.gregs_[] = gregs_[];
+	    newState.regs_ = regs_;
+	    newState.fpregs_ = fpregs_;
 	    newState.tp_ = tp_;
 	    return newState;
 	}
@@ -383,26 +389,6 @@ class X86State: MachineState
 		     0xd800 + (fpregs_.xmm_env[1] >> 16));
 	}
 
-	size_t fpregsSize()
-	{
-	    return xmmreg.sizeof;
-	}
-
-	int ptraceGetFP()
-	{
-	    return PT_GETXMMREGS;
-	}
-
-	int ptraceSetFP()
-	{
-	    return PT_SETXMMREGS;
-	}
-
-	uint frGen()
-	{
-	    return frGen_;
-	}
-
 	void setFRs(ubyte* regs)
 	{
 	    fpregs_ = *cast(xmmreg*) regs;
@@ -416,7 +402,7 @@ class X86State: MachineState
 	void setFR(uint fpregno, real val)
 	{
 	    writeFloat(val, fpregs_.xmm_acc[fpregno]);
-	    frGen_++;
+	    fpdirty_ = true;
 	}
 
 	real getFR(uint fpregno)
@@ -432,7 +418,7 @@ class X86State: MachineState
 	void writeFR(uint fpregno, ubyte[] val)
 	{
 	    fpregs_.xmm_acc[fpregno][] = val[];
-	    frGen_++;
+	    fpdirty_ = true;
 	}
 
 	size_t frWidth(int fpregno)
@@ -446,7 +432,7 @@ class X86State: MachineState
 	    if (regno < 10) {
 		assert(bytes <= 4);
 		v.length = bytes;
-		v[] = (cast(ubyte*) &gregs_[regno])[0..bytes];
+		v[] = (cast(ubyte*) grAddr(regno))[0..bytes];
 	    } else if (regno >= 11 && regno <= 18) {
 		ubyte* reg = fpregs_.xmm_acc[regno-11].ptr;
 		assert(bytes <= 10);
@@ -479,8 +465,8 @@ class X86State: MachineState
 	{
 	    if (regno < 10) {
 		assert(v.length <= 4);
-		(cast(ubyte*) &gregs_[regno])[0..v.length] = v[];
-		grGen_++;
+		(cast(ubyte*) grAddr(regno))[0..v.length] = v[];
+		grdirty_ = true;
 	    } else if (regno >= 11 && regno <= 18) {
 		ubyte* reg = fpregs_.xmm_acc[regno-11].ptr;
 		assert(v.length <= 10);
@@ -493,19 +479,31 @@ class X86State: MachineState
 		default:
 		    reg[0..v.length] = v[];
 		}
-		frGen_++;
+		fpdirty_ = true;
 	    } else if (regno >= 21 && regno <= 28) {
 		assert(v.length <= 16);
 		(cast(ubyte*) &fpregs_.xmm_reg[regno-21])[0..v.length] = v[];
-		frGen_++;
+		fpdirty_ = true;
 	    } else if (regno >= 29 && regno <= 36) {
 		assert(v.length <= 8);
 		(cast(ubyte*) &fpregs_.xmm_acc[regno-29])[0..v.length] = v[];
-		frGen_++;
+		fpdirty_ = true;
 	    } else {
 		throw new TargetException(
 		    format("Unsupported register index %d", regno));
 	    }
+	}
+
+	ubyte[] breakpoint()
+	{
+	    static ubyte[] inst = [ 0xcc ];
+	    return inst;
+	}
+
+	void adjustPcAfterBreak()
+	{
+	    regs_.r_eip--;
+	    grdirty_ = true;
 	}
 
 	uint pointerWidth()
@@ -719,6 +717,12 @@ class X86State: MachineState
     }
 
 private:
+    uint32_t* grAddr(uint gregno)
+    {
+	assert(gregno < X86Reg.GR_COUNT);
+	return cast(uint32_t*) (cast(ubyte*) &regs_ + regmap_[gregno]);
+    }
+
     union float32 {
 	uint i;
 	float f;
@@ -727,34 +731,30 @@ private:
 	ulong i;
 	double f;
     }
-    struct regmap {
-	int gregno;		// machine gregno
-	size_t regoff;		// offset struct reg
-    }
-    static regmap[] regmap_ = [
-	{ X86Reg.EAX, reg.r_eax.offsetof },
-	{ X86Reg.ECX, reg.r_ecx.offsetof },
-	{ X86Reg.EDX, reg.r_edx.offsetof },
-	{ X86Reg.EBX, reg.r_ebx.offsetof },
-	{ X86Reg.ESP, reg.r_esp.offsetof },
-	{ X86Reg.EBP, reg.r_ebp.offsetof },
-	{ X86Reg.ESI, reg.r_esi.offsetof },
-	{ X86Reg.EDI, reg.r_edi.offsetof },
-	{ X86Reg.EIP, reg.r_eip.offsetof },
-	{ X86Reg.EFLAGS, reg.r_eflags.offsetof },
-	{ X86Reg.CS, reg.r_cs.offsetof },
-	{ X86Reg.SS, reg.r_ss.offsetof },
-	{ X86Reg.DS, reg.r_ds.offsetof },
-	{ X86Reg.ES, reg.r_es.offsetof },
-	{ X86Reg.FS, reg.r_fs.offsetof },
-	{ X86Reg.GS, reg.r_gs.offsetof },
+    static uint[] regmap_ = [
+	reg.r_eax.offsetof,	// X86Reg.EAX
+	reg.r_ecx.offsetof,	// X86Reg.ECX
+	reg.r_edx.offsetof,	// X86Reg.EDX
+	reg.r_ebx.offsetof,	// X86Reg.EBX
+	reg.r_esp.offsetof,	// X86Reg.ESP
+	reg.r_ebp.offsetof,	// X86Reg.EBP
+	reg.r_esi.offsetof,	// X86Reg.ESI
+	reg.r_edi.offsetof,	// X86Reg.EDI
+	reg.r_eip.offsetof,	// X86Reg.EIP
+	reg.r_eflags.offsetof,	// X86Reg.EFLAGS
+	reg.r_cs.offsetof,	// X86Reg.CS
+	reg.r_ss.offsetof,	// X86Reg.SS
+	reg.r_ds.offsetof,	// X86Reg.DS
+	reg.r_es.offsetof,	// X86Reg.ES
+	reg.r_fs.offsetof,	// X86Reg.FS
+	reg.r_gs.offsetof,	// X86Reg.GS
 	];
     Target	target_;
-    uint32_t	gregs_[X86Reg.GR_COUNT];
-    uint	grGen_ = 1;
+    bool	grdirty_;
     uint32_t	tp_;
+    reg		regs_;
     xmmreg	fpregs_;
-    uint	frGen_ = 1;
+    bool	fpdirty_;
 
     static Type	grType_;
     static Type	frType_;
