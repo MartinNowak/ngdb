@@ -36,7 +36,7 @@ import debuginfo.debuginfo;
 import debuginfo.expr;
 import debuginfo.types;
 import machine.machine;
-import target.target;
+import target.target: TargetException;
 
 class Language
 {

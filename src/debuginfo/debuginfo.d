@@ -34,7 +34,7 @@ import debuginfo.expr: EvalException;
 import debuginfo.language;
 import debuginfo.types;
 import machine.machine;
-import target.target;
+import target.target: TargetException;
 
 /**
  * This structure is used to represent line number information
