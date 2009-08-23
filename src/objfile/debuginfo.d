@@ -2922,6 +2922,113 @@ private:
     Expr index_;
 }
 
+class SliceExpr: ExprBase
+{
+    this(Language lang, Expr base, Expr start, Expr end)
+    {
+	super(lang);
+	base_ = base;
+	start_ = start;
+	end_ = end;
+    }
+    override {
+	string toString()
+	{
+	    return base_.toString ~ "["
+		~ start_.toString ~ ".."
+		~ end_.toString ~ "]";
+	}
+	DebugItem eval(Scope sc, MachineState state)
+	{
+	    Value base = base_.eval(sc, state).toValue(state);
+
+	    ArrayType aTy = cast(ArrayType) base.type.underlyingType;
+	    DArrayType daTy = cast(DArrayType) base.type.underlyingType;
+	    PointerType ptrTy = cast(PointerType) base.type.underlyingType;
+	    Type elementType;
+	    Location baseLoc;
+	    ulong minIndex, maxIndex;
+	    if (aTy) {
+		baseLoc = base.loc;
+		minIndex = aTy.dims_[0].indexBase;
+		maxIndex = minIndex + aTy.dims_[0].count;
+		if (aTy.dims_.length == 1) {
+		    elementType = aTy.baseType;
+		} else {
+		    ArrayType subTy = new ArrayType(lang_, aTy.baseType);
+		    subTy.dims_ = aTy.dims_[1..$];
+		    elementType = subTy;
+		}
+	    } else if (daTy) {
+		/*
+		 * The memory representation of dynamic arrays is two
+		 * pointer sized values, the first being the array length
+		 * and the second the base pointer.
+		 */
+		elementType = daTy.baseType;
+		ubyte[] val = base.loc.readValue(state);
+		minIndex = 0;
+		maxIndex = state.readInteger(val[0..state.pointerWidth]);
+		ulong addr = state.readInteger(val[state.pointerWidth..$]);
+		baseLoc = new MemoryLocation(addr, 0);
+	    } else if (ptrTy) {
+		elementType = ptrTy.baseType;
+		/*
+		 * Dereference the pointer to get the array base
+		 */
+		ulong addr = state.readInteger(base.loc.readValue(state));
+		minIndex = 0;
+		maxIndex = ~0;
+		baseLoc = new MemoryLocation(addr, 0);
+	    } else {
+		throw new EvalException("Expected array or pointer for index expression");
+	    }
+
+	    Value start = start_.eval(sc, state).toValue(state);
+	    if (!start.type.isIntegerType)
+		throw new EvalException(
+		    "Expected integer for slice expression");
+	    long si = state.readInteger(start.loc.readValue(state));
+	    if (si < minIndex || si >= maxIndex)
+		throw new EvalException(
+		    format("Index %d out of array bounds", si));
+
+	    Value end = end_.eval(sc, state).toValue(state);
+	    if (!end.type.isIntegerType)
+		throw new EvalException(
+		    "Expected integer for slice expression");
+	    long ei = state.readInteger(end.loc.readValue(state));
+	    if (ei < minIndex || ei > maxIndex)
+		throw new EvalException(
+		    format("Index %d out of array bounds", ei));
+
+	    if (ei < si)
+		throw new EvalException(
+		    format("End index %d less than start index %d",
+			   ei, si));
+
+	    si -= minIndex;
+	    ei -= minIndex;
+
+	    auto addr = baseLoc.address(state) + si * elementType.byteWidth;
+	    auto len = ei - si;
+
+	    ubyte[] val;
+	    val.length = 2 * state.pointerWidth;
+	    state.writeInteger(len, val[0..state.pointerWidth]);
+	    state.writeInteger(addr, val[state.pointerWidth..$]);
+
+	    return new Value(new ConstantLocation(val),
+			     new DArrayType(lang_, elementType,
+					    2 * state.pointerWidth));
+	}
+    }
+private:
+    Expr base_;
+    Expr start_;
+    Expr end_;
+}
+
 class MemberExpr: ExprBase
 {
     this(Language lang, Expr base, string member)

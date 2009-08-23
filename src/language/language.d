@@ -1655,7 +1655,7 @@ class DLanguage: CLikeLanguage
 	 *	PostfixExpression ( )
 	 *	PostfixExpression ( ArgumentList )
 	 *	PostfixExpression [ AssignExpression ]
-	 *
+	 *	PostfixExpression [ AssignExpression .. AssignExpression ]
 	 *
 	 * eliminating left recursion
 	 *
@@ -1706,10 +1706,17 @@ class DLanguage: CLikeLanguage
 		lex.consume;
 		auto e2 = assignExpr(lex);
 		tok = lex.nextToken;
+		if (tok.id == "..") {
+		    lex.consume;
+		    auto e3 = assignExpr(lex);
+		    e = new SliceExpr(this, e, e2, e3);
+		} else {
+		    e = new IndexExpr(this, e, e2);
+		}
+		tok = lex.nextToken;
 		if (tok.id != "]")
 		    throw unexpected(tok);
 		lex.consume;
-		e = new IndexExpr(this, e, e2);
 	    } else {
 		return e;
 	    }
@@ -2460,6 +2467,14 @@ class Lexer
 		    if (c == '.' || c == 'e' || c == 'E') {
 			if (c == '.' && !atEOF) {
 			    c = nextChar;
+			    if (c == '.') {
+				/*
+				 * This is not the decimal point we
+				 * are looking for.
+				 */
+				next_ -= 2;
+				goto parseIntSuffix;
+			    }
 			    for (;;) {
 				if (atEOF)
 				    break;
@@ -2513,6 +2528,7 @@ class Lexer
 	    /*
 	     * Parse integer suffix, if any.
 	     */
+	parseIntSuffix:
 	    if (!atEOF) {
 		auto t = next_;
 		c = nextChar;
