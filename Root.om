@@ -3,10 +3,10 @@
 .PHONY:	clean
 
 CC=cc
-CFLAGS=-g
+CFLAGS=-g -O -msse3 -mfpmath=sse
 
 CXX=c++
-CXXFLAGS=-g
+CXXFLAGS=-g -O -msse3 -mfpmath=sse
 
 if $(not $(defined comp))
 	comp = ldc
@@ -31,7 +31,7 @@ case gdc
 case ldc
    LDCBASE=/home/dfr/src/ldc
    DMD=$(LDCBASE)/ldc/bin/ldmd
-   DFLAGS= -gc -I$(LDCBASE)/tangobos -version=tangobos
+   DFLAGS= -g -I$(LDCBASE)/tangobos -version=tangobos
    LDFLAGS= -g 
    export
 
@@ -148,7 +148,7 @@ CXXObjfiles(files) =
 CXXProgram(name, files) =
 	ofiles = $(CXXObjfiles $(files))
 	$(name): $(ofiles) $(LIBS)
-		$(CXX) $(LDFLAGS) -static -o $@ \
+		$(CXX) $(LDFLAGS) -o $@ \
 			$(filter %.o, $^) \
 			$(LIBS) \
 			$(addprefix -l, $(ELIBS))
