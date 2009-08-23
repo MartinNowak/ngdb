@@ -2023,7 +2023,7 @@ class SubrangeLocation: Location
 
 	bool isLval(MachineState)
 	{
-	    return false;
+	    return true;
 	}
 
 	Location fieldLocation(Location baseLoc, MachineState state)
@@ -2909,10 +2909,9 @@ class IndexExpr: ExprBase
 		throw new EvalException(format("Index %d out of array bounds", i));
 	    i -= minIndex;
 
-	    auto elementLoc = new MemoryLocation(
-		baseLoc.address(state)
-		+ i * elementType.byteWidth, 
-		elementType.byteWidth);
+	    auto elementLoc = baseLoc.subrange(i * elementType.byteWidth,
+					       elementType.byteWidth,
+					       state);
 
 	    return new Value(elementLoc, elementType);
 	}
@@ -3009,6 +3008,10 @@ class SliceExpr: ExprBase
 
 	    si -= minIndex;
 	    ei -= minIndex;
+
+	    if (!baseLoc.hasAddress(state))
+		throw new EvalException(
+		    "Can't create a slice of something not in memory");
 
 	    auto addr = baseLoc.address(state) + si * elementType.byteWidth;
 	    auto len = ei - si;
