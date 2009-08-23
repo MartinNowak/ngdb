@@ -33,7 +33,9 @@ import target.target;
 import target.ptracetarget;
 import target.coldtarget;
 import debuginfo.debuginfo;
+import debuginfo.expr;
 import debuginfo.language;
+import debuginfo.types;
 import machine.machine;
 
 version (DigitalMars)

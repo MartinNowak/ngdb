@@ -31,6 +31,7 @@ import objfile.objfile;
 import objfile.elf;
 import debuginfo.debuginfo;
 import debuginfo.dwarf;
+import debuginfo.types;
 import machine.machine;
 import machine.x86;
 

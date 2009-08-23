@@ -3,9 +3,11 @@ objs[]=
 	cli
 	editline
 	endian
-	debuginfo/language
 	debuginfo/debuginfo
 	debuginfo/dwarf
+	debuginfo/expr
+	debuginfo/language
+	debuginfo/types
 	machine/machine
 	machine/arm
 	machine/armdis

@@ -31,6 +31,7 @@ module debuginfo.dwarf;
 import objfile.objfile;
 import debuginfo.debuginfo;
 import debuginfo.language;
+import debuginfo.types;
 import machine.machine;
 static import std.path;
 import std.string;

@@ -33,6 +33,8 @@ import std.stdio;
 import std.c.stdlib;
 
 import debuginfo.debuginfo;
+import debuginfo.expr;
+import debuginfo.types;
 import machine.machine;
 import target.target;
 
