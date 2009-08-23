@@ -846,12 +846,14 @@ class CLikeLanguage: Language
 		tok = lex.nextToken;
 		if (tok.id != "identifier")
 		    throw unexpected(tok);
+		lex.consume;
 		e = new MemberExpr(this, e, (cast(IdentifierToken) tok).value);
 	    } else if (tok.id == "->") {
 		lex.consume;
 		tok = lex.nextToken;
 		if (tok.id != "identifier")
 		    throw unexpected(tok);
+		lex.consume;
 		e = new PointsToExpr(this, e, (cast(IdentifierToken) tok).value);
 	    } else if (tok.id == "++" || tok.id == "--") {
 		lex.consume;
