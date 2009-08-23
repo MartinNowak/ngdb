@@ -26,8 +26,8 @@
 
 module machine.arm;
 import machine.machine;
-import objfile.debuginfo;
-import language.language;
+import debuginfo.debuginfo;
+import debuginfo.language;
 import target.target;
 private import machine.armdis;
 import sys.ptrace;

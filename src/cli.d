@@ -32,8 +32,8 @@ import editline;
 import target.target;
 import target.ptracetarget;
 import target.coldtarget;
-import objfile.debuginfo;
-import language.language;
+import debuginfo.debuginfo;
+import debuginfo.language;
 import machine.machine;
 
 version (DigitalMars)

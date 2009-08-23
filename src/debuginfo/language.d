@@ -24,7 +24,7 @@
  * SUCH DAMAGE.
  */
 
-module language.language;
+module debuginfo.language;
 
 version(tangobos) import std.compat;
 import std.string;
@@ -32,7 +32,7 @@ import std.ctype;
 import std.stdio;
 import std.c.stdlib;
 
-import objfile.debuginfo;
+import debuginfo.debuginfo;
 import machine.machine;
 import target.target;
 

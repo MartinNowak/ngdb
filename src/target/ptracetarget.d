@@ -31,8 +31,8 @@ module target.ptracetarget;
 import target.target;
 import objfile.objfile;
 import objfile.elf;
-import objfile.debuginfo;
-import objfile.dwarf;
+import debuginfo.debuginfo;
+import debuginfo.dwarf;
 import machine.machine;
 
 import std.stdint;

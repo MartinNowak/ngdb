@@ -3,6 +3,9 @@ objs[]=
 	cli
 	editline
 	endian
+	debuginfo/language
+	debuginfo/debuginfo
+	debuginfo/dwarf
 	machine/machine
 	machine/arm
 	machine/armdis
@@ -11,10 +14,7 @@ objs[]=
 	objfile/elf
 	objfile/elf32
 	objfile/elf64
-	objfile/debuginfo
-	objfile/dwarf
 	objfile/objfile
-	language/language
 	target/ptracetarget
 	target/coldtarget
 	target/target

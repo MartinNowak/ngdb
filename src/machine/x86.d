@@ -26,8 +26,8 @@
 
 module machine.x86;
 import machine.machine;
-import objfile.debuginfo;
-import language.language;
+import debuginfo.debuginfo;
+import debuginfo.language;
 private import machine.x86dis;
 import target.target;
 import sys.ptrace;

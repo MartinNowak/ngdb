@@ -24,13 +24,13 @@
  * SUCH DAMAGE.
  */
 
-module objfile.dwarf;
+module debuginfo.dwarf;
 
 //debug = line;
 
 import objfile.objfile;
-import objfile.debuginfo;
-import language.language;
+import debuginfo.debuginfo;
+import debuginfo.language;
 import machine.machine;
 static import std.path;
 import std.string;

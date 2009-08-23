@@ -29,8 +29,8 @@ module target.coldtarget;
 import target.target;
 import objfile.objfile;
 import objfile.elf;
-import objfile.debuginfo;
-import objfile.dwarf;
+import debuginfo.debuginfo;
+import debuginfo.dwarf;
 import machine.machine;
 import machine.x86;
 
