@@ -882,3 +882,10 @@ struct dbreg {
 #define	DBREG_DRX(d,x)	((d)->dr[(x)])	/* reference dr0 - dr7 by
 					   register number */
 +/
+
+enum
+{
+	PT_GETXMMREGS	= PT_FIRSTMACH + 0,
+	PT_SETXMMREGS	= PT_FIRSTMACH + 1,
+	PT_GETGSBASE	= PT_FIRSTMACH + 2
+}
