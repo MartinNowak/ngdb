@@ -32,7 +32,7 @@
 
 module sys.ptrace;
 version (DigitalMars)
-import std.c.freebsd.freebsd;
+import std.c.posix.posix;
 else
 import std.c.unix.unix;
 import std.stdint;

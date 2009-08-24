@@ -33,7 +33,7 @@
 version (GDC)
 import std.c.unix.unix;
 else
-import std.c.freebsd.freebsd;
+import std.c.posix.posix;
 
 /*
  * This file holds definitions relevant to the wait4 system call and the

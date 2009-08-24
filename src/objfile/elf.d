@@ -58,7 +58,7 @@ import std.stdint;
 version (GDC)
 import std.c.unix.unix;
 else
-import std.c.freebsd.freebsd;
+import std.c.posix.posix;
 import std.c.string;
 
 import endian;
