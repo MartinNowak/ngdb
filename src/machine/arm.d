@@ -136,7 +136,7 @@ class ArmState: MachineState
 	{
 	    if (grdirty_) {
 		grdirty_ = false;
-		return [PtraceCommand(PT_GETREGS, cast(ubyte*) gregs_.ptr)];
+		return [PtraceCommand(PT_GETREGS, cast(ubyte*) gregs_.ptr, 0)];
 	    }
 	    return null;
 	}

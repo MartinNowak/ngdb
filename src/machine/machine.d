@@ -36,7 +36,8 @@ version(tangobos) import std.compat;
 struct PtraceCommand
 {
     uint	req;
-    ubyte*	data;
+    ubyte*	addr;
+    uint	data;
 }
 
 /**

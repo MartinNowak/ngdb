@@ -41,10 +41,13 @@ import std.stdio;
 import std.string;
 import std.c.stdlib;
 version (DigitalMars) {
-    import std.c.freebsd.freebsd;
+    import std.c.posix.posix;
     const int ESRCH = 3;
 } else
     import std.c.unix.unix;
+
+version (FreeBSD)
+	version = use_PT_IO;
 
 static import std.file;
 
@@ -392,7 +395,7 @@ private:
 	try {
 	    auto cmds = state_.ptraceReadCommands;
 	    foreach (cmd; cmds)
-		target_.ptrace(cmd.req, lwpid_, cast(char*) cmd.data, 0);
+		target_.ptrace(cmd.req, lwpid_, cast(char*) cmd.addr, cmd.data);
 	} catch (PtraceException pte) {
 	    /*
 	     * We may get an error reading GSBASE if the kernel doesn't 
@@ -404,7 +407,7 @@ private:
     {
 	auto cmds = state_.ptraceWriteCommands;
 	foreach (cmd; cmds)
-	    target_.ptrace(cmd.req, lwpid_, cast(char*) cmd.data, 0);
+	    target_.ptrace(cmd.req, lwpid_, cast(char*) cmd.addr, cmd.data);
     }
 
     PtraceTarget target_;
@@ -576,7 +579,7 @@ class PtraceTarget: Target, TargetBreakpointListener
 	{
 	    debug(breakpoints)
 		writefln("setting breakpoint at 0x%x for 0x%x", addr,
-		    cast(ulong) tbl);
+			 cast(ulong) cast(void*) tbl);
 	    if (addr in breakpoints_) {
 		breakpoints_[addr].addListener(tbl);
 	    } else {
@@ -589,7 +592,8 @@ class PtraceTarget: Target, TargetBreakpointListener
 	void clearBreakpoint(TargetBreakpointListener tbl)
 	{
 	    debug(breakpoints)
-		writefln("clearing breakpoints for 0x%x", cast(ulong) tbl);
+		writefln("clearing breakpoints for 0x%x",
+			 cast(ulong) cast(void*) tbl);
 	    PtraceBreakpoint[ulong] newBreakpoints;
 	    foreach (addr, pbp; breakpoints_) {
 		if (pbp.matchListener(tbl)) {
@@ -640,52 +644,115 @@ class PtraceTarget: Target, TargetBreakpointListener
 
     PtraceThread focusThread()
     {
-	ptrace_lwpinfo info;
+	version (FreeBSD) {
+	    ptrace_lwpinfo info;
 
-	try {
-	    ptrace(PT_LWPINFO, pid_, cast(char*) &info, info.sizeof);
-	} catch (PtraceException pte) {
-	    if (pte.errno_ == ESRCH)
-		onExit;
-	    return null;
+	    try {
+		ptrace(PT_LWPINFO, pid_, cast(char*) &info, info.sizeof);
+	    } catch (PtraceException pte) {
+		if (pte.errno_ == ESRCH)
+		    onExit;
+		return null;
+	    }
+	    return threads_[info.pl_lwpid];
 	}
-	return threads_[info.pl_lwpid];
+	version (linux) {
+	    return threads_[pid_];
+	}
     }
 
     ubyte[] readMemory(ulong targetAddress, size_t bytes, bool data)
     {
-	ubyte[] result;
-	ptrace_io_desc io;
+	debug (ptrace)
+	    writefln("Reading %d bytes of %s @ %#x",
+		     bytes,
+		     data ? "data" : "text",
+		     targetAddress);
+	version (use_PT_IO) {
+	    ubyte[] result;
+	    ptrace_io_desc io;
 
-	try {
-	    result.length = bytes;
-	    io.piod_op = data ? PIOD_READ_D : PIOD_READ_I;
-	    io.piod_offs = cast(void*) targetAddress;
-	    io.piod_addr = cast(void*) result.ptr;
-	    io.piod_len = bytes;
-	    ptrace(PT_IO, pid_, cast(char*) &io, 0);
-	} catch (PtraceException pte) {
-	    if (pte.errno_ == ESRCH)
-		onExit;
-	    throw new TargetException("Can't read target memory");
+	    try {
+		result.length = bytes;
+		io.piod_op = data ? PIOD_READ_D : PIOD_READ_I;
+		io.piod_offs = cast(void*) targetAddress;
+		io.piod_addr = cast(void*) result.ptr;
+		io.piod_len = bytes;
+		ptrace(PT_IO, pid_, cast(char*) &io, 0);
+	    } catch (PtraceException pte) {
+		if (pte.errno_ == ESRCH)
+		    onExit;
+		throw new TargetException("Can't read target memory");
+	    }
+
+	    return result;
+	} else {
+	    ubyte[] result;
+	    ulong start = targetAddress & ~3;
+	    ulong end = (targetAddress + bytes + 3) & ~3;
+
+	    try {
+		result.length = end - start;
+		int op = data ? PT_READ_D : PT_READ_I;
+		for (auto i = start; i < end; i += 4) {
+		    uint word = ptrace(op, pid_, cast(char*) i, 0);
+		    *(cast(uint*) &result[i - start]) = word;
+		}
+		auto off = targetAddress - start;
+		result = result[off..off + bytes];
+	    } catch (PtraceException pte) {
+		debug (ptrace)
+		    writefln("ptrace error: %s", pte.msg);
+		if (pte.errno_ == ESRCH)
+		    onExit;
+		throw new TargetException("Can't read target memory");
+	    }
+
+	    return result;
 	}
-
-	return result;
     }
 
     void writeMemory(ulong targetAddress, ubyte[] toWrite, bool data)
     {
-	ptrace_io_desc io;
+	version (use_PT_IO) {
+	    ptrace_io_desc io;
 
-	try {
-	    io.piod_op = data ? PIOD_WRITE_D : PIOD_WRITE_I;
-	    io.piod_offs = cast(void*) targetAddress;
-	    io.piod_addr = cast(void*) toWrite.ptr;
-	    io.piod_len = toWrite.length;
-	    ptrace(PT_IO, pid_, cast(char*) &io, 0);
-	} catch (PtraceException pte) {
-	    if (pte.errno_ == ESRCH)
-		onExit;
+	    try {
+		io.piod_op = data ? PIOD_WRITE_D : PIOD_WRITE_I;
+		io.piod_offs = cast(void*) targetAddress;
+		io.piod_addr = cast(void*) toWrite.ptr;
+		io.piod_len = toWrite.length;
+		ptrace(PT_IO, pid_, cast(char*) &io, 0);
+	    } catch (PtraceException pte) {
+		if (pte.errno_ == ESRCH)
+		    onExit;
+	    }
+	} else {
+	    auto bytes = toWrite.length;
+	    ulong start = targetAddress & ~3;
+	    ulong end = (targetAddress + bytes + 3) & ~3;
+
+	    if (start < targetAddress) {
+		toWrite = readMemory(start, targetAddress - start, data)
+			~ toWrite;
+	    }
+	    if (end > targetAddress + bytes) {
+		toWrite = toWrite
+			~ readMemory(targetAddress + bytes,
+				     end - targetAddress - bytes, data);
+	    }
+
+	    try {
+		int op = data ? PT_WRITE_D : PT_WRITE_I;
+		for (auto i = start; i < end; i += 4) {
+		    uint word = *(cast(uint*) &toWrite[i - start]);
+		    ptrace(op, pid_, cast(char*) i, word);
+		}
+	    } catch (PtraceException pte) {
+		if (pte.errno_ == ESRCH)
+		    onExit;
+		throw new TargetException("Can't read target memory");
+	    }
 	}
     }
 
@@ -702,31 +769,41 @@ private:
 
     void getThreads()
     {
-	lwpid_t[] newThreads;
+	version (FreeBSD) {
+	    lwpid_t[] newThreads;
 
-	PtraceThread[lwpid_t] oldThreads;
-	foreach (tid, t; threads_)
-	    oldThreads[tid] = t;
+	    PtraceThread[lwpid_t] oldThreads;
+	    foreach (tid, t; threads_)
+		oldThreads[tid] = t;
 
-	newThreads.length = ptrace(PT_GETNUMLWPS, pid_, null, 0);
-	ptrace(PT_GETLWPLIST, pid_,
-	       cast(char*) newThreads.ptr,
-	       newThreads.length * lwpid_t.sizeof);
+	    newThreads.length = ptrace(PT_GETNUMLWPS, pid_, null, 0);
+	    ptrace(PT_GETLWPLIST, pid_,
+		   cast(char*) newThreads.ptr,
+		   newThreads.length * lwpid_t.sizeof);
 
-	foreach (ntid; newThreads) {
-	    if (ntid in threads_) {
-		oldThreads.remove(ntid);
-		continue;
+	    foreach (ntid; newThreads) {
+		if (ntid in threads_) {
+		    oldThreads.remove(ntid);
+		    continue;
+		}
+		PtraceThread t = new PtraceThread(this, ntid);
+		if (break_.length == 0)
+		    break_ = t.state_.breakpoint;
+		listener_.onThreadCreate(this, t);
+		threads_[ntid] = t;
 	    }
-	    PtraceThread t = new PtraceThread(this, ntid);
-	    if (break_.length == 0)
-		break_ = t.state_.breakpoint;
-	    listener_.onThreadCreate(this, t);
-	    threads_[ntid] = t;
+	    foreach (otid, t; oldThreads) {
+		listener_.onThreadDestroy(this, t);
+		threads_.remove(otid);
+	    }
 	}
-	foreach (otid, t; oldThreads) {
-	    listener_.onThreadDestroy(this, t);
-	    threads_.remove(otid);
+	version (linux) {
+	    if (threads_.length == 0) {
+		auto t = new PtraceThread(this, pid_);
+		break_ = t.state_.breakpoint;
+		listener_.onThreadCreate(this, t);
+		threads_[pid_] = t;
+	    }
 	}
     }
 
@@ -747,30 +824,53 @@ private:
 	    return;
 	lastMaps_ = maps;
 
-	string[] lines = splitlines(maps);
 
 	PtraceModule[] modules;
 	PtraceModule lastMod;
-	foreach (line; lines) {
-	    string[] words = split(line);
-	    if (words[11] == "vnode") {
-		ulong atoi(string s) {
-		    return std.c.stdlib.strtoul(toStringz(s), null, 0);
+
+	void processModule(string name, ulong start, ulong end)
+	{
+	    name = realpath(name);
+	    if (lastMod && lastMod.filename_ == name
+		&& lastMod.end_ == start) {
+		lastMod.end_ = end;
+	    } else {
+		PtraceModule mod =
+		    new PtraceModule(name, start, end);
+		modules ~= mod;
+		lastMod = mod;
+	    }
+	}
+
+	ulong atoi(string s) {
+	    return std.c.stdlib.strtoull(toStringz(s), null, 0);
+	}
+
+	string[] lines = splitlines(maps);
+	version (FreeBSD) {
+	    foreach (line; lines) {
+		string[] words = split(line);
+		if (words[11] == "vnode") {
+		    string name = words[12];
+		    if (name == "-")
+			name = execname_;
+		    ulong start = atoi(words[0]);
+		    ulong end = atoi(words[1]);
+		
+		    processModule(name, start, end);
 		}
-		string name = words[12];
-		if (name == "-")
-		    name = execname_;
-		name = realpath(name);
-		ulong start = strtoull(toStringz(words[0]), null, 0);
-		ulong end = strtoull(toStringz(words[1]), null, 0);
-		if (lastMod && lastMod.filename_ == name
-		    && lastMod.end_ == start) {
-		    lastMod.end_ = end;
-		} else {
-		    PtraceModule mod =
-			new PtraceModule(name, start, end);
-		    modules ~= mod;
-		    lastMod = mod;
+	    }
+	}
+	version (linux) {
+	    foreach (line; lines) {
+		string[] words = split(squeeze(line, " "));
+		if (words.length == 6 && words[5][0] == '/') {
+		    string name = words[5];
+		    string[] t = split(words[0], "-");
+		    ulong start = atoi("0x" ~ t[0]);
+		    ulong end = atoi("0x" ~ t[1]);
+
+		    processModule(name, start, end);
 		}
 	    }
 	}
@@ -823,7 +923,10 @@ private:
 
     string readMaps()
     {
-	string mapfile = "/proc/" ~ std.string.toString(pid_) ~ "/map";
+	version (FreeBSD)
+	    string mapfile = "/proc/" ~ std.string.toString(pid_) ~ "/map";
+	version (linux)
+	    string mapfile = "/proc/" ~ std.string.toString(pid_) ~ "/maps";
 	string result;
 
 	auto fd = open(toStringz(mapfile), O_RDONLY);
@@ -880,7 +983,8 @@ private:
 			    foreach (tbl; pbp.listeners) {
 				debug(breakpoints)
 				    writefln("hit breakpoint at 0x%x for 0x%x",
-					     pt.state.pc, cast(ulong) tbl);
+					     pt.state.pc,
+					     cast(ulong) cast(void*) tbl);
 				if (tbl.onBreakpoint(this, pt))
 				    ret = true;
 			    }
@@ -900,6 +1004,8 @@ private:
     static int ptrace(int op, int pid, char* p, int n)
     {
 	int ret = .ptrace(op, pid, p, n);
+	if (op == PT_READ_I || op == PT_READ_D)
+	    return ret;
 	if (ret < 0)
 	    throw new PtraceException;
 	return ret;

@@ -233,34 +233,51 @@ class X86State: MachineState
 	{
 	    grdirty_ = false;
 	    fpdirty_ = false;
-	    return [PtraceCommand(PT_GETREGS, cast(ubyte*) &regs_),
-		    PtraceCommand(PT_GETXMMREGS, cast(ubyte*) &fpregs_),
-		    PtraceCommand(PT_GETGSBASE, cast(ubyte*) &tp_)];
+	    version (FreeBSD) {
+		return [PtraceCommand(PT_GETREGS, cast(ubyte*) &regs_, 0),
+			PtraceCommand(PT_GETXMMREGS, cast(ubyte*) &fpregs_, 0),
+			PtraceCommand(PT_GETGSBASE, cast(ubyte*) &tp_, 0)];
+	    }
+	    version (linux) {
+		return [PtraceCommand(PTRACE_GETREGS, null, cast(uint) &regs_)];
+	    }
 	}
 
 	PtraceCommand[] ptraceWriteCommands()
 	{
 	    PtraceCommand[] res;
-	    if (grdirty_) {
-		res ~= PtraceCommand(PT_SETREGS, cast(ubyte*) &regs_);
-		grdirty_ = false;
+	    version (FreeBSD) {
+		if (grdirty_) {
+		    res ~= PtraceCommand(PT_SETREGS, cast(ubyte*) &regs_, 0);
+		    grdirty_ = false;
+		}
+		if (fpdirty_) {
+		    res ~= PtraceCommand(PT_SETXMMREGS, cast(ubyte*) &fpregs_, 0);
+		    fpdirty_ = false;
+		}
 	    }
-	    if (fpdirty_) {
-		res ~= PtraceCommand(PT_SETXMMREGS, cast(ubyte*) &fpregs_);
-		fpdirty_ = false;
+	    version (linux) {
+		if (grdirty_) {
+		    res ~= PtraceCommand(PTRACE_SETREGS, null, cast(uint) &regs_);
+		    grdirty_ = false;
+		}
+		if (fpdirty_) {
+		    //res ~= PtraceCommand(PT_SETXMMREGS, cast(ubyte*) &fpregs_);
+		    fpdirty_ = false;
+		}
 	    }
 	    return res;
 	}
 
 	void setGRs(ubyte* p)
 	{
-	    regs_ = *cast(reg*) p;
+	    regs_ = *cast(reg32*) p;
 	    grdirty_ = true;
 	}
 
 	void getGRs(ubyte* p)
 	{
-	    *cast(reg*) p = regs_;
+	    *cast(reg32*) p = regs_;
 	}
 
 	void setGR(uint gregno, ulong val)
@@ -721,6 +738,8 @@ private:
     uint32_t* grAddr(uint gregno)
     {
 	assert(gregno < X86Reg.GR_COUNT);
+	if (regmap_[gregno] == ~0)
+	    return null;
 	return cast(uint32_t*) (cast(ubyte*) &regs_ + regmap_[gregno]);
     }
 
@@ -732,28 +751,50 @@ private:
 	ulong i;
 	double f;
     }
-    static uint[] regmap_ = [
-	reg.r_eax.offsetof,	// X86Reg.EAX
-	reg.r_ecx.offsetof,	// X86Reg.ECX
-	reg.r_edx.offsetof,	// X86Reg.EDX
-	reg.r_ebx.offsetof,	// X86Reg.EBX
-	reg.r_esp.offsetof,	// X86Reg.ESP
-	reg.r_ebp.offsetof,	// X86Reg.EBP
-	reg.r_esi.offsetof,	// X86Reg.ESI
-	reg.r_edi.offsetof,	// X86Reg.EDI
-	reg.r_eip.offsetof,	// X86Reg.EIP
-	reg.r_eflags.offsetof,	// X86Reg.EFLAGS
-	reg.r_cs.offsetof,	// X86Reg.CS
-	reg.r_ss.offsetof,	// X86Reg.SS
-	reg.r_ds.offsetof,	// X86Reg.DS
-	reg.r_es.offsetof,	// X86Reg.ES
-	reg.r_fs.offsetof,	// X86Reg.FS
-	reg.r_gs.offsetof,	// X86Reg.GS
-	];
+    version (FreeBSD) {
+	static uint[] regmap_ = [
+	    reg32.r_eax.offsetof,	// X86Reg.EAX
+	    reg32.r_ecx.offsetof,	// X86Reg.ECX
+	    reg32.r_edx.offsetof,	// X86Reg.EDX
+	    reg32.r_ebx.offsetof,	// X86Reg.EBX
+	    reg32.r_esp.offsetof,	// X86Reg.ESP
+	    reg32.r_ebp.offsetof,	// X86Reg.EBP
+	    reg32.r_esi.offsetof,	// X86Reg.ESI
+	    reg32.r_edi.offsetof,	// X86Reg.EDI
+	    reg32.r_eip.offsetof,	// X86Reg.EIP
+	    reg32.r_eflags.offsetof,	// X86Reg.EFLAGS
+	    reg32.r_cs.offsetof,	// X86Reg.CS
+	    reg32.r_ss.offsetof,	// X86Reg.SS
+	    reg32.r_ds.offsetof,	// X86Reg.DS
+	    reg32.r_es.offsetof,	// X86Reg.ES
+	    reg32.r_fs.offsetof,	// X86Reg.FS
+	    reg32.r_gs.offsetof,	// X86Reg.GS
+	    ];
+    }
+    version (linux) {
+	static uint[] regmap_ = [
+	    reg32.r_eax.offsetof,	// X86Reg.EAX
+	    reg32.r_ecx.offsetof,	// X86Reg.ECX
+	    reg32.r_edx.offsetof,	// X86Reg.EDX
+	    reg32.r_ebx.offsetof,	// X86Reg.EBX
+	    reg32.r_esp.offsetof,	// X86Reg.ESP
+	    reg32.r_ebp.offsetof,	// X86Reg.EBP
+	    reg32.r_esi.offsetof,	// X86Reg.ESI
+	    reg32.r_edi.offsetof,	// X86Reg.EDI
+	    reg32.r_eip.offsetof,	// X86Reg.EIP
+	    reg32.r_eflags.offsetof,	// X86Reg.EFLAGS
+	    reg32.r_cs.offsetof,	// X86Reg.CS
+	    reg32.r_ss.offsetof,	// X86Reg.SS
+	    reg32.r_ds.offsetof,	// X86Reg.DS
+	    reg32.r_es.offsetof,	// X86Reg.ES
+	    reg32.r_fs.offsetof,	// X86Reg.FS
+	    reg32.r_gs.offsetof,	// X86Reg.GS
+	    ];
+    }
     Target	target_;
     bool	grdirty_;
     uint32_t	tp_;
-    reg		regs_;
+    reg32	regs_;
     xmmreg	fpregs_;
     bool	fpdirty_;
 
@@ -764,6 +805,8 @@ private:
 }
 
 private:
+
+version (FreeBSD) {
 /*-
  * Copyright (c) 1990 The Regents of the University of California.
  * All rights reserved.
@@ -802,7 +845,7 @@ private:
 /*
  * Register set accessible via /proc/$pid/regs and PT_{SET,GET}REGS.
  */
-struct reg {
+    struct reg32 {
 	uint	r_fs;
 	uint	r_es;
 	uint	r_ds;
@@ -822,12 +865,12 @@ struct reg {
 	uint	r_esp;
 	uint	r_ss;
 	uint	r_gs;
-};
+    };
 
 /*
  * Register set accessible via /proc/$pid/fpregs.
  */
-struct fpreg {
+    struct fpreg {
 	/*
 	 * XXX should get struct from npx.h.  Here we give a slightly
 	 * simplified struct.  This may be too much detail.  Perhaps
@@ -837,9 +880,9 @@ struct fpreg {
 	ubyte	fpr_acc[8][10];
 	uint	fpr_ex_sw;
 	ubyte	fpr_pad[64];
-};
+    };
 
-struct xmmreg {
+    struct xmmreg {
 	/*
 	 * XXX should get struct from npx.h.  Here we give a slightly
 	 * simplified struct.  This may be too much detail.  Perhaps
@@ -849,44 +892,97 @@ struct xmmreg {
 	ubyte	xmm_acc[8][16];
 	ubyte	xmm_reg[8][16];
 	ubyte	xmm_pad[224];
-};
+    };
 
 /*
  * Register set accessible via /proc/$pid/dbregs.
  */
-struct dbreg {
+    struct dbreg {
 	uint  dr[8];	/* debug registers */
-				/* Index 0-3: debug address registers */
-				/* Index 4-5: reserved */
-				/* Index 6: debug status */
-				/* Index 7: debug control */
-};
+	/* Index 0-3: debug address registers */
+	/* Index 4-5: reserved */
+	/* Index 6: debug status */
+	/* Index 7: debug control */
+    };
 
-/+
-#define	DBREG_DR7_LOCAL_ENABLE	0x01
-#define	DBREG_DR7_GLOBAL_ENABLE	0x02
-#define	DBREG_DR7_LEN_1		0x00	/* 1 byte length          */
-#define	DBREG_DR7_LEN_2		0x01
-#define	DBREG_DR7_LEN_4		0x03
-#define	DBREG_DR7_EXEC		0x00	/* break on execute       */
-#define	DBREG_DR7_WRONLY	0x01	/* break on write         */
-#define	DBREG_DR7_RDWR		0x03	/* break on read or write */
-#define	DBREG_DR7_MASK(i)	(0xf << ((i) * 4 + 16) | 0x3 << (i) * 2)
-#define	DBREG_DR7_SET(i, len, access, enable)				\
-	(((len) << 2 | (access)) << ((i) * 4 + 16) | (enable) << (i) * 2)
-#define	DBREG_DR7_GD		0x2000
-#define	DBREG_DR7_ENABLED(d, i)	(((d) & 0x3 << (i) * 2) != 0)
-#define	DBREG_DR7_ACCESS(d, i)	((d) >> ((i) * 4 + 16) & 0x3)
-#define	DBREG_DR7_LEN(d, i)	((d) >> ((i) * 4 + 18) & 0x3)
+    /+
+     #define	DBREG_DR7_LOCAL_ENABLE	0x01
+     #define	DBREG_DR7_GLOBAL_ENABLE	0x02
+     #define	DBREG_DR7_LEN_1		0x00	/* 1 byte length          */
+     #define	DBREG_DR7_LEN_2		0x01
+     #define	DBREG_DR7_LEN_4		0x03
+     #define	DBREG_DR7_EXEC		0x00	/* break on execute       */
+     #define	DBREG_DR7_WRONLY	0x01	/* break on write         */
+     #define	DBREG_DR7_RDWR		0x03	/* break on read or write */
+     #define	DBREG_DR7_MASK(i)	(0xf << ((i) * 4 + 16) | 0x3 << (i) * 2)
+     #define	DBREG_DR7_SET(i, len, access, enable)				\
+     (((len) << 2 | (access)) << ((i) * 4 + 16) | (enable) << (i) * 2)
+     #define	DBREG_DR7_GD		0x2000
+     #define	DBREG_DR7_ENABLED(d, i)	(((d) & 0x3 << (i) * 2) != 0)
+     #define	DBREG_DR7_ACCESS(d, i)	((d) >> ((i) * 4 + 16) & 0x3)
+     #define	DBREG_DR7_LEN(d, i)	((d) >> ((i) * 4 + 18) & 0x3)
 
-#define	DBREG_DRX(d,x)	((d)->dr[(x)])	/* reference dr0 - dr7 by
-					   register number */
-+/
+     #define	DBREG_DRX(d,x)	((d)->dr[(x)])	/* reference dr0 - dr7 by
+     register number */
+     +/
 
-enum
-{
-	PT_GETXMMREGS	= PT_FIRSTMACH + 0,
-	PT_SETXMMREGS	= PT_FIRSTMACH + 1,
-	PT_GETFSBASE	= PT_FIRSTMACH + 2,
-	PT_GETGSBASE	= PT_FIRSTMACH + 3
+    enum
+    {
+	PT_GETXMMREGS = PT_FIRSTMACH + 0,
+	PT_SETXMMREGS = PT_FIRSTMACH + 1,
+	PT_GETFSBASE = PT_FIRSTMACH + 2,
+	PT_GETGSBASE = PT_FIRSTMACH + 3
+    }
+}
+version (linux) {
+/* this struct defines the way the registers are stored on the 
+   stack during a system call. */
+
+    struct reg32 {
+	uint r_ebx;
+	uint r_ecx;
+	uint r_edx;
+	uint r_esi;
+	uint r_edi;
+	uint r_ebp;
+	uint r_eax;
+	uint r_ds;
+	uint r_es;
+	uint r_fs;
+	uint r_gs;
+	uint r_orig_eax;
+	uint r_eip;
+	uint r_cs;
+	uint r_eflags;
+	uint r_esp;
+	uint r_ss;
+    }
+    struct xmmreg {
+	/*
+	 * XXX should get struct from npx.h.  Here we give a slightly
+	 * simplified struct.  This may be too much detail.  Perhaps
+	 * an array of ulongs is best.
+	 */
+	uint	xmm_env[8];
+	ubyte	xmm_acc[8][16];
+	ubyte	xmm_reg[8][16];
+	ubyte	xmm_pad[224];
+    };
+    enum {
+	PTRACE_GETREGS =            12,
+	    PTRACE_SETREGS =            13,
+	    PTRACE_GETFPREGS =          14,
+	    PTRACE_SETFPREGS =          15,
+	    PTRACE_GETFPXREGS =         18,
+	    PTRACE_SETFPXREGS =         19,
+
+	    PTRACE_OLDSETOPTIONS =      21,
+
+	    PTRACE_GET_THREAD_AREA =    25,
+
+	    PTRACE_SET_THREAD_AREA =    26,
+
+	    PTRACE_SYSEMU =		31,
+	    PTRACE_SYSEMU_SINGLESTEP =  32
+    }
 }

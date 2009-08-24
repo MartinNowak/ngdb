@@ -40,7 +40,7 @@ import std.stdio;
 import std.string;
 import std.c.stdlib;
 version (DigitalMars)
-import std.c.freebsd.freebsd;
+import std.c.posix.posix;
 else
 import std.c.unix.unix;
 
