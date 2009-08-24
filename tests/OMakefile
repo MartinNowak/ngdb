@@ -1,4 +1,9 @@
-ELIBS = thr
+if $(SYSNAME) == "Linux"
+	ELIBS = pthread
+	export
+else
+	ELIBS = thr
+	export
 
 CTest(name) =
 	.DEFAULT: $(CProgram $(name), $(name))
