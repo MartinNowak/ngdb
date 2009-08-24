@@ -28,7 +28,10 @@ module cli;
 
 //debug = step;
 
-import editline;
+version = editline;
+
+version (editline)
+	import editline;
 import target.target;
 import target.ptracetarget;
 import target.coldtarget;
@@ -39,7 +42,7 @@ import debuginfo.types;
 import machine.machine;
 
 version (DigitalMars)
-import std.c.freebsd.freebsd;
+import std.c.posix.posix;
 else
 import std.c.unix.unix;
 import std.conv;
@@ -591,26 +594,30 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	core_ = core;
 	prompt_ = "(ngdb)";
 
-	HistEvent ev;
-	hist_ = history_init();
-	history(hist_, &ev, H_SETSIZE, 100);
+	version (editline) {
+	    HistEvent ev;
+	    hist_ = history_init();
+	    history(hist_, &ev, H_SETSIZE, 100);
 
-	el_ = el_init(toStringz("ngdb"), stdin, stdout, stderr);
-	el_set(el_, EL_CLIENTDATA, cast(void*) this);
-	el_set(el_, EL_EDITOR, toStringz("emacs"));
-	el_set(el_, EL_SIGNAL, 1);
-	el_set(el_, EL_PROMPT, &_prompt);
-	el_set(el_, EL_HIST, &history, hist_);
-	el_set(el_, EL_ADDFN, toStringz("ed-complete"), toStringz("Complete argument"), &_complete);
-	el_set(el_, EL_BIND, toStringz("^I"), toStringz("ed-complete"), null);
+	    el_ = el_init(toStringz("ngdb"), stdin, stdout, stderr);
+	    el_set(el_, EL_CLIENTDATA, cast(void*) this);
+	    el_set(el_, EL_EDITOR, toStringz("emacs"));
+	    el_set(el_, EL_SIGNAL, 1);
+	    el_set(el_, EL_PROMPT, &_prompt);
+	    el_set(el_, EL_HIST, &history, hist_);
+	    el_set(el_, EL_ADDFN, toStringz("ed-complete"), toStringz("Complete argument"), &_complete);
+	    el_set(el_, EL_BIND, toStringz("^I"), toStringz("ed-complete"), null);
+	}
 
 	nextBPID_ = 1;
     }
 
     ~this()
     {
-	history_end(hist_);
-	el_end(el_);
+	version (editline) {
+	    history_end(hist_);
+	    el_end(el_);
+	}
     }
 
     static extern(C) void ignoreSig(int)
@@ -624,8 +631,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 
     void run()
     {
-	char* buf;
-	int num;
+	string buf;
 	string[] args;
 
 	sigaction_t sa;
@@ -637,10 +643,20 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	if (core_)
 	    stopped();
 
-	while (!quit_ && (buf = el_gets(el_, &num)) != null && num != 0) {
+	string inputline()
+	{
+	    version (editline) {
+		int num;
+		return .toString(el_gets(el_, &num));
+	    } else {
+		writef("%s ", prompt_);
+		return chomp(readln());
+	    }
+	}
+
+	while (!quit_ && (buf = inputline()) != null) {
 	    int ac;
 	    char** av;
-	    LineInfo *li;
 
 	    /*
 	     * If we don't have a target (e.g. the active target
@@ -653,12 +669,14 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 		    stopped();
 	    }
 
-	    li = el_line(el_);
-
-	    HistEvent ev;
-	    if (num > 1) {
-		history(hist_, &ev, H_ENTER, buf);
-		args = split(strip(.toString(buf).dup), " ");
+	    version (editline) {
+		HistEvent ev;
+		if (buf.length > 1) {
+		    history(hist_, &ev, H_ENTER, toStringz(buf));
+		    args = split(strip(buf).dup, " ");
+		}
+	    } else {
+		args = split(strip(buf).dup, " ");
 	    }
 
 	    if (args.length == 0)
@@ -666,10 +684,12 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 
 	    pageline_ = 0;
 	    if (args[0] == "history") {
+		version (editline) {
 		for (int rv = history(hist_, &ev, H_LAST);
 		     rv != -1;
 		     rv = history(hist_, &ev, H_PREV))
 		    writef("%d %s", ev.num, .toString(ev.str));
+		}
 	    } else {
 		try {
 		    commands_.run(this, args, "");
@@ -1446,6 +1466,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
     }
 
 private:
+version (editline) {
     extern(C) static char* _prompt(EditLine *el)
     {
 	void* p;
@@ -1519,11 +1540,13 @@ private:
 
 	return CC_ERROR;
     }
+    History* hist_;
+    EditLine* el_;
+}
 
     static CommandTable commands_;
     static CommandTable infoCommands_;
-    History* hist_;
-    EditLine* el_;
+
     bool quit_ = false;
 
     string prog_;
