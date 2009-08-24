@@ -9,15 +9,21 @@ CXX=c++
 CXXFLAGS=-g -O -msse3 -mfpmath=sse
 
 if $(not $(defined comp))
-	comp = ldc
+	comp = dmd
 	export
 
 switch $(comp)
 case dmd
-   DMDBASE=/home/dfr/dmd
-   DMD=$(DMDBASE)/freebsd/bin/dmd
+   DMDBASE=/home/$(USER)/dmd
+   if $(SYSNAME) == "Linux"
+	sys = linux
+	export
+   else
+	sys = freebsd
+	export
+   DMD=$(DMDBASE)/$(sys)/bin/dmd
    DFLAGS= -g -I$(DMDBASE)/src/phobos
-   LDFLAGS= -g -L-L$(DMDBASE)/freebsd/lib
+   LDFLAGS= -g -L-L$(DMDBASE)/$(sys)/lib
    export
 
 case gdc
