@@ -8,9 +8,28 @@ CFLAGS=-g -O -msse3 -mfpmath=sse
 CXX=c++
 CXXFLAGS=-g -O -msse3 -mfpmath=sse
 
-if $(not $(defined comp))
-	comp = dmd
-	export
+SelectOption(question, options, default) =
+        if $(defined take_defaults)
+                return $(default)
+        while true
+                print($"$(question) ($(options))? [$(default)] ")
+                answer = $(gets $(stdin))
+                if $(eq $(length $(answer)), 0)
+                        answer = $(default)
+                        export
+                foreach (i, $(options))
+                        if $(equal $(answer), $i)
+                                return $(answer)
+                println($"Please select one of $(options)")
+
+static. =
+	compilers = dmd gdc ldc
+	comp = $(SelectOption Select compiler, $(compilers), dmd)
+	export comp
+
+#if $(not $(defined comp))
+#	comp = dmd
+#	export
 
 switch $(comp)
 case dmd
