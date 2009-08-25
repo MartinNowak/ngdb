@@ -14,16 +14,9 @@ if $(not $(defined comp))
 
 switch $(comp)
 case dmd
-   DMDBASE=/home/$(USER)/dmd
-   if $(equal $(SYSNAME), "Linux")
-	sys = linux
-	export
-   else
-	sys = freebsd
-	export
-   DMD=$(DMDBASE)/$(sys)/bin/dmd
-   DFLAGS= -g -I$(DMDBASE)/src/phobos
-   LDFLAGS= -g -L-L$(DMDBASE)/$(sys)/lib
+   DMD=dmd
+   DFLAGS= -g
+   LDFLAGS= -g
    export
 
 case gdc
