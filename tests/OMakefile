@@ -1,4 +1,4 @@
-if $(equal $(SYSNAME), "Linux")
+if $(equal $(SYSNAME), Linux)
 	ELIBS = pthread
 	export
 else
