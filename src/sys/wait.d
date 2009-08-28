@@ -83,7 +83,8 @@ const int WAIT_MYPGRP	= 0;	/* any process in my process group */
 
 extern (C):
 pid_t	wait(int *);
-pid_t	waitpid(pid_t, int *, int);
+version (FreeBSD)
+	pid_t	waitpid(pid_t, int *, int);
 struct rusage;
 pid_t	wait3(int *, int, rusage *);
 pid_t	wait4(pid_t, int *, int, rusage *);

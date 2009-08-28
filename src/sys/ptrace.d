@@ -49,8 +49,13 @@ enum {
 /* was	PT_WRITE_U	= 6,	 * write word in child's user structure */
 	PT_CONTINUE	= 7,	/* continue the child */
 	PT_KILL		= 8,	/* kill the child process */
-	PT_STEP		= 9,	/* single step the child */
+	PT_STEP		= 9	/* single step the child */
 
+/* Up to PT_STEP, values match between FreeBSD and Linux */
+}
+
+version (FreeBSD) {
+enum {
 	PT_ATTACH	= 10,	/* trace some running process */
 	PT_DETACH	= 11,	/* stop tracing a process */
 	PT_IO		= 12,	/* do I/O to/from stopped process. */
@@ -73,6 +78,33 @@ enum {
 	PT_GETDBREGS    = 37,	/* get debugging registers */
 	PT_SETDBREGS    = 38,	/* set debugging registers */
 	PT_FIRSTMACH    = 64,	/* for machine-specific requests */
+}
+}
+version (linux) {
+enum {
+	PT_ATTACH	= 0x10,	/* trace some running process */
+	PT_DETACH	= 0x11,	/* stop tracing a process */
+	PTRACE_SETOPTIONS = 0x4200,
+	PTRACE_GETEVENTMSG = 0x4201,
+	PTRACE_SETSIGINFO = 0x4202,
+	PTRACE_GETSIGINFO = 0x4203,
+
+	PTRACE_O_TRACESYSGOOD	= 0x00000001,
+	PTRACE_O_TRACEFORK	= 0x00000002,
+	PTRACE_O_TRACEVFORK	= 0x00000004,
+	PTRACE_O_TRACECLONE	= 0x00000008,
+	PTRACE_O_TRACEEXEC	= 0x00000010,
+	PTRACE_O_TRACEVFORKDONE	= 0x00000020,
+	PTRACE_O_TRACEEXIT	= 0x00000040,
+	PTRACE_O_MASK		= 0x0000007f,
+
+	PTRACE_EVENT_FORK	= 1,
+	PTRACE_EVENT_VFORK	= 2,
+	PTRACE_EVENT_CLONE	= 3,
+	PTRACE_EVENT_EXEC	= 4,
+	PTRACE_EVENT_VFORK_DONE	= 5,
+	PTRACE_EVENT_EXIT	= 6
+}
 }
 
 struct ptrace_io_desc {
