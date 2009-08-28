@@ -2582,7 +2582,9 @@ class PrintCommand: Command
 	    else
 		s = db.currentThread.state;
 
-	    if (args.length > 0 && args[0][0] == '/') {
+	    if (args.length > 0
+		&& args[0].length > 0
+		&& args[0][0] == '/') {
 		uint count, width;
 		if (!db.parseFormat(args[0], count, width, fmt))
 		    return;
