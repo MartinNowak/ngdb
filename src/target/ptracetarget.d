@@ -61,6 +61,17 @@ extern (C)
     char* realpath(char*, char*);
 }
 
+version (linux) {
+    const uint __WALL = 0x40000000;
+    const uint __WCLONE = 0x80000000;
+    extern (C) int syscall(int, ...);
+    int tkill(int tid, int sig)
+    {
+	const int SYS_tkill = 238;
+	return syscall(238, tid, sig);
+   }
+}
+
 class PtraceException: Exception
 {
     this()
@@ -384,11 +395,46 @@ class PtraceThread: TargetThread
 private:
     void suspend()
     {
-	target_.ptrace(PT_SUSPEND, lwpid_, null, 0);
+	version (FreeBSD)
+	    target_.ptrace(PT_SUSPEND, lwpid_, null, 0);
+	version (linux)
+	    suspended_ = true;
     }
     void resume()
     {
-	target_.ptrace(PT_RESUME, lwpid_, null, 0);
+	version (FreeBSD)
+	    target_.ptrace(PT_RESUME, lwpid_, null, 0);
+	version (linux)
+	    suspended_ = false;
+    }
+    version (linux) {
+	bool stop()
+	{
+	    tkill(lwpid_, SIGSTOP);
+	    int[] pendingSigs;
+	    bool stopped = false;
+	    while (!stopped) {
+		int status;
+		auto tmp = .waitpid(lwpid_, &status, __WALL);
+		assert(tmp == lwpid_);
+		if (status >> 16) {
+		    target_.threadEvent(lwpid_, status >> 16, true);
+		    ptrace(PT_CONTINUE, lwpid_, null, 0);
+		    continue;
+		}
+		if (!WIFSTOPPED(status))
+		    return false;
+		if (WSTOPSIG(status) == SIGSTOP) {
+		    stopped = true;
+		} else {
+		    pendingSigs ~= WSTOPSIG(status);
+		    ptrace(PT_CONTINUE, lwpid_, null, 0);
+		}
+	    }
+	    foreach (sig; pendingSigs)
+		tkill(lwpid_, sig);
+	    return true;
+	}
     }
     void readState()
     {
@@ -414,6 +460,10 @@ private:
     uint id_;
     lwpid_t lwpid_;
     MachineState state_;
+    int waitStatus_;
+    version (linux) {
+	bool suspended_;
+    }
 }
 
 string signame(int sig)
@@ -465,15 +515,27 @@ string signame(int sig)
 
 class PtraceTarget: Target, TargetBreakpointListener
 {
-    this(TargetListener listener, pid_t pid, string execname)
+    this(TargetListener listener, pid_t pid, string execname, int status)
     {
 	pid_ = pid;
+	version (linux)
+	    stoppedPid_ = pid_;
 	listener_ = listener;
 	execname_ = execname;
 	breakpointsActive_ = false;
 	listener.onTargetStarted(this);
 	getModules();
-	stopped();
+
+	version (linux) {
+	    ptrace(PTRACE_SETOPTIONS, pid_, null,
+		   PTRACE_O_TRACECLONE | PTRACE_O_TRACEEXIT);
+	    auto t = new PtraceThread(this, pid_);
+	    break_ = t.state_.breakpoint;
+	    listener_.onThreadCreate(this, t);
+	    threads_[pid_] = t;
+	}
+
+	stopped(status);
 
 	/*
 	 * Continue up to the program entry point (or a user
@@ -552,7 +614,12 @@ class PtraceTarget: Target, TargetBreakpointListener
 		foreach (pbp; breakpoints_)
 		    pbp.activate;
 		breakpointsActive_ = true;
-		ptrace(PT_CONTINUE, pid_, cast(char*) 1, signo);
+		version (FreeBSD)
+		    ptrace(PT_CONTINUE, pid_, cast(char*) 1, signo);
+		version (linux)
+		    foreach (t; threads_)
+			if (!t.suspended_)
+			    ptrace(PT_CONTINUE, t.lwpid_, null, 0);
 		state_ = TargetState.RUNNING;
 	    } catch (PtraceException pte) {
 		if (pte.errno_ == ESRCH)
@@ -565,10 +632,19 @@ class PtraceTarget: Target, TargetBreakpointListener
 	    assert(state_ == TargetState.RUNNING);
 
 	    try {
+		int status;
 		do {
-		    wait4(pid_, &waitStatus_, 0, null);
+		    version (FreeBSD)
+			waitpid(pid_, &status, 0);
+		    version (linux) {
+			if (threads_.length == 0) {
+			    onExit;
+			    return;
+			}
+			stoppedPid_ = waitpid(-1, &status, __WALL);
+		    }
 		    state_ = TargetState.STOPPED;
-		} while (!stopped());
+		} while (!stopped(status));
 	    } catch (PtraceException pte) {
 		if (pte.errno_ == ESRCH)
 		    onExit;
@@ -657,7 +733,8 @@ class PtraceTarget: Target, TargetBreakpointListener
 	    return threads_[info.pl_lwpid];
 	}
 	version (linux) {
-	    return threads_[pid_];
+	    assert(stoppedPid_ in threads_);
+	    return threads_[stoppedPid_];
 	}
     }
 
@@ -767,9 +844,9 @@ private:
 	listener_ = null;
     }
 
-    void getThreads()
-    {
-	version (FreeBSD) {
+    version (FreeBSD) {
+	void getThreads()
+	{
 	    lwpid_t[] newThreads;
 
 	    PtraceThread[lwpid_t] oldThreads;
@@ -795,14 +872,6 @@ private:
 	    foreach (otid, t; oldThreads) {
 		listener_.onThreadDestroy(this, t);
 		threads_.remove(otid);
-	    }
-	}
-	version (linux) {
-	    if (threads_.length == 0) {
-		auto t = new PtraceThread(this, pid_);
-		break_ = t.state_.breakpoint;
-		listener_.onThreadCreate(this, t);
-		threads_[pid_] = t;
 	    }
 	}
     }
@@ -952,29 +1021,80 @@ private:
 	return result;
     }
 
-    bool stopped()
+    version (linux) {
+	void threadEvent(int pid, int event, bool stopping)
+	{
+	    int tid;
+	    switch (event) {
+	    case PTRACE_EVENT_CLONE:
+		ptrace(PTRACE_GETEVENTMSG, pid, null, cast(uint) &tid);
+		int status;
+		auto tmp = .waitpid(tid, &status, __WCLONE);
+		if (tmp != tid)
+		    writefln("waitpid for new thread %d returned %d",
+			     tid, tmp);
+		auto t = new PtraceThread(this, tid);
+		listener_.onThreadCreate(this, t);
+		threads_[tid] = t;
+		if (!stopping)
+		    ptrace(PT_CONTINUE, tid, null, 0);
+		return false;
+
+	    case PTRACE_EVENT_EXIT:
+		listener_.onThreadDestroy(this, threads_[pid]);
+		threads_.remove(pid);
+		return false;
+
+	    default:
+		assert(false);
+	    }
+	}
+    }
+
+    bool stopped(int waitStatus)
     {
 	bool ret = true;
 
 	bool checkBreakpoints = breakpointsActive_;
+	version (FreeBSD) {
+	    getThreads();
+	    foreach (t; threads_)
+		t.readState();
+	}
+	version (linux) {
+	    if (WIFEXITED(waitStatus))
+		return false;
+	    int event = (waitStatus >> 16) & 0xffff;
+	    if (event) {
+		threadEvent(stoppedPid_, event, false);
+		ptrace(PT_CONTINUE, stoppedPid_, null, 0);
+		return false;
+	    }
+	    foreach (t; threads_.values.dup) {
+		if (t.lwpid_ != stoppedPid_ && !t.suspended_) {
+		    if (!t.stop)
+			continue;
+		}
+		t.readState;
+	    }
+	}
 	if (breakpointsActive_) {
 	    foreach (pbp; breakpoints_)
 		pbp.deactivate();
 	    breakpointsActive_ = false;
 	}
-	getThreads();
-	foreach (t; threads_)
-	    t.readState();
 
-	if (WIFSTOPPED(waitStatus_)) {
-	    if (WSTOPSIG(waitStatus_) == SIGTRAP) {
+	PtraceThread pt = focusThread;
+	pt.waitStatus_ = waitStatus;
+
+	if (WIFSTOPPED(waitStatus)) {
+	    if (WSTOPSIG(waitStatus) == SIGTRAP) {
 		if (checkBreakpoints) {
 		    /*
 		     * A thread stopped at a breakpoint. Adjust its PC
 		     * accordingly and find out what stopped it,
 		     * informing our listener as appropriate.
 		     */
-		    PtraceThread pt = focusThread;
 		    pt.state.adjustPcAfterBreak;
 		    foreach (pbp; breakpoints_.values) {
 			if (pt.state.pc == pbp.address) {
@@ -992,7 +1112,7 @@ private:
 		    }
 		}
 	    } else {
-		int sig = WSTOPSIG(waitStatus_);
+		int sig = WSTOPSIG(waitStatus);
 		listener_.onSignal(this, focusThread, sig, signame(sig));
 	    }
 	}
@@ -1011,16 +1131,20 @@ private:
 	return ret;
     }
 
-    static void wait4(int pid, int* statusp, int options, rusage* rusage)
+    static int waitpid(int pid, int* statusp, int options)
     {
-	if (.wait4(pid, statusp, options, rusage) < 0)
+	int res;
+	res = .waitpid(pid, statusp, options);
+	if (res < 0)
 	    throw new PtraceException;
+	return res;
     }
 
     TargetState state_ = TargetState.STOPPED;
     pid_t pid_;
+    version (linux)
+	pid_t stoppedPid_;
     uint nextTid_ = 1;
-    int waitStatus_;
     PtraceThread[lwpid_t] threads_;
     PtraceModule[] modules_;
     PtraceBreakpoint[ulong] breakpoints_;
@@ -1051,8 +1175,8 @@ class PtraceAttach: TargetFactory
 		throw new Exception("too many arguments to target attach");
 	    pid = std.string.atoi(args[0]);
 	    PtraceTarget.ptrace(PT_ATTACH, pid, null, 0);
-	    PtraceTarget.wait4(pid, &status, 0, null);
-	    return new PtraceTarget(listener, pid, "");
+	    PtraceTarget.waitpid(pid, &status, 0);
+	    return new PtraceTarget(listener, pid, "", status);
 	}
     }
 }
@@ -1115,10 +1239,10 @@ class PtraceRun: TargetFactory
 		int status;
 		debug (ptrace)
 		    writefln("waiting for execve");
-		PtraceTarget.wait4(pid, &status, 0, null);
+		PtraceTarget.waitpid(pid, &status, 0);
 		debug (ptrace)
 		    writefln("done");
-		return new PtraceTarget(listener, pid, execpath);
+		return new PtraceTarget(listener, pid, execpath, status);
 	    } else {
 		/*
 		 * This is the child process. We tell the kernel we
