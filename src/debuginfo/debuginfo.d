@@ -1039,6 +1039,8 @@ class Function: DebugItem, Scope
 		    res ~= sc.contents(state);
 	    foreach (v; arguments_ ~ variables_)
 		res ~= v.name;
+	    if (compilationUnit_)
+		res ~= compilationUnit_.contents(state);
 	    return res;
 	}
 	bool lookup(string name, MachineState state, out DebugItem val)
@@ -1053,18 +1055,26 @@ class Function: DebugItem, Scope
 		    return true;
 		}
 	    }
+	    if (compilationUnit_)
+		return compilationUnit_.lookup(name, state, val);
 	    return false;
 	}
-	bool lookupStruct(string name, out Type)
+	bool lookupStruct(string name, out Type val)
 	{
+	    if (compilationUnit_)
+		return compilationUnit_.lookupStruct(name, val);
 	    return false;
 	}
-	bool lookupUnion(string name, out Type)
+	bool lookupUnion(string name, out Type val)
 	{
+	    if (compilationUnit_)
+		return compilationUnit_.lookupUnion(name, val);
 	    return false;
 	}
-	bool lookupTypedef(string name, out Type)
+	bool lookupTypedef(string name, out Type val)
 	{
+	    if (compilationUnit_)
+		return compilationUnit_.lookupTypedef(name, val);
 	    return false;
 	}
     }
@@ -1158,6 +1168,16 @@ class Function: DebugItem, Scope
 	address_ = address;
     }
 
+    Scope compilationUnit()
+    {
+	return compilationUnit_;
+    }
+
+    void compilationUnit(Scope cu)
+    {
+	compilationUnit_ = cu;
+    }
+
 private:
     string name_;
     Language lang_;
@@ -1168,6 +1188,7 @@ private:
     Variable[] arguments_;
     Variable[] variables_;
     LexicalScope[] scopes_;
+    Scope compilationUnit_;
     ulong address_;
     size_t byteWidth_;
 }

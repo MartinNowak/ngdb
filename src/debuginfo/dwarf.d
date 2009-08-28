@@ -806,8 +806,8 @@ class DwarfFile: public DebugInfo
 	return false;
     }
 
-    // DebugInfo compliance
     override {
+	// Scope compliance
 	string[] contents(MachineState)
 	{
 	    string[] res;
@@ -860,6 +860,8 @@ class DwarfFile: public DebugInfo
 	{
 	    return false;
 	}
+
+	// DebugInfo compliance
 	Language findLanguage(ulong address)
 	{
 	    CompilationUnit cu;
@@ -2889,6 +2891,7 @@ class DIE
 	    if (ty)
 		f.returnType = ty;
 	    f.containingType = this.containingType;
+	    f.compilationUnit = cu_;
 	    foreach (d; children_) {
 		if (d.tag == DW_TAG_formal_parameter)
 		    f.addArgument(cast(Variable) d.debugItem);
@@ -2950,7 +2953,7 @@ class DIE
     }
 }
 
-class CompilationUnit
+class CompilationUnit: Scope
 {
     this(DwarfFile df)
     {
@@ -3066,6 +3069,65 @@ class CompilationUnit
 	    return *p;
 	else
 	    return null;
+    }
+
+    override {
+	// Scope compliance
+	string[] contents(MachineState)
+	{
+	    string[] res;
+
+	    loadDIE;
+	    foreach (d; die.children_) {
+		if (d.tag == DW_TAG_variable)
+		    res ~= d.name;
+	    }
+	    return res;
+	}
+	bool lookup(string name, MachineState, out DebugItem val)
+	{
+	    loadDIE;
+	    foreach (d; die.children_) {
+		if (d.tag == DW_TAG_variable && d.name == name) {
+		    val = d.debugItem;
+		    return true;
+		}
+	    }
+	    return false;
+	}
+	bool lookupStruct(string name, out Type res)
+	{
+	    loadDIE;
+	    foreach (d; die.children_) {
+		if (d.tag == DW_TAG_structure_type && d.name == name) {
+		    res = d.toType;
+		    return true;
+		}
+	    }
+	    return false;
+	}
+	bool lookupUnion(string name, out Type res)
+	{
+	    loadDIE;
+	    foreach (d; die.children_) {
+		if (d.tag == DW_TAG_union_type && d.name == name) {
+		    res = d.toType;
+		    return true;
+		}
+	    }
+	    return false;
+	}
+	bool lookupTypedef(string name, out Type res)
+	{
+	    loadDIE;
+	    foreach (d; die.children_) {
+		if (d.tag == DW_TAG_typedef && d.name == name) {
+		    res = d.toType;
+		    return true;
+		}
+	    }
+	    return false;
+	}
     }
 
     DwarfFile parent;
