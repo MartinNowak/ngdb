@@ -809,14 +809,25 @@ class PtraceTarget: Target, TargetBreakpointListener
 	    ulong start = targetAddress & ~3;
 	    ulong end = (targetAddress + bytes + 3) & ~3;
 
-	    if (start < targetAddress) {
-		toWrite = readMemory(start, targetAddress - start, data)
+	    if (end - start == 4 && bytes < 4) {
+		/*
+		 * Special case for writing a subrange of a single
+		 * word.
+		 */
+		auto tmp = readMemory(start, 4, data);
+		auto off = targetAddress - start;
+		tmp[off..off + bytes] = toWrite[];
+		toWrite = tmp;
+	    } else {
+		if (start < targetAddress) {
+		    toWrite = readMemory(start, targetAddress - start, data)
 			~ toWrite;
-	    }
-	    if (end > targetAddress + bytes) {
-		toWrite = toWrite
+		}
+		if (end > targetAddress + bytes) {
+		    toWrite = toWrite
 			~ readMemory(targetAddress + bytes,
 				     end - targetAddress - bytes, data);
+		}
 	    }
 
 	    try {
