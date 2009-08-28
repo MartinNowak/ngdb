@@ -736,8 +736,10 @@ class CompoundType: TypeBase
 	{
 	    if (kind_ == "struct")
 		return lang_.renderStructureType(name_);
-	    else
+	    else if (kind_ == "union")
 		return lang_.renderUnionType(name_);
+	    else
+		return lang_.renderClassType(name_);
 	}
 	string valueToString(string fmt, MachineState state, Location loc)
 	{

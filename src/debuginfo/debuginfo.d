@@ -310,7 +310,7 @@ class MemoryLocation: Location
 
 	Location subrange(size_t start, size_t length, MachineState state)
 	{
-	    assert(length == ~0 || start + length <= length_);
+	    assert(length_ == 0 || start + length <= length_);
 	    return new MemoryLocation(address_ + start, length);
 	}
 

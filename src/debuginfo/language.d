@@ -93,6 +93,7 @@ class Language
 
     abstract string renderEnumType(string baseType);
     abstract string renderStructureType(string baseType);
+    abstract string renderClassType(string baseType);
     abstract string renderUnionType(string baseType);
     abstract string renderPointerType(string baseType);
     abstract string renderPointerToArray(string baseType, string dims);
@@ -148,6 +149,10 @@ class CLikeLanguage: Language
 	{
 	    return "struct " ~ baseType;
 	}
+	string renderClassType(string baseType)
+	{
+	    return "class " ~ baseType;
+	}
 	string renderUnionType(string baseType)
 	{
 	    return "union " ~ baseType;
@@ -179,7 +184,7 @@ class CLikeLanguage: Language
 	    PointerType pt = cast(PointerType) type;
 	    if (pt) {
 		ulong p = state.readInteger(loc.readValue(state));
-		loc = new MemoryLocation(p, ~0);
+		loc = new MemoryLocation(p, 0);
 		return _stringConstant(state, loc, 0, true);
 	    }
 	    ArrayType at = cast(ArrayType) type;
@@ -1483,6 +1488,14 @@ class CPlusPlusLanguage: CLikeLanguage
 	{
 	    return baseType;
 	}
+	string renderClassType(string baseType)
+	{
+	    return baseType;
+	}
+	string renderUnionType(string baseType)
+	{
+	    return baseType;
+	}
     }
 }
 
@@ -1509,6 +1522,14 @@ class DLanguage: CLikeLanguage
 	}
 
 	string renderStructureType(string baseType)
+	{
+	    return baseType;
+	}
+	string renderClassType(string baseType)
+	{
+	    return baseType;
+	}
+	string renderUnionType(string baseType)
 	{
 	    return baseType;
 	}
