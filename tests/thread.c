@@ -21,7 +21,7 @@ int main(int argc, char** argv)
 	pthread_t t[10];
 
 	for (i = 0; i < 10; i++)
-		pthread_create(&t[i], NULL, foo, (void*) i);
+		pthread_create(&t[i], NULL, foo, (void*)(uintptr_t) i);
 	for (i = 0; i < 10; i++)
 		pthread_join(t[i], NULL);
 }
