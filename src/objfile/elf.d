@@ -923,13 +923,15 @@ class Elffile: Objfile
 		.close(fd);
 		return null;
 	    }
-	    debug (elf)
-		writefln("Elf format file %s", file);
 	    switch (ei.ei_class) {
 	    case ELFCLASS32:
+		debug (elf)
+		    writefln("Elf32 format file %s", file);
 		return new Elffile32(fd, base);
 		break;
 	    case ELFCLASS64:
+		debug (elf)
+		    writefln("Elf64 format file %s", file);
 		return new Elffile64(fd, base);
 		break;
 	    default:
@@ -993,6 +995,8 @@ class Elffile: Objfile
 	return endian_.read(cast(ulong) v);
     }
 
+    abstract bool is64();
+
     abstract Symbol* lookupSymbol(ulong addr);
 
     abstract Symbol* lookupSymbol(string name);
@@ -1041,7 +1045,7 @@ template ElfFileBase()
 
 	Ehdr eh;
 	if (pread(fd, &eh, eh.sizeof, 0) != eh.sizeof)
-	    throw new Exception("Can't read Elf32 header");
+	    throw new Exception("Can't read Elf header");
 
 	if (eh.e_ident.ei_data == ELFDATA2LSB)
 	    endian_ = new LittleEndian;
@@ -1133,6 +1137,8 @@ template ElfFileBase()
 	switch (machine_) {
 	case EM_386:
 	    return new X86State(target);
+	case EM_X86_64:
+	    return new X86_64State(target);
 	case EM_ARM:
 	    return new ArmState(target);
 	default:
@@ -1507,10 +1513,18 @@ class Elffile32: Elffile
 {
     import objfile.elf32;
     mixin ElfFileBase;
+    bool is64()
+    {
+	return false;
+    }
 }
 
 class Elffile64: Elffile
 {
     import objfile.elf64;
     mixin ElfFileBase;
+    bool is64()
+    {
+	return true;
+    }
 }

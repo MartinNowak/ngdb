@@ -54,9 +54,9 @@ module objfile.elf64;
 import std.stdint;
 import objfile.elf: Ident;
 
-alias uint32_t	Addr;
+alias uint64_t	Addr;
 alias uint16_t	Half;
-alias uint32_t	Off;
+alias uint64_t	Off;
 alias int32_t	Sword;
 alias int64_t	Sxword;
 alias uint32_t	Word;
@@ -73,7 +73,7 @@ alias Word Hashelt;
 
 /* Non-standard class-dependent datatype used for abstraction. */
 alias Xword Size;
-alias Sword Ssize;
+alias Sxword Ssize;
 
 /*
  * ELF header.

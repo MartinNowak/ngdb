@@ -839,7 +839,7 @@ class PtraceTarget: Target, TargetBreakpointListener
 	    } catch (PtraceException pte) {
 		if (pte.errno_ == ESRCH)
 		    onExit;
-		throw new TargetException("Can't read target memory");
+		throw new TargetException("Can't write target memory");
 	    }
 	}
     }
@@ -911,8 +911,9 @@ private:
 	void processModule(string name, ulong start, ulong end)
 	{
 	    name = realpath(name);
-	    if (lastMod && lastMod.filename_ == name
-		&& lastMod.end_ == start) {
+	    if (lastMod &&
+		(lastMod.filename_ == name
+		 || lastMod.end_ == start)) {
 		lastMod.end_ = end;
 	    } else {
 		PtraceModule mod =
@@ -1010,18 +1011,26 @@ private:
 	string result;
 
 	auto fd = open(toStringz(mapfile), O_RDONLY);
+	if (fd < 0) {
+	    writefln("can't read %s", mapfile);
+	    version (FreeBSD) {
+		writefln("Add this line to /etc/fstab:");
+		writefln("proc /proc procfs rw 0 0");
+	    }
+	    exit(1);
+	}
 
 	result.length = 512;
 	for (;;) {
 	    /*
 	     * The kernel requires that we read the whole thing in one
-	     * call. If our buffer is too small, it returns EFBIG.
+	     * call. We keep resizing the buffer until we read less
+	     * than the buffer size.
 	     */
 	    ssize_t nread;
 	    lseek(fd, 0, SEEK_SET);
 	    nread = read(fd, result.ptr, result.length);
-	    const int EFBIG = 27;
-	    if (nread < 0 && errno == EFBIG) {
+	    if (nread == result.length) {
 		result.length = 2 * result.length;
 		continue;
 	    }

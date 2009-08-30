@@ -42,6 +42,8 @@ struct Symbol
 
 class Objfile: Endian
 {
+    abstract bool is64();
+
     abstract MachineState getState(Target);
 
     abstract ulong read(ubyte[] bytes);

@@ -737,7 +737,7 @@ class DwarfFile: public DebugInfo
 	CompilationUnit cu;
 	if (obj_.hasSection(".debug_aranges")) {
 	    char[] aranges = obj_.readSection(".debug_aranges");
-	    char* p = &aranges[0], pEnd = p + aranges.length;
+	    char* p = aranges.ptr, pEnd = p + aranges.length;
 	    ulong offset = obj_.offset;
 
 	    while (p < pEnd) {
@@ -759,8 +759,8 @@ class DwarfFile: public DebugInfo
 
 		ulong start, length;
 		for (;;) {
-		    start = parseOffset(p, is64);
-		    length = parseLength(p, is64);
+		    start = parseAddress(p);
+		    length = parseAddress(p);
 		    if (start == 0 && length == 0)
 			break;
 		    start += offset;
@@ -1105,10 +1105,9 @@ private:
 		// FDE
 		FDE fde = new FDE;
 		fde.dw = this;
-		fde.is64 = is64;
 		fde.cie = cies[cie_id];
-		fde.initialLocation = parseOffset(p, is64) + offset;
-		fde.addressRange = parseOffset(p, is64);
+		fde.initialLocation = parseAddress(p) + offset;
+		fde.addressRange = parseAddress(p);
 		fde.instructionStart = p;
 		fde.instructionEnd = entryStart + len;
 		fdes_ ~= fde;
@@ -1321,7 +1320,7 @@ private:
 		    break;
 
 		case DW_LNE_set_address:
-		    le.address = parseOffset(p, is64);
+		    le.address = parseAddress(p);
 		    debug (line)
 			writefln(" %d:DW_LNE_set_address(0x%x)",
 				 op, le.address);
@@ -1509,6 +1508,14 @@ private:
     ulong parseOffset(ref char* p, bool is64)
     {
 	if (is64)
+	    return parseULong(p);
+	else
+	    return parseUInt(p);
+    }
+
+    ulong parseAddress(ref char* p)
+    {
+	if (obj_.is64)
 	    return parseULong(p);
 	else
 	    return parseUInt(p);
@@ -1748,7 +1755,6 @@ struct ValueStack
 
 struct Expr
 {
-    bool is64;
     ulong offset;
     char* start;
     char* end;
@@ -1792,7 +1798,7 @@ struct Expr
 	    }
 	    switch (op) {
 	    case DW_OP_addr:
-		stack.push(offset + dw.parseOffset(p, is64));
+		stack.push(offset + dw.parseAddress(p));
 		break;
 		
 	    case DW_OP_const1u:
@@ -1887,7 +1893,7 @@ struct Expr
 		v = stack.pop;
 		t = state.readMemory(v, addrlen);
 		pp = cast(char*) &t[0];
-		stack.push(dw.parseOffset(pp, is64));
+		stack.push(dw.parseAddress(pp));
 		break;
 
 	    case DW_OP_deref_size:
@@ -1896,7 +1902,7 @@ struct Expr
 		while (t.length < addrlen)
 		    t ~= 0;
 		pp = cast(char*) &t[0];
-		stack.push(dw.parseOffset(pp, is64));
+		stack.push(dw.parseAddress(pp));
 		break;
 
 	    case DW_OP_xderef:
@@ -2045,7 +2051,7 @@ struct Expr
 		auto loc = die[DW_AT_location];
 		if (loc) {
 		    pp = loc.b.start;
-		    Expr e = Expr(is64, offset, pp, pp + loc.b.length);
+		    Expr e = Expr(offset, pp, pp + loc.b.length);
 		    e.evalExpr(cu, state, stack);
 		}
 		break;
@@ -2060,7 +2066,7 @@ struct Expr
 		auto loc = die[DW_AT_location];
 		if (loc) {
 		    pp = loc.b.start;
-		    Expr e = Expr(is64, offset, pp, pp + loc.b.length);
+		    Expr e = Expr(offset, pp, pp + loc.b.length);
 		    e.evalExpr(cu, state, stack);
 		}
 		break;
@@ -2112,7 +2118,7 @@ struct Expr
 		loc = new RegisterLocation(regno, length);
 	    } else {
 		ValueStack stack;
-		Expr e = Expr(is64, offset, p, end);
+		Expr e = Expr(offset, p, end);
 		p = e.evalExpr(cu, state, stack);
 		if (p < end
 		    && (*p == DW_OP_GNU_push_tls_address
@@ -2190,7 +2196,6 @@ struct Expr
 
 struct Loclist
 {
-    bool is64;
     ulong offset;
     char* start;
 
@@ -2208,12 +2213,12 @@ struct Loclist
 	else
 	    base = offset;
 	for (;;) {
-	    sOff = dw.parseOffset(p, is64);
-	    eOff = dw.parseOffset(p, is64);
+	    sOff = dw.parseAddress(p);
+	    eOff = dw.parseAddress(p);
 	    if (sOff == 0 && eOff == 0)
 		break;
-	    if ((is64 && sOff == 0xffffffffffffffff)
-		|| (!is64 && sOff == 0xffffffff)) {
+	    if ((cu.is64 && sOff == 0xffffffffffffffff)
+		|| (!cu.is64 && sOff == 0xffffffff)) {
 		base = eOff;
 		continue;
 	    }
@@ -2222,7 +2227,7 @@ struct Loclist
 	    auto expEnd = p + expLen;
 	    p = expEnd;
 	    if (pc >= base + sOff && pc < base + eOff) {
-		Expr e = Expr(is64, offset, expStart, expEnd);
+		Expr e = Expr(offset, expStart, expEnd);
 		return e.evalLocation(cu, state, length, result);
 	    }
 	}
@@ -2238,12 +2243,12 @@ struct Loclist
 	base = cu.die[DW_AT_low_pc].ul + offset;
 	auto dw = cu.parent;
 	for (;;) {
-	    sOff = dw.parseOffset(p, is64);
-	    eOff = dw.parseOffset(p, is64);
+	    sOff = dw.parseAddress(p);
+	    eOff = dw.parseAddress(p);
 	    if (sOff == 0 && eOff == 0)
 		break;
-	    if ((is64 && sOff == 0xffffffffffffffff)
-		|| (!is64 && sOff == 0xffffffff)) {
+	    if ((cu.is64 && sOff == 0xffffffffffffffff)
+		|| (!cu.is64 && sOff == 0xffffffff)) {
 		base = eOff;
 		continue;
 	    }
@@ -2252,7 +2257,7 @@ struct Loclist
 	    auto expEnd = p + expLen;
 	    p = expEnd;
 	    if (pc >= base + sOff && pc < base + eOff) {
-		Expr e = Expr(is64, offset, expStart, expEnd);
+		Expr e = Expr(offset, expStart, expEnd);
 		e.evalExpr(cu, state, stack);
 		return true;
 	    }
@@ -2269,12 +2274,19 @@ struct NameSet
 
 class AttributeValue
 {
-    this(DwarfFile dw, int f, ref char* p, int addrlen, char[] strtab)
+    this(DwarfFile dw, int f, ref char* p, int addrlen, bool is64,
+	 char[] strtab)
     {
 	form = f;
     again:
 	switch (form) {
 	case DW_FORM_ref_addr:
+	    if (!is64)
+		ul = dw.parseUInt(p);
+	    else
+		ul = dw.parseULong(p);
+	    break;
+
 	case DW_FORM_addr:
 	    if (addrlen == 4)
 		ul = dw.parseUInt(p);
@@ -2338,10 +2350,10 @@ class AttributeValue
 
 	case DW_FORM_strp:
 	    ulong off;
-	    if (addrlen == 4)
-		off = dw.parseUInt(p);
-	    else
+	    if (is64)
 		off = dw.parseULong(p);
+	    else
+		off = dw.parseUInt(p);
 	    str = &strtab[off];
 	    break;
 
@@ -2413,11 +2425,11 @@ class AttributeValue
     {
 	if (isLoclistptr) {
 	    char[] locs = cu.parent.debugSection(".debug_loc");
-	    Loclist ll = Loclist(cu.is64, cu.parent.obj_.offset, &locs[ul]);
+	    Loclist ll = Loclist(cu.parent.obj_.offset, &locs[ul]);
 	    return ll.evalLocation(cu, state, length, loc);
 	} else {
 	    assert(isBlock);
-	    Expr e = Expr(cu.is64, cu.parent.obj_.offset, b.start, b.end);
+	    Expr e = Expr(cu.parent.obj_.offset, b.start, b.end);
 	    return e.evalLocation(cu, state, length, loc);
 	}
     }
@@ -2427,11 +2439,11 @@ class AttributeValue
     {
 	if (isLoclistptr) {
 	    char[] locs = cu.parent.debugSection(".debug_loc");
-	    Loclist ll = Loclist(cu.is64, cu.parent.obj_.offset, &locs[ul]);
+	    Loclist ll = Loclist(cu.parent.obj_.offset, &locs[ul]);
 	    return ll.evalExpr(cu, state, stack);
 	} else {
 	    assert(isBlock);
-	    Expr e = Expr(cu.is64, cu.parent.obj_.offset, b.start, b.end);
+	    Expr e = Expr(cu.parent.obj_.offset, b.start, b.end);
 	    e.evalExpr(cu, state, stack);
 	    return true;
 	}
@@ -2493,7 +2505,8 @@ class DIE
 	    if (!at)
 		break;
 	    AttributeValue val = new AttributeValue(dw, form, diep,
-						    addrlen, strtab);
+						    addrlen, cu_.is64,
+						    strtab);
 	    attrs_[at] = val;
 	}
 	static if (false) {
@@ -2586,8 +2599,8 @@ class DIE
 	    char* p = &ranges[this[DW_AT_ranges].ul];
 	    for (;;) {
 		ulong start, end;
-		start = dw.parseOffset(p, cu_.is64);
-		end = dw.parseOffset(p, cu_.is64);
+		start = dw.parseAddress(p);
+		end = dw.parseAddress(p);
 		if (start == 0 && end == 0)
 		    break;
 		start += offset;
@@ -3155,7 +3168,6 @@ class CIE
 class FDE
 {
     DwarfFile dw;
-    bool is64;
     CIE cie;
     ulong initialLocation;
     ulong addressRange;
@@ -3250,7 +3262,7 @@ class FDE
 
 	    case RLoc.Rule.offsetN:
 		off = rl.N;
-		b = state.readMemory(cfa + off, is64 ? 8 : 4);
+		b = state.readMemory(cfa + off, dw.obj_.is64 ? 8 : 4);
 		newState.setGR(i, dw.obj_.read(b));
 		break;
 
@@ -3282,7 +3294,7 @@ private:
 	    auto op = *p++;
 	    switch ((op & 0xc0) ? (op & 0xc0) : op) {
 	    case DW_CFA_set_loc:
-		fs.loc = dw.parseOffset(p, is64);
+		fs.loc = dw.parseAddress(p);
 		debug(unwind)
 		    writefln("DW_CFA_set_loc: 0x%x", fs.loc);
 		break;
