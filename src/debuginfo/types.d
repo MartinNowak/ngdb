@@ -226,7 +226,7 @@ class IntegerType: TypeBase
 	    }
 	}
 
-	uint byteWidth()
+	size_t byteWidth()
 	{
 	    return byteWidth_;
 	}
@@ -343,7 +343,7 @@ class BooleanType: TypeBase
 	    return state.readInteger(val) ? "true" : "false";
 	}
 
-	uint byteWidth()
+	size_t byteWidth()
 	{
 	    return byteWidth_;
 	}
@@ -438,7 +438,7 @@ class FloatType: TypeBase
 	    return format("%g", val);
 	}
 
-	uint byteWidth()
+	size_t byteWidth()
 	{
 	    return byteWidth_;
 	}
