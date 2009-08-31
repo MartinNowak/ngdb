@@ -390,33 +390,6 @@ class X86State: MachineState
 	    *cast(xmmreg32*) regs = fpregs_;
 	}
 
-	void setFR(uint fpregno, real val)
-	{
-	    writeFloat(val, fpregs_.xmm_acc[fpregno]);
-	    fpdirty_ = true;
-	}
-
-	real getFR(uint fpregno)
-	{
-	    return readFloat(fpregs_.xmm_acc[fpregno]);
-	}
-
-	ubyte[] readFR(uint fpregno)
-	{
-	    return fpregs_.xmm_acc[fpregno];
-	}
-
-	void writeFR(uint fpregno, ubyte[] val)
-	{
-	    fpregs_.xmm_acc[fpregno][] = val[];
-	    fpdirty_ = true;
-	}
-
-	size_t frWidth(int fpregno)
-	{
-	    return 10;
-	}
-
 	ubyte[] readRegister(uint regno, size_t bytes)
 	{
 	    ubyte[] v;
@@ -1245,33 +1218,6 @@ class X86_64State: MachineState
 	void getFRs(ubyte* regs)
 	{
 	    *cast(xmmreg64*) regs = fpregs_;
-	}
-
-	void setFR(uint fpregno, real val)
-	{
-	    writeFloat(val, fpregs_.xmm_acc[fpregno]);
-	    fpdirty_ = true;
-	}
-
-	real getFR(uint fpregno)
-	{
-	    return readFloat(fpregs_.xmm_acc[fpregno]);
-	}
-
-	ubyte[] readFR(uint fpregno)
-	{
-	    return fpregs_.xmm_acc[fpregno];
-	}
-
-	void writeFR(uint fpregno, ubyte[] val)
-	{
-	    fpregs_.xmm_acc[fpregno][] = val[];
-	    fpdirty_ = true;
-	}
-
-	size_t frWidth(int fpregno)
-	{
-	    return 10;
 	}
 
 	ubyte[] readRegister(uint regno, size_t bytes)

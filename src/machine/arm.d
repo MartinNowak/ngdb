@@ -200,30 +200,6 @@ class ArmState: MachineState
 	{
 	}
 
-	void setFR(uint fpregno, real val)
-	{
-	}
-
-	real getFR(uint fpregno)
-	{
-	    return 0;
-	}
-
-	ubyte[] readFR(uint fpregno)
-	{
-	    return null;
-	}
-
-	void writeFR(uint fpregno, ubyte[])
-	{
-	    return 0;
-	}
-
-	size_t frWidth(int fpregno)
-	{
-	    return 8;
-	}
-
 	ubyte[] readRegister(uint regno, size_t bytes)
 	{
 	    if (regno < ArmReg.GR_COUNT) {

@@ -133,31 +133,6 @@ interface MachineState: Scope
     void getFRs(ubyte* regs);
 
     /**
-     * Set a floating point register by register number.
-     */
-    void setFR(uint fpregno, real val);
-
-    /**
-     * Get a general register by register number.
-     */
-    real getFR(uint fpregno);
-
-    /**
-     * Read raw register bytes in target byte order
-     */
-    ubyte[] readFR(uint fpregno);
-
-    /**
-     * Write raw register bytes in target byte order
-     */
-    void writeFR(uint fpregno, ubyte[]);
-
-    /**
-     * Return the width in bytes of a general register
-     */
-    size_t frWidth(int fpregno);
-
-    /**
      * Read raw register bytes in target byte order. Register index
      * corresponds to dwarf register number.
      */
