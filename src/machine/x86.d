@@ -578,6 +578,19 @@ class X86State: MachineState
 	    saveState.regs_ = regs_;
 	    saveState.fpregs_ = fpregs_;
 
+	    /*
+	     * If the return value is a structure, reserve some space
+	     * on the stack and add a hidden first argument to point
+	     * at it.
+	     */
+	    auto cTy = cast(CompoundType) returnType;
+	    if (cTy && cTy.byteWidth > 8) {
+		regs_.r_esp -= cTy.byteWidth;
+		ubyte[4] v;
+		writeInteger(regs_.r_esp, v);
+		args = new Value(new ConstantLocation(v), grType_) ~ args;
+	    }
+
 	    ubyte[] argval;
 	    foreach(arg; args) {
 		if (arg.type.isIntegerType) {
@@ -673,7 +686,10 @@ class X86State: MachineState
 	Value returnValue(Type returnType)
 	{
 	    ubyte[] retval;
-	    if (returnType.isNumericType && !returnType.isIntegerType) {
+	    auto cTy = cast(CompoundType) returnType;
+	    if (cTy && cTy.byteWidth > 8) {
+		retval = readMemory(regs_.r_eax, cTy.byteWidth);
+	    } else if (returnType.isNumericType && !returnType.isIntegerType) {
 		retval = readRegister(ST0, returnType.byteWidth);
 	    } else if (returnType.byteWidth <= 4) {
 		retval = readRegister(EAX, returnType.byteWidth);
