@@ -41,7 +41,7 @@ import std.string;
 
 version (LittleEndian)
 {
-    static if (real.sizeof == 10 || real.sizeof == 12)
+    static if (real.sizeof == 10 || real.sizeof == 12 || real.sizeof == 16)
 	version = nativeFloat80;
 }
 
@@ -1460,7 +1460,284 @@ class X86_64State: MachineState
 
 	Value call(ulong address, Type returnType, Value[] args)
 	{
-	    throw new EvalException("function call not supported");
+	    X86_64State saveState = new X86_64State(target_);
+	    saveState.regs_ = regs_;
+	    saveState.fpregs_ = fpregs_;
+
+	    enum {
+		INTEGER, SSE, SSEUP, X87, X87UP, COMPLEX_X87,
+		NO_CLASS, MEMORY,
+	    }
+
+	    int[] classify(Type ty)
+	    {
+		if (ty.isIntegerType)
+		    return [INTEGER];
+		if (cast(PointerType) ty)
+		    return [INTEGER];
+		if (ty.isNumericType && ty.byteWidth <= 8)
+		    return [SSE];
+		if (ty.isNumericType)
+		    return [X87, X87UP];
+		auto aTy = cast(ArrayType) ty;
+		if (aTy) {
+		    /*
+		     * XXX need a better way of recognising vector
+		     * types.
+		     */
+		    if (!aTy.baseType.isIntegerType
+			&& aTy.baseType.isNumericType
+			&& aTy.baseType.byteWidth == 4
+			&& aTy.byteWidth == 128) {
+			return [SSE, SSEUP];
+		    }
+		    /*
+		     * XXX need to pass a pointer
+		     */
+		}
+		auto cTy = cast(CompoundType) ty;
+		if (cTy) {
+		    int[] classes;
+		    classes.length = (cTy.byteWidth + 7) / 8;
+		    foreach (ref cl; classes)
+			cl = NO_CLASS;
+
+		    if (cTy.byteWidth > 4 * 8) {
+		    inmemory:
+			foreach (ref cl; classes)
+			    cl = MEMORY;
+			return classes;
+		    }
+		    
+		    for (auto i = 0; i < cTy.length; i++) {
+			auto f = cTy[i].value;
+			Location loc = new MemoryLocation(0, 0);
+			loc = f.loc.fieldLocation(loc, this);
+			auto start = loc.address(this) / 8;
+			auto end = (loc.address(this)
+				    + f.type.byteWidth + 7) / 8;
+			auto fieldClass = classify(f.type);
+			for (auto j = start; j < end; j++) {
+			    auto k = j - start;
+			    if (classes[j] == NO_CLASS)
+				classes[j] = fieldClass[k];
+			    else if (classes[j] == MEMORY
+				     || fieldClass[k] == MEMORY)
+				classes[j] = MEMORY;
+			    else if (classes[j] == INTEGER
+				     || fieldClass[k] == INTEGER)
+				classes[j] = INTEGER;
+			    else if (classes[j] == X87
+				     || classes[j] == X87UP
+				     || classes[j] == COMPLEX_X87
+				     || fieldClass[k] == X87
+				     || fieldClass[k] == X87UP
+				     || fieldClass[k] == COMPLEX_X87)
+				classes[j] = MEMORY;
+			    else
+				classes[j] = SSE;
+			}
+		    }
+		    foreach (i, cl; classes) {
+			if (cl == MEMORY)
+			    goto inmemory;
+			if (cl == X87UP
+			    && (i == 0 || classes[i - 1] != X87))
+			    goto inmemory;
+		    }
+		    if (classes.length > 1) {
+			foreach (i, ref cl; classes) {
+			    if (i == 0 && cl != SSE)
+				goto inmemory;
+			    if (i > 0) {
+				if (cl != SSEUP)
+				    goto inmemory;
+				if (classes[i - 1] != SSE
+				    || classes[i - 1] != SSEUP)
+				    cl = SSE;
+			    }
+			}
+		    }
+		    return classes;
+		}
+	    }
+
+	    /*
+	     * Classify the arguments and divide the values into
+	     * eightbyte pieces.
+	     */
+	    alias ubyte[8] eightbyte;
+	    int[] argclass;
+	    eightbyte[] argval;
+	    argclass.length = args.length;
+	    argval.length = args.length;
+	    int j = 0;
+	    foreach(i, arg; args) {
+		static ubyte[8] zeros;
+		auto val = arg.loc.readValue(this);
+		if (val.length & 7)
+		    val ~= zeros[0..8-(val.length & 7)];
+		auto cls = classify(arg.type);
+		debug (call) {
+		    writefln("val.length = %d", val.length);
+		    foreach (ci, cl; cls)
+			writefln("class %d = %d", ci, cl);
+		}
+		if (cls.length != val.length / 8)
+		    throw new EvalException("Can't classify arguments");
+		while (val.length > 0) {
+		    eightbyte piece = val[0..8];
+		    argclass ~= cls[0];
+		    argval ~= piece;
+		    cls = cls[1..$];
+		    val = val[8..$];
+		    j++;
+		}
+	    }
+
+	    /*
+	     * Now assign the pieces to their correct places.
+	     */
+	    static auto intregs = [RDI, RSI, RDX, RCX, R8, R9];
+	    int intreg = 0;
+	    static auto sseregs = [XMM0, XMM1, XMM2, XMM3,
+				   XMM4, XMM5, XMM7, XMM7];
+	    int ssereg = 0;
+	    ubyte[] memargs;
+
+	    foreach (i, ac; argclass) {
+		if (ac == MEMORY)
+		    memargs ~= argval[i];
+		else if (ac == INTEGER) {
+		    if (intreg < intregs.length)
+			writeRegister(intregs[intreg++], argval[i]);
+		    else
+			memargs ~= argval[i];
+		} else if (ac == SSE) {
+		    if (ssereg < sseregs.length)
+			writeRegister(sseregs[ssereg++], argval[i]);
+		    else
+			memargs ~= argval[i];
+		} else if (ac == SSEUP) {
+		    if (ssereg == 0)
+			memargs ~= argval[i];
+		    else {
+			auto v = readRegister(sseregs[ssereg - 1], 8);
+			v ~= argval[i];
+			writeRegister(sseregs[ssereg - 1], v);
+		    }
+		} else {
+		    memargs ~= argval[i];
+		}
+	    }
+
+	    /*
+	     * Allocate the new stack frame including space for the
+	     * return address and arguments. We arrange things so that
+	     * rbp will be aligned to a 16-byte boundard after the
+	     * called function executes its prologue. We also make
+	     * sure we avoid the red zone of the current function.
+	     */
+	    auto newFrame = regs_.r_rsp - 128 - (memargs.length + 16);
+	    newFrame &= ~15;
+	    regs_.r_rsp = newFrame + 8;
+
+	    /*
+	     * Put arguments on the stack. Possibly we should keep the
+	     * stack 16-byte aligned here.
+	     */
+	    if (memargs.length > 0)
+		writeMemory(newFrame + 16, memargs);
+
+	    static class callBreakpoint: TargetBreakpointListener
+	    {
+		bool onBreakpoint(Target, TargetThread)
+		{
+		    callBpHit_ = true;
+		    return true;
+		}
+		bool callBpHit_ = false;
+	    }
+
+	    /*
+	     * Write the return address. We arrange for the function to
+	     * return to _start and we set a breakpoint there to catch
+	     * it.
+	     */
+	    ubyte[8] ret;
+	    writeInteger(target_.entry, ret);
+	    writeMemory(newFrame + 8, ret);
+	    auto bpl = new callBreakpoint;
+	    target_.setBreakpoint(target_.entry, bpl);
+
+	    /*
+	     * Set the thing running at the start of the function.
+	     */
+	    regs_.r_rip = address;
+	    grdirty_ = true;
+	    fpdirty_ = true;
+	    target_.cont(0);
+	    target_.wait;
+
+	    target_.clearBreakpoint(bpl);
+
+	    if (!bpl.callBpHit_)
+		throw new EvalException(
+		    "Function call terminated unexpectedly");
+
+	    /*
+	     * Copy the return value so that we don't trash it
+	     * when we restore the machine state.
+	     */
+	    auto retcls = classify(returnType);
+	    ubyte[] retval;
+	    intreg = 0;
+	    ssereg = 0;
+	    foreach (i, cl; retcls) {
+		if (cl == INTEGER) {
+		    if (intreg == 0)
+			retval ~= readRegister(RAX, 8);
+		    else
+			retval ~= readRegister(RDX, 8);
+		    intreg++;
+		}
+		else if (cl == SSE) {
+		    if (ssereg == 0)
+			retval ~= readRegister(XMM0, 8);
+		    else
+			retval ~= readRegister(XMM1, 8);
+		    ssereg++;
+		}
+		else if (cl == SSEUP) {
+		    if (ssereg == 1)
+			retval ~= readRegister(XMM0, 16)[8..$];
+		    else
+			retval ~= readRegister(XMM1, 16)[8..$];
+		}
+		else if (cl == X87) {
+		    if (i < retcls.length - 1
+			&& retcls[i + 1] == X87UP)
+			retval ~= readRegister(ST0, 16);
+		    else
+			retval ~= readRegister(ST0, returnType.byteWidth);
+		}
+		else {
+		    break;
+		}
+		if (retval.length > returnType.byteWidth)
+		    retval.length = returnType.byteWidth;
+	    }
+
+	    regs_ = saveState.regs_;
+	    fpregs_ = saveState.fpregs_;
+	    grdirty_ = true;
+	    fpdirty_= true;
+
+	    if (retval)
+		return new Value(new ConstantLocation(retval), returnType);
+
+	    throw new EvalException(
+		"Can't read return value for function call");
 	}
 
 	ulong findFlowControl(ulong start, ulong end)
