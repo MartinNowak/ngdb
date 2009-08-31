@@ -677,6 +677,14 @@ class TypedefType: TypeBase
 	{
 	    return name_;
 	}
+	bool coerce(MachineState state, ref Value val)
+	{
+	    if (baseType_.coerce(state, val)) {
+		val = new Value(val.loc, this);
+		return true;
+	    }
+	    return false;
+	}
 	string valueToString(string fmt, MachineState state, Location loc)
 	{
 	    return baseType_.valueToString(fmt, state, loc);
