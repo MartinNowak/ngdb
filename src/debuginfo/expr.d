@@ -1171,12 +1171,15 @@ class CallExpr: ExprBase
 	DebugItem eval(Scope sc, MachineState state)
 	{
 	    Value func = func_.eval(sc, state).toValue(state);
-	    auto pTy = cast(PointerType) func.type;
-	    if (!pTy)
-		throw new EvalException("Can't call a non-function");
-	    auto fTy = cast(FunctionType) pTy.baseType;
-	    if (!fTy)
-		throw new EvalException("Can't call a non-function");
+	    auto fTy = cast(FunctionType) func.type;
+	    if (!fTy) {
+		auto pTy = cast(PointerType) func.type;
+		if (!pTy)
+		    throw new EvalException("Can't call a non-function");
+		fTy = cast(FunctionType) pTy.baseType;
+		if (!fTy)
+		    throw new EvalException("Can't call a non-function");
+	    }
 
 	    Type[] argTypes = fTy.argumentTypes;
 	    
@@ -1195,8 +1198,7 @@ class CallExpr: ExprBase
 		    throw new EvalException("Can't convert argument values");
 	    }
 		
-	    auto addr = state.readInteger(func.loc.readValue(state));
-	    return state.call(addr, fTy.returnType, args);
+	    return state.call(func.loc.address(state), fTy.returnType, args);
 	}
     }
 private:

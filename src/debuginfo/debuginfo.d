@@ -1024,12 +1024,7 @@ class Function: DebugItem, Scope
 	    foreach (a; arguments_)
 		ft.addArgumentType(a.value.type);
 	    ft.varargs(varargs_);
-	    Type pt = ft.pointerType(byteWidth_);
-
-	    ubyte[] ptrVal;
-	    ptrVal.length = byteWidth_;
-	    state.writeInteger(address_, ptrVal);
-	    return new Value(new ConstantLocation(ptrVal), pt);
+	    return new Value(new MemoryLocation(address_, 0), ft);
 	}
 	string[] contents(MachineState state)
 	{

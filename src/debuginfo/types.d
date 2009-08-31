@@ -1259,13 +1259,14 @@ class FunctionType: TypeBase
 
 	    return s;
 	}
-	string valueToString(string, MachineState, Location)
+	string valueToString(string fmt, MachineState state, Location loc)
 	{
-	    return "{}";
+	    assert(loc.hasAddress(state));
+	    return format("%#x", loc.address(state));
 	}
 	size_t byteWidth()
 	{
-	    return 1;
+	    return 0;
 	}
 	bool isCharType()
 	{
