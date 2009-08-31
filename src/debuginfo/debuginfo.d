@@ -812,7 +812,11 @@ class Value: DebugItem
 	{
 	    if (!loc.valid(state))
 		return "<invalid>";
-	    return type.valueToString(fmt, state, loc);
+	    try {
+		return type.valueToString(fmt, state, loc);
+	    } catch (TargetException te) {
+		return "<invalid>";
+	    }
 	}
 	Value toValue(MachineState)
 	{
