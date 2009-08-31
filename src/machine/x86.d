@@ -44,110 +44,67 @@ version (LittleEndian)
 	version = nativeFloat80;
 }
 
-/**
- * Register numbers are chosen to match Dwarf debug info.
- */
-enum X86Reg
-{
-    EAX		= 0,
-    ECX		= 1,
-    EDX		= 2,
-    EBX		= 3,
-    ESP		= 4,
-    EBP		= 5,
-    ESI		= 6,
-    EDI		= 7,
-    EIP		= 8,
-    EFLAGS,
-    CS,
-    SS,
-    DS,
-    ES,
-    FS,
-    GS,
-    GR_COUNT,
-}
-
-private string[] X86RegNames =
-[
-    "eax",
-    "ecx",
-    "edx",
-    "ebx",
-    "esp",
-    "ebp",
-    "esi",
-    "edi",
-    "eip",
-    "eflags",
-    "cs",
-    "ss",
-    "ds",
-    "es",
-    "fs",
-    "gs",
-];
-
-enum X86_64Reg
-{
-    RAX		= 0,
-    RDX		= 1,
-    RCX		= 2,
-    RBX		= 3,
-    RSI		= 4,
-    RDI		= 5,
-    RBP		= 6,
-    RSP		= 7,
-    R8		= 8,
-    R9		= 9,
-    R10		= 10,
-    R11		= 11,
-    R12		= 12,
-    R13		= 13,
-    R14		= 14,
-    R15		= 15,
-    RIP		= 16,
-    RFLAGS	= 17,
-    CS		= 18,
-    SS		= 19,
-    DS		= 20,
-    ES		= 21,
-    FS		= 22,
-    GS		= 23,
-
-    GR_COUNT,
-}
-
-private string[] X86_64RegNames =
-[
-    "rax",
-    "rdx",
-    "rcx",
-    "rbx",
-    "rsi",
-    "rdi",
-    "rbp",
-    "rsp",
-    "r8",
-    "r9",
-    "r10",
-    "r11",
-    "r12",
-    "r13",
-    "r14",
-    "r15",
-    "rip",
-    "rflags",
-    "cs",
-    "ss",
-    "ds",
-    "es",
-    "fs",
-    "gs",
-];
-
 class X86State: MachineState
 {
+    /**
+     * Register numbers are chosen to match Dwarf debug info.
+     */
+    enum
+    {
+	EAX	= 0,
+	ECX	= 1,
+	EDX	= 2,
+	EBX	= 3,
+	ESP	= 4,
+	EBP	= 5,
+	ESI	= 6,
+	EDI	= 7,
+	EIP	= 8,
+	EFLAGS	= 9,
+	TRAPNO	= 10,
+
+	ST0	= 11,
+	ST1	= 12,
+	ST2	= 13,
+	ST3	= 14,
+	ST4	= 15,
+	ST5	= 16,
+	ST6	= 17,
+	ST7	= 18,
+
+	XMM0	= 21,
+	XMM1	= 22,
+	XMM2	= 23,
+	XMM3	= 24,
+	XMM4	= 25,
+	XMM5	= 26,
+	XMM6	= 27,
+	XMM7	= 28,
+
+	MM0	= 29,
+	MM1	= 30,
+	MM2	= 31,
+	MM3	= 32,
+	MM4	= 33,
+	MM5	= 34,
+	MM6	= 35,
+	MM7	= 36,
+    }
+
+    static string[] RegNames = [
+	"eax",
+	"ecx",
+	"edx",
+	"ebx",
+	"esp",
+	"ebp",
+	"esi",
+	"edi",
+	"eip",
+	"eflags",
+	"trapno",
+	];
+
     this(Target target)
     {
 	target_ = target;
@@ -205,12 +162,18 @@ class X86State: MachineState
     override {
 	void dumpState()
 	{
-	    for (auto i = 0; i < X86Reg.GR_COUNT; i++) {
+	    for (auto i = 0; i <= EFLAGS; i++) {
 		uint32_t val = getGR(i);
-		writef("%6s:%08x ", X86RegNames[i], val);
+		writef("%6s:%08x ", RegNames[i], val);
 		if ((i & 3) == 3)
 		    writefln("");
 	    }
+	    writef("%6s:%08x ", "cs", regs_.r_cs);
+	    writefln("%6s:%08x ", "ss", regs_.r_ss);
+	    writef("%6s:%08x ", "ds", regs_.r_ds);
+	    writef("%6s:%08x ", "es", regs_.r_es);
+	    writef("%6s:%08x ", "fs", regs_.r_fs);
+	    writefln("%6s:%08x ", "gs", regs_.r_gs);
 	}
 
 	ulong pc()
@@ -312,7 +275,7 @@ class X86State: MachineState
 
 	size_t grCount()
 	{
-	    return X86Reg.GR_COUNT;
+	    return EFLAGS + 1;
 	}
 
 	MachineState dup()
@@ -456,12 +419,12 @@ class X86State: MachineState
 	ubyte[] readRegister(uint regno, size_t bytes)
 	{
 	    ubyte[] v;
-	    if (regno < 10) {
+	    if (regno <= TRAPNO) {
 		assert(bytes <= 4);
 		v.length = bytes;
 		v[] = (cast(ubyte*) grAddr(regno))[0..bytes];
-	    } else if (regno >= 11 && regno <= 18) {
-		ubyte* reg = fpregs_.xmm_acc[regno-11].ptr;
+	    } else if (regno >= ST0 && regno <= ST7) {
+		ubyte* reg = fpregs_.xmm_acc[regno-ST0].ptr;
 		assert(bytes <= 10);
 		v.length = bytes;
 		switch (v.length) {
@@ -473,14 +436,16 @@ class X86State: MachineState
 		default:
 		    v[] = reg[0..bytes];
 		}
-	    } else if (regno >= 21 && regno <= 28) {
+	    } else if (regno >= XMM0 && regno <= XMM7) {
 		assert(bytes <= 16);
 		v.length = bytes;
-		v[] = (cast(ubyte*) &fpregs_.xmm_reg[regno-21])[0..bytes];
-	    } else if (regno >= 29 && regno <= 36) {
+		v[] = (cast(ubyte*) &fpregs_.xmm_reg[regno-XMM0])
+		    [0..bytes];
+	    } else if (regno >= MM0 && regno <= MM7) {
 		assert(bytes <= 8);
 		v.length = bytes;
-		v[] = (cast(ubyte*) &fpregs_.xmm_acc[regno-29])[0..bytes];
+		v[] = (cast(ubyte*) &fpregs_.xmm_acc[regno-MM0])
+		    [0..bytes];
 	    } else {
 		throw new TargetException(
 		    format("Unsupported register index %d", regno));
@@ -684,7 +649,7 @@ class X86State: MachineState
 	string[] contents(MachineState)
 	{
 	    string[] res;
-	    res = X86RegNames[];
+	    res = RegNames[];
 	    for (auto i = 0; i < 8; i++)
 		res ~= format("st%d", i);
 	    for (auto i = 0; i < 8; i++)
@@ -699,7 +664,7 @@ class X86State: MachineState
 	    if (reg.length > 0 && reg[0] == '$')
 		reg = reg[1..$];
 	    if (reg == "pc") reg = "eip";
-	    foreach (i, s; X86RegNames) {
+	    foreach (i, s; RegNames) {
 		if (s == reg) {
 		    val = regAsValue(i, grType_);
 		    return true;
@@ -746,7 +711,7 @@ class X86State: MachineState
 private:
     uint32_t* grAddr(uint gregno)
     {
-	assert(gregno < X86Reg.GR_COUNT);
+	assert(gregno <= TRAPNO);
 	if (regmap_[gregno] == ~0)
 	    return null;
 	return cast(uint32_t*) (cast(ubyte*) &regs_ + regmap_[gregno]);
@@ -762,42 +727,32 @@ private:
     }
     version (FreeBSD) {
 	static uint[] regmap_ = [
-	    reg32.r_eax.offsetof,	// X86Reg.EAX
-	    reg32.r_ecx.offsetof,	// X86Reg.ECX
-	    reg32.r_edx.offsetof,	// X86Reg.EDX
-	    reg32.r_ebx.offsetof,	// X86Reg.EBX
-	    reg32.r_esp.offsetof,	// X86Reg.ESP
-	    reg32.r_ebp.offsetof,	// X86Reg.EBP
-	    reg32.r_esi.offsetof,	// X86Reg.ESI
-	    reg32.r_edi.offsetof,	// X86Reg.EDI
-	    reg32.r_eip.offsetof,	// X86Reg.EIP
-	    reg32.r_eflags.offsetof,	// X86Reg.EFLAGS
-	    reg32.r_cs.offsetof,	// X86Reg.CS
-	    reg32.r_ss.offsetof,	// X86Reg.SS
-	    reg32.r_ds.offsetof,	// X86Reg.DS
-	    reg32.r_es.offsetof,	// X86Reg.ES
-	    reg32.r_fs.offsetof,	// X86Reg.FS
-	    reg32.r_gs.offsetof,	// X86Reg.GS
+	    reg32.r_eax.offsetof,	// EAX
+	    reg32.r_ecx.offsetof,	// ECX
+	    reg32.r_edx.offsetof,	// EDX
+	    reg32.r_ebx.offsetof,	// EBX
+	    reg32.r_esp.offsetof,	// ESP
+	    reg32.r_ebp.offsetof,	// EBP
+	    reg32.r_esi.offsetof,	// ESI
+	    reg32.r_edi.offsetof,	// EDI
+	    reg32.r_eip.offsetof,	// EIP
+	    reg32.r_eflags.offsetof,	// EFLAGS
+	    reg32.r_trapno.offsetof	// TRAPNO
 	    ];
     }
     version (linux) {
 	static uint[] regmap_ = [
-	    reg32.r_eax.offsetof,	// X86Reg.EAX
-	    reg32.r_ecx.offsetof,	// X86Reg.ECX
-	    reg32.r_edx.offsetof,	// X86Reg.EDX
-	    reg32.r_ebx.offsetof,	// X86Reg.EBX
-	    reg32.r_esp.offsetof,	// X86Reg.ESP
-	    reg32.r_ebp.offsetof,	// X86Reg.EBP
-	    reg32.r_esi.offsetof,	// X86Reg.ESI
-	    reg32.r_edi.offsetof,	// X86Reg.EDI
-	    reg32.r_eip.offsetof,	// X86Reg.EIP
-	    reg32.r_eflags.offsetof,	// X86Reg.EFLAGS
-	    reg32.r_cs.offsetof,	// X86Reg.CS
-	    reg32.r_ss.offsetof,	// X86Reg.SS
-	    reg32.r_ds.offsetof,	// X86Reg.DS
-	    reg32.r_es.offsetof,	// X86Reg.ES
-	    reg32.r_fs.offsetof,	// X86Reg.FS
-	    reg32.r_gs.offsetof,	// X86Reg.GS
+	    reg32.r_eax.offsetof,	// EAX
+	    reg32.r_ecx.offsetof,	// ECX
+	    reg32.r_edx.offsetof,	// EDX
+	    reg32.r_ebx.offsetof,	// EBX
+	    reg32.r_esp.offsetof,	// ESP
+	    reg32.r_ebp.offsetof,	// EBP
+	    reg32.r_esi.offsetof,	// ESI
+	    reg32.r_edi.offsetof,	// EDI
+	    reg32.r_eip.offsetof,	// EIP
+	    reg32.r_eflags.offsetof,	// EFLAGS
+	    reg32.r_orig_eax.offsetof,	// TRAPNO (??)
 	    ];
     }
     Target	target_;
@@ -815,6 +770,99 @@ private:
 
 class X86_64State: MachineState
 {
+    enum
+    {
+	RAX	= 0,
+	RDX	= 1,
+	RCX	= 2,
+	RBX	= 3,
+	RSI	= 4,
+	RDI	= 5,
+	RBP	= 6,
+	RSP	= 7,
+	R8	= 8,
+	R9	= 9,
+	R10	= 10,
+	R11	= 11,
+	R12	= 12,
+	R13	= 13,
+	R14	= 14,
+	R15	= 15,
+	RIP	= 16,
+
+	XMM0	= 17,
+	XMM1	= 18,
+	XMM2	= 19,
+	XMM3	= 20,
+	XMM4	= 21,
+	XMM5	= 22,
+	XMM6	= 23,
+	XMM7	= 24,
+	XMM8	= 25,
+	XMM9	= 26,
+	XMM10	= 27,
+	XMM11	= 28,
+	XMM12	= 29,
+	XMM13	= 30,
+	XMM14	= 31,
+	XMM15	= 32,
+
+	ST0	= 33,
+	ST1	= 34,
+	ST2	= 35,
+	ST3	= 36,
+	ST4	= 37,
+	ST5	= 38,
+	ST6	= 39,
+	ST7	= 40,
+
+	MM0	= 41,
+	MM1	= 42,
+	MM2	= 43,
+	MM3	= 44,
+	MM4	= 45,
+	MM5	= 46,
+	MM6	= 47,
+	MM7	= 48,
+
+	RFLAGS	= 49,
+	CS	= 50,
+	SS	= 51,
+	DS	= 52,
+	ES	= 53,
+	FS	= 54,
+	GS	= 55,
+
+	FSBASE	= 58,
+	GSBASE	= 59,
+
+	TR	= 62,
+	LDTR	= 63,
+	MXCSR	= 64,
+	FCW	= 65,
+	FSW	= 66,
+    }
+
+    static  string[] RegNames = [
+	"rax",
+	"rdx",
+	"rcx",
+	"rbx",
+	"rsi",
+	"rdi",
+	"rbp",
+	"rsp",
+	"r8",
+	"r9",
+	"r10",
+	"r11",
+	"r12",
+	"r13",
+	"r14",
+	"r15",
+	"rip",
+	];
+
     this(Target target)
     {
 	target_ = target;
@@ -872,12 +920,13 @@ class X86_64State: MachineState
     override {
 	void dumpState()
 	{
-	    for (auto i = 0; i <= X86_64Reg.RFLAGS; i++) {
+	    for (auto i = 0; i <= RIP; i++) {
 		uint64_t val = getGR(i);
-		writef("%6s:%016x ", X86_64RegNames[i], val);
+		writef("%6s:%016x ", RegNames[i], val);
 		if ((i & 1) == 1)
 		    writefln("");
 	    }
+	    writefln("%6s:%016x ", "rflags", regs_.r_rflags);
 	    writefln("    cs:%04x ss:%04x ds:%04x es:%04x gs:%04x fs:%04x",
 		   regs_.r_cs, regs_.r_ss, regs_.r_ds,
 		   regs_.r_es, regs_.r_fs, regs_.r_gs);
@@ -981,7 +1030,7 @@ class X86_64State: MachineState
 
 	size_t grCount()
 	{
-	    return X86_64Reg.GR_COUNT;
+	    return RIP + 1;
 	}
 
 	MachineState dup()
@@ -1125,12 +1174,12 @@ class X86_64State: MachineState
 	ubyte[] readRegister(uint regno, size_t bytes)
 	{
 	    ubyte[] v;
-	    if (regno <= 16) {
+	    if (regno <= RIP) {
 		assert(bytes <= 8);
 		v.length = bytes;
 		v[] = (cast(ubyte*) grAddr(regno))[0..bytes];
-	    } else if (regno >= 33 && regno <= 40) {
-		ubyte* reg = fpregs_.xmm_acc[regno-33].ptr;
+	    } else if (regno >= ST0 && regno <= ST7) {
+		ubyte* reg = fpregs_.xmm_acc[regno-ST0].ptr;
 		assert(bytes <= 10);
 		v.length = bytes;
 		switch (v.length) {
@@ -1142,14 +1191,16 @@ class X86_64State: MachineState
 		default:
 		    v[] = reg[0..bytes];
 		}
-	    } else if (regno >= 17 && regno <= 32) {
+	    } else if (regno >= XMM0 && regno <= XMM15) {
 		assert(bytes <= 16);
 		v.length = bytes;
-		v[] = (cast(ubyte*) &fpregs_.xmm_reg[regno-17])[0..bytes];
-	    } else if (regno >= 41 && regno <= 48) {
+		v[] = (cast(ubyte*) &fpregs_.xmm_reg[regno-XMM0])[0..bytes];
+	    } else if (regno >= MM0 && regno <= MM7) {
 		assert(bytes <= 8);
 		v.length = bytes;
-		v[] = (cast(ubyte*) &fpregs_.xmm_acc[regno-41])[0..bytes];
+		v[] = (cast(ubyte*) &fpregs_.xmm_acc[regno-MM0])[0..bytes];
+	    } else if (regno == RFLAGS) {
+		v[] = (cast(ubyte*) &regs_.r_rflags)[0..bytes];
 	    } else {
 		throw new TargetException(
 		    format("Unsupported register index %d", regno));
@@ -1159,12 +1210,12 @@ class X86_64State: MachineState
 
 	void writeRegister(uint regno, ubyte[] v)
 	{
-	    if (regno <= 16) {
+	    if (regno <= RIP) {
 		assert(v.length <= 8);
 		(cast(ubyte*) grAddr(regno))[0..v.length] = v[];
 		grdirty_ = true;
-	    } else if (regno >= 33 && regno <= 40) {
-		ubyte* reg = fpregs_.xmm_acc[regno-33].ptr;
+	    } else if (regno >= ST0 && regno <= ST7) {
+		ubyte* reg = fpregs_.xmm_acc[regno-ST0].ptr;
 		assert(v.length <= 10);
 		switch (v.length) {
 		case 4:
@@ -1176,14 +1227,16 @@ class X86_64State: MachineState
 		    reg[0..v.length] = v[];
 		}
 		fpdirty_ = true;
-	    } else if (regno >= 17 && regno <= 32) {
+	    } else if (regno >= XMM0 && regno <= XMM15) {
 		assert(v.length <= 16);
-		(cast(ubyte*) &fpregs_.xmm_reg[regno-17])[0..v.length] = v[];
+		(cast(ubyte*) &fpregs_.xmm_reg[regno-XMM0])[0..v.length] = v[];
 		fpdirty_ = true;
-	    } else if (regno >= 41 && regno <= 48) {
+	    } else if (regno >= MM0 && regno <= MM7) {
 		assert(v.length <= 8);
-		(cast(ubyte*) &fpregs_.xmm_acc[regno-41])[0..v.length] = v[];
+		(cast(ubyte*) &fpregs_.xmm_acc[regno-MM0])[0..v.length] = v[];
 		fpdirty_ = true;
+	    } else if (regno == RFLAGS) {
+		(cast(ubyte*) &regs_.r_rflags)[0..v.length] = v[];
 	    } else {
 		throw new TargetException(
 		    format("Unsupported register index %d", regno));
@@ -1356,7 +1409,8 @@ class X86_64State: MachineState
 	string[] contents(MachineState)
 	{
 	    string[] res;
-	    res = X86_64RegNames[];
+	    res = RegNames[];
+	    res ~= "rflags";
 	    for (auto i = 0; i < 8; i++)
 		res ~= format("st%d", i);
 	    for (auto i = 0; i < 8; i++)
@@ -1371,11 +1425,14 @@ class X86_64State: MachineState
 	    if (reg.length > 0 && reg[0] == '$')
 		reg = reg[1..$];
 	    if (reg == "pc") reg = "rip";
-	    foreach (i, s; X86_64RegNames) {
+	    foreach (i, s; RegNames) {
 		if (s == reg) {
 		    val = regAsValue(i, grType_);
 		    return true;
 		}
+	    }
+	    if (reg == "rflags") {
+		val = regAsValue(RFLAGS, grType_);
 	    }
 	    if (reg.length == 3 && reg[0..2] == "st"
 		&& reg[2] >= '0' && reg[2] <= '7') {
@@ -1424,7 +1481,7 @@ class X86_64State: MachineState
 private:
     uint64_t* grAddr(uint gregno)
     {
-	assert(gregno <= X86_64Reg.GR_COUNT);
+	assert(gregno <= RIP);
 	if (regmap_[gregno] == ~0)
 	    return null;
 	return cast(uint64_t*) (cast(ubyte*) &regs_ + regmap_[gregno]);
@@ -1457,13 +1514,6 @@ private:
 	    reg64.r_r14.offsetof,	// X86_64Reg.R14
 	    reg64.r_r15.offsetof,	// X86_64Reg.R15
 	    reg64.r_rip.offsetof,	// X86_64Reg.RIP
-	    reg64.r_rflags.offsetof,	// X86_64Reg.RFLAGS
-	    reg64.r_cs.offsetof,	// X86_64Reg.CS
-	    reg64.r_ss.offsetof,	// X86_64Reg.SS
-	    reg64.r_ds.offsetof,	// X86_64Reg.DS
-	    reg64.r_es.offsetof,	// X86_64Reg.ES
-	    reg64.r_fs.offsetof,	// X86_64Reg.FS
-	    reg64.r_gs.offsetof,	// X86_64Reg.GS
 	    ];
     }
 
