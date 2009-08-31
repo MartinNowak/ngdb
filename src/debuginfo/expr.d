@@ -1146,3 +1146,60 @@ private:
     Expr trueExp_;
     Expr falseExp_;
 }
+
+class CallExpr: ExprBase
+{
+    this(Language lang, Expr func, Expr[] args)
+    {
+	super(lang);
+	func_ = func;
+	args_ = args;
+    }
+    override {
+	string toString()
+	{
+	    string s;
+	    s = func_.toString ~ "(";
+	    foreach (i, arg; args_) {
+		if (i > 0)
+		    s ~= ", ";
+		s ~= arg.toString;
+	    }
+	    s ~= ")";
+	    return s;
+	}
+	DebugItem eval(Scope sc, MachineState state)
+	{
+	    Value func = func_.eval(sc, state).toValue(state);
+	    auto pTy = cast(PointerType) func.type;
+	    if (!pTy)
+		throw new EvalException("Can't call a non-function");
+	    auto fTy = cast(FunctionType) pTy.baseType;
+	    if (!fTy)
+		throw new EvalException("Can't call a non-function");
+
+	    Type[] argTypes = fTy.argumentTypes;
+	    
+	    if (argTypes.length != args_.length)
+		throw new EvalException(
+		    format("%d arguments expected for function call",
+			   argTypes.length));
+
+	    Value[] args;
+	    args.length = args_.length;
+	    foreach (i, arg; args_) {
+		auto argVal = arg.eval(sc, state).toValue(state);
+		if (argTypes[i].coerce(state, argVal))
+		    args[i] = argVal;
+		else
+		    throw new EvalException("Can't convert argument values");
+	    }
+		
+	    auto addr = state.readInteger(func.loc.readValue(state));
+	    return state.call(addr, fTy.returnType, args);
+	}
+    }
+private:
+    Expr func_;
+    Expr[] args_;
+}

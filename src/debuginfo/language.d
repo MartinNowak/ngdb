@@ -830,6 +830,9 @@ class CLikeLanguage: Language
 	 *	PostfixExpression ( ArgumentList )
 	 *	PostfixExpression [ AssignExpression ]
 	 *
+	 * ArgumentList:
+	 *	AssignExpression
+	 *	AssignExpression , ArgumentList
 	 *
 	 * eliminating left recursion
 	 *
@@ -870,6 +873,23 @@ class CLikeLanguage: Language
 		else
 		    e = new SubtractExpr(this, e, one);
 		e = new PostIncrementExpr(this, tok.id, e);
+	    } else if (tok.id == "(") {
+		Expr[] args;
+		lex.consume;
+		tok = lex.nextToken;
+		if (tok.id != ")") {
+		    for (;;) {
+			args ~= assignExpr(lex);
+			tok = lex.nextToken;
+			if (tok.id != ",")
+			    break;
+			lex.consume;
+		    }
+		}
+		if (tok.id != ")")
+		    throw unexpected(tok);
+		lex.consume;
+		e = new CallExpr(this, e, args);
 	    } else if (tok.id == "[") {
 		lex.consume;
 		auto e2 = assignExpr(lex);

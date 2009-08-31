@@ -1277,6 +1277,11 @@ class FunctionType: TypeBase
 	}
     }
 
+    Type[] argumentTypes()
+    {
+	return argumentTypes_;
+    }
+
     string renderArgs()
     {
 	string s;

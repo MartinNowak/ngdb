@@ -27,6 +27,7 @@
 module machine.arm;
 import machine.machine;
 import debuginfo.debuginfo;
+import debuginfo.expr;
 import debuginfo.language;
 import debuginfo.types;
 import target.target;
@@ -310,6 +311,11 @@ class ArmState: MachineState
 	void writeMemory(ulong address, ubyte[] toWrite)
 	{
 	    target_.writeMemory(address, toWrite);
+	}
+
+	Value call(ulong address, Type returnType, Value[] args)
+	{
+	    throw new EvalException("function call not supported");
 	}
 
 	ulong findFlowControl(ulong start, ulong end)

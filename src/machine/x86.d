@@ -27,6 +27,7 @@
 module machine.x86;
 import machine.machine;
 import debuginfo.debuginfo;
+import debuginfo.expr;
 import debuginfo.language;
 import debuginfo.types;
 private import machine.x86dis;
@@ -596,6 +597,108 @@ class X86State: MachineState
 	void writeMemory(ulong address, ubyte[] toWrite)
 	{
 	    target_.writeMemory(address, toWrite);
+	}
+
+	Value call(ulong address, Type returnType, Value[] args)
+	{
+	    X86State saveState = new X86State(target_);
+	    saveState.regs_ = regs_;
+	    saveState.fpregs_ = fpregs_;
+
+	    ubyte[] argval;
+	    foreach(arg; args) {
+		if (arg.type.isIntegerType) {
+		    /*
+		     * Pad small integers
+		     */
+		    auto val = arg.loc.readValue(this);
+		    if (val.length < 4) {
+			static ubyte[4] zeros;
+			val ~= zeros[0..4-val.length];
+		    }
+		    argval ~= val; 
+		} else {
+		    auto val = arg.loc.readValue(this);
+		    argval ~= val;
+		}
+	    }
+
+	    /*
+	     * Allocate the new stack frame including space for the
+	     * return address and arguments. We arrange things so that
+	     * ebp will be aligned to a 16-byte boundard after the
+	     * called function executes its prologue.
+	     */
+	    auto newFrame = regs_.r_esp - (argval.length + 8);
+	    newFrame &= ~15;
+	    regs_.r_esp = newFrame + 4;
+
+	    /*
+	     * Put arguments on the stack. Possibly we should keep the
+	     * stack 16-byte aligned here.
+	     */
+	    if (argval.length > 0)
+		writeMemory(newFrame + 8, argval);
+
+	    static class callBreakpoint: TargetBreakpointListener
+	    {
+		bool onBreakpoint(Target, TargetThread)
+		{
+		    callBpHit_ = true;
+		    return true;
+		}
+		bool callBpHit_ = false;
+	    }
+
+	    /*
+	     * Write the return address. We arrange for the function to
+	     * return to _start and we set a breakpoint there to catch
+	     * it.
+	     */
+	    ubyte[4] ret;
+	    writeInteger(target_.entry, ret);
+	    writeMemory(newFrame + 4, ret);
+	    auto bpl = new callBreakpoint;
+	    target_.setBreakpoint(target_.entry, bpl);
+
+	    /*
+	     * Set the thing running at the start of the function.
+	     */
+	    regs_.r_eip = address;
+	    grdirty_ = true;
+	    target_.cont(0);
+	    target_.wait;
+
+	    target_.clearBreakpoint(bpl);
+
+	    if (!bpl.callBpHit_)
+		throw new EvalException(
+		    "Function call terminated unexpectedly");
+
+	    /*
+	     * Copy the return value so that we don't trash it
+	     * when we restore the machine state.
+	     */
+	    ubyte[] retval;
+	    if (returnType.isNumericType && !returnType.isIntegerType) {
+		retval = readRegister(ST0, returnType.byteWidth);
+	    } else if (returnType.byteWidth <= 4) {
+		retval = readRegister(0, returnType.byteWidth);
+	    } else if (returnType.byteWidth <= 8) {
+		retval = readRegister(EAX, 4)
+		    ~ readRegister(EDX, returnType.byteWidth - 4);
+	    }
+
+	    regs_ = saveState.regs_;
+	    fpregs_ = saveState.fpregs_;
+	    grdirty_ = true;
+	    fpdirty_= true;
+
+	    if (retval)
+		return new Value(new ConstantLocation(retval), returnType);
+
+	    throw new EvalException(
+		"Can't read return value for function call");
 	}
 
 	ulong findFlowControl(ulong start, ulong end)
@@ -1353,6 +1456,11 @@ class X86_64State: MachineState
 	void writeMemory(ulong address, ubyte[] toWrite)
 	{
 	    target_.writeMemory(address, toWrite);
+	}
+
+	Value call(ulong address, Type returnType, Value[] args)
+	{
+	    throw new EvalException("function call not supported");
 	}
 
 	ulong findFlowControl(ulong start, ulong end)

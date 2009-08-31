@@ -27,6 +27,7 @@
 module machine.machine;
 import target.target;
 import debuginfo.debuginfo;
+import debuginfo.types;
 version(tangobos) import std.compat;
 
 /**
@@ -215,6 +216,11 @@ interface MachineState: Scope
      * Write to the machine's memory.
      */
     void writeMemory(ulong address, ubyte[] toWrite);
+
+    /**
+     * Call a function in the target.
+     */
+    Value call(ulong address, Type returnType, Value[] args);
 
     /**
      * Scan the interval [start..end) and return the address of
