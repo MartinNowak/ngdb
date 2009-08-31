@@ -194,6 +194,11 @@ interface Target
     TargetState state();
 
     /**
+     * Return the target's entry point.
+     */
+    ulong entry();
+
+    /**
      * Read from the target's memory.
      */
     ubyte[] readMemory(ulong targetAddress, size_t bytes);

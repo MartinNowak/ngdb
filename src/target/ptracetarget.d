@@ -554,6 +554,13 @@ class PtraceTarget: Target, TargetBreakpointListener
 	{
 	    return state_;
 	}
+	ulong entry()
+	{
+	    if (modules_.length > 0)
+		return modules_[0].entry;
+	    else
+		return 0;
+	}
 	ubyte[] readMemory(ulong targetAddress, size_t bytes)
 	{
 	    return readMemory(targetAddress, bytes, true);

@@ -366,6 +366,14 @@ class ColdTarget: Target
 	    return state_;
 	}
 
+	ulong entry()
+	{
+	    if (modules_.length > 0)
+		return modules_[0].obj_.entry;
+	    else
+		return 0;
+	}
+
 	ubyte[] readMemory(ulong targetAddress, size_t bytes)
 	{
 	    if (core_) {
