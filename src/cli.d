@@ -2700,7 +2700,14 @@ class ExamineCommand: Command
 		try {
 		    auto e = lang.parseExpr(expr, sc);
 		    auto v = e.eval(sc, s).toValue(s);
-		    addr = s.readInteger(v.loc.readValue(s));
+		    auto pTy = cast(PointerType) v.type;
+		    auto fTy = cast(FunctionType) v.type;
+		    if (pTy || v.type.isIntegerType)
+			addr = s.readInteger(v.loc.readValue(s));
+		    else if (fTy)
+			addr = v.loc.address(s);
+		    else
+			throw new EvalException("Not an address");
 		} catch (EvalException ex) {
 		    db.pagefln("%s", ex.msg);
 		    return;
@@ -2710,7 +2717,7 @@ class ExamineCommand: Command
 	    uint count = count_;
 	    if (fmt_ == "i") {
 		while (count > 0) {
-		    db.pagefln("%-15s %s", db.lookupAddress(addr), s.disassemble(addr, &db.lookupAddress));
+		    db.pagefln("%-31s %s", db.lookupAddress(addr), s.disassemble(addr, &db.lookupAddress));
 		    count--;
 		}
 	    } else {
