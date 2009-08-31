@@ -1440,6 +1440,19 @@ class X86_64State: MachineState
 	    saveState.fpregs_ = fpregs_;
 
 	    /*
+	     * If the return value is a structure, reserve some space
+	     * on the stack and add a hidden first argument to point
+	     * at it.
+	     */
+	    auto retcls = classify(returnType);
+	    if (retcls[0] == MEMORY) {
+		regs_.r_rsp -= 8 * retcls.length;
+		ubyte[8] v;
+		writeInteger(regs_.r_rsp, v);
+		args = new Value(new ConstantLocation(v), grType_) ~ args;
+	    }
+
+	    /*
 	     * Classify the arguments and divide the values into
 	     * eightbyte pieces.
 	     */
@@ -1617,6 +1630,9 @@ class X86_64State: MachineState
 			retval ~= readRegister(ST0, 16);
 		    else
 			retval ~= readRegister(ST0, returnType.byteWidth);
+		} else if (cl == MEMORY) {
+		    retval = readMemory(regs_.r_rax, returnType.byteWidth);
+		    break;
 		}
 		else {
 		    throw new EvalException(
@@ -1856,6 +1872,12 @@ private:
 	    }
 	    return classes;
 	}
+	auto n = (ty.byteWidth + 7) / 8;
+	int[] classes;
+	classes.length = n;
+	foreach (ref cl; classes)
+	    cl = MEMORY;
+	return classes;
     }
 
     union float32 {
