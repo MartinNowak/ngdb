@@ -781,7 +781,7 @@ class CLikeLanguage: Language
 	    || tok.id == "*" || tok.id == "-" || tok.id == "+"
 	    || tok.id == "!" || tok.id == "~") {
 	    lex.consume;
-	    auto e = unaryExpr(lex);
+	    auto e = castExpr(lex);
 	    if (tok.id == "&")
 		return new AddressOfExpr(this, e);
 	    if (tok.id == "*")
@@ -1672,7 +1672,7 @@ class DLanguage: CLikeLanguage
 	    || tok.id == "*" || tok.id == "-" || tok.id == "+"
 	    || tok.id == "!" || tok.id == "~") {
 	    lex.consume;
-	    auto e = unaryExpr(lex);
+	    auto e = castExpr(lex);
 	    if (tok.id == "&")
 		return new AddressOfExpr(this, e);
 	    if (tok.id == "*")
