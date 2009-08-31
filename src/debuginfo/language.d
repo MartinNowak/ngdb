@@ -1618,9 +1618,24 @@ class DLanguage: CLikeLanguage
     Expr castExpr(Lexer lex)
     {
 	/*
-	 * CastExpresion:
-	 *	UnaryExpression
-	 *	cast ( TypeName ) CastExpression
+	 * In D, cast expression are just folded into UnaryExpression
+	 */ 
+	return unaryExpr(lex);
+    }
+    Expr unaryExpr(Lexer lex)
+    {
+	/*
+	 * UnaryExpression:
+	 *	PostfixExpression
+	 *	& UnaryExpression
+	 *	++ UnaryExpression
+	 *	-- UnaryExpression
+	 *	* UnaryExpression
+	 *	- UnaryExpression
+	 *	+ UnaryExpression
+	 *	! UnaryExpression
+	 *	~ UnaryExpression
+	 *	cast ( TypeName ) UnaryExpression
 	 */
 	auto tok = lex.nextToken;
 	if (tok.id == "cast") {
@@ -1638,26 +1653,7 @@ class DLanguage: CLikeLanguage
 	    lex.consume;
 	    auto e = castExpr(lex);
 	    return new CastExpr(this, ty, e);
-	} else {
-	    return unaryExpr(lex);
-	}
-    }
-    Expr unaryExpr(Lexer lex)
-    {
-	/*
-	 * UnaryExpression:
-	 *	PostfixExpression
-	 *	& UnaryExpression
-	 *	++ UnaryExpression
-	 *	-- UnaryExpression
-	 *	* UnaryExpression
-	 *	- UnaryExpression
-	 *	+ UnaryExpression
-	 *	! UnaryExpression
-	 *	~ UnaryExpression
-	 */
-	auto tok = lex.nextToken;
-	if (tok.id == "++" || tok.id == "--") {
+	} else if (tok.id == "++" || tok.id == "--") {
 	    lex.consume;
 	    auto e = unaryExpr(lex);
 	    auto one = new IntegerConstantExpr(this, "1");
