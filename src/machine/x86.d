@@ -649,17 +649,17 @@ class X86State: MachineState
 		    "Function call terminated unexpectedly");
 
 	    /*
-	     * Copy the return value so that we don't trash it
-	     * when we restore the machine state.
+	     * Get the return value first then restore the machine state.
 	     */
-	    ubyte[] retval;
-	    if (returnType.isNumericType && !returnType.isIntegerType) {
-		retval = readRegister(ST0, returnType.byteWidth);
-	    } else if (returnType.byteWidth <= 4) {
-		retval = readRegister(0, returnType.byteWidth);
-	    } else if (returnType.byteWidth <= 8) {
-		retval = readRegister(EAX, 4)
-		    ~ readRegister(EDX, returnType.byteWidth - 4);
+	    Value retval;
+	    try {
+		retval = returnValue(returnType);
+	    } catch (EvalException e) {
+		regs_ = saveState.regs_;
+		fpregs_ = saveState.fpregs_;
+		grdirty_ = true;
+		fpdirty_= true;
+		throw e;
 	    }
 
 	    regs_ = saveState.regs_;
@@ -667,11 +667,24 @@ class X86State: MachineState
 	    grdirty_ = true;
 	    fpdirty_= true;
 
-	    if (retval)
-		return new Value(new ConstantLocation(retval), returnType);
+	    return retval;
+	}
 
-	    throw new EvalException(
-		"Can't read return value for function call");
+	Value returnValue(Type returnType)
+	{
+	    ubyte[] retval;
+	    if (returnType.isNumericType && !returnType.isIntegerType) {
+		retval = readRegister(ST0, returnType.byteWidth);
+	    } else if (returnType.byteWidth <= 4) {
+		retval = readRegister(EAX, returnType.byteWidth);
+	    } else if (returnType.byteWidth <= 8) {
+		retval = readRegister(EAX, 4)
+		    ~ readRegister(EDX, returnType.byteWidth - 4);
+	    } else
+		throw new EvalException(
+		    "Can't read return value for function call");
+
+	    return new Value(new ConstantLocation(retval), returnType);
 	}
 
 	ulong findFlowControl(ulong start, ulong end)
@@ -1410,104 +1423,6 @@ class X86_64State: MachineState
 	    saveState.regs_ = regs_;
 	    saveState.fpregs_ = fpregs_;
 
-	    enum {
-		INTEGER, SSE, SSEUP, X87, X87UP, COMPLEX_X87,
-		NO_CLASS, MEMORY,
-	    }
-
-	    int[] classify(Type ty)
-	    {
-		if (ty.isIntegerType)
-		    return [INTEGER];
-		if (cast(PointerType) ty)
-		    return [INTEGER];
-		if (ty.isNumericType && ty.byteWidth <= 8)
-		    return [SSE];
-		if (ty.isNumericType)
-		    return [X87, X87UP];
-		auto aTy = cast(ArrayType) ty;
-		if (aTy) {
-		    /*
-		     * XXX need a better way of recognising vector
-		     * types.
-		     */
-		    if (!aTy.baseType.isIntegerType
-			&& aTy.baseType.isNumericType
-			&& aTy.baseType.byteWidth == 4
-			&& aTy.byteWidth == 128) {
-			return [SSE, SSEUP];
-		    }
-		    /*
-		     * XXX need to pass a pointer
-		     */
-		}
-		auto cTy = cast(CompoundType) ty;
-		if (cTy) {
-		    int[] classes;
-		    classes.length = (cTy.byteWidth + 7) / 8;
-		    foreach (ref cl; classes)
-			cl = NO_CLASS;
-
-		    if (cTy.byteWidth > 4 * 8) {
-		    inmemory:
-			foreach (ref cl; classes)
-			    cl = MEMORY;
-			return classes;
-		    }
-		    
-		    for (auto i = 0; i < cTy.length; i++) {
-			auto f = cTy[i].value;
-			Location loc = new MemoryLocation(0, 0);
-			loc = f.loc.fieldLocation(loc, this);
-			auto start = loc.address(this) / 8;
-			auto end = (loc.address(this)
-				    + f.type.byteWidth + 7) / 8;
-			auto fieldClass = classify(f.type);
-			for (auto j = start; j < end; j++) {
-			    auto k = j - start;
-			    if (classes[j] == NO_CLASS)
-				classes[j] = fieldClass[k];
-			    else if (classes[j] == MEMORY
-				     || fieldClass[k] == MEMORY)
-				classes[j] = MEMORY;
-			    else if (classes[j] == INTEGER
-				     || fieldClass[k] == INTEGER)
-				classes[j] = INTEGER;
-			    else if (classes[j] == X87
-				     || classes[j] == X87UP
-				     || classes[j] == COMPLEX_X87
-				     || fieldClass[k] == X87
-				     || fieldClass[k] == X87UP
-				     || fieldClass[k] == COMPLEX_X87)
-				classes[j] = MEMORY;
-			    else
-				classes[j] = SSE;
-			}
-		    }
-		    foreach (i, cl; classes) {
-			if (cl == MEMORY)
-			    goto inmemory;
-			if (cl == X87UP
-			    && (i == 0 || classes[i - 1] != X87))
-			    goto inmemory;
-		    }
-		    if (classes.length > 1) {
-			foreach (i, ref cl; classes) {
-			    if (i == 0 && cl != SSE)
-				goto inmemory;
-			    if (i > 0) {
-				if (cl != SSEUP)
-				    goto inmemory;
-				if (classes[i - 1] != SSE
-				    || classes[i - 1] != SSEUP)
-				    cl = SSE;
-			    }
-			}
-		    }
-		    return classes;
-		}
-	    }
-
 	    /*
 	     * Classify the arguments and divide the values into
 	     * eightbyte pieces.
@@ -1632,13 +1547,33 @@ class X86_64State: MachineState
 		    "Function call terminated unexpectedly");
 
 	    /*
-	     * Copy the return value so that we don't trash it
-	     * when we restore the machine state.
+	     * Get the return value first then restore the machine state.
 	     */
+	    Value retval;
+	    try {
+		retval = returnValue(returnType);
+	    } catch (EvalException e) {
+		regs_ = saveState.regs_;
+		fpregs_ = saveState.fpregs_;
+		grdirty_ = true;
+		fpdirty_= true;
+		throw e;
+	    }
+
+	    regs_ = saveState.regs_;
+	    fpregs_ = saveState.fpregs_;
+	    grdirty_ = true;
+	    fpdirty_= true;
+
+	    return retval;
+	}
+
+	Value returnValue(Type returnType)
+	{
 	    auto retcls = classify(returnType);
 	    ubyte[] retval;
-	    intreg = 0;
-	    ssereg = 0;
+	    int intreg = 0;
+	    int ssereg = 0;
 	    foreach (i, cl; retcls) {
 		if (cl == INTEGER) {
 		    if (intreg == 0)
@@ -1668,22 +1603,14 @@ class X86_64State: MachineState
 			retval ~= readRegister(ST0, returnType.byteWidth);
 		}
 		else {
-		    break;
+		    throw new EvalException(
+			"Can't read return value for function call");
 		}
 		if (retval.length > returnType.byteWidth)
 		    retval.length = returnType.byteWidth;
 	    }
 
-	    regs_ = saveState.regs_;
-	    fpregs_ = saveState.fpregs_;
-	    grdirty_ = true;
-	    fpdirty_= true;
-
-	    if (retval)
-		return new Value(new ConstantLocation(retval), returnType);
-
-	    throw new EvalException(
-		"Can't read return value for function call");
+	    return new Value(new ConstantLocation(retval), returnType);
 	}
 
 	ulong findFlowControl(ulong start, ulong end)
@@ -1816,6 +1743,103 @@ private:
 	if (regmap_[gregno] == ~0)
 	    return null;
 	return cast(uint64_t*) (cast(ubyte*) &regs_ + regmap_[gregno]);
+    }
+
+    enum {
+	INTEGER, SSE, SSEUP, X87, X87UP, COMPLEX_X87, NO_CLASS, MEMORY,
+    }
+
+    int[] classify(Type ty)
+    {
+	if (ty.isIntegerType)
+	    return [INTEGER];
+	if (cast(PointerType) ty)
+	    return [INTEGER];
+	if (ty.isNumericType && ty.byteWidth <= 8)
+	    return [SSE];
+	if (ty.isNumericType)
+	    return [X87, X87UP];
+	auto aTy = cast(ArrayType) ty;
+	if (aTy) {
+	    /*
+	     * XXX need a better way of recognising vector
+	     * types.
+	     */
+	    if (!aTy.baseType.isIntegerType
+		&& aTy.baseType.isNumericType
+		&& aTy.baseType.byteWidth == 4
+		&& aTy.byteWidth == 128) {
+		return [SSE, SSEUP];
+	    }
+	    /*
+	     * XXX need to pass a pointer
+	     */
+	}
+	auto cTy = cast(CompoundType) ty;
+	if (cTy) {
+	    int[] classes;
+	    classes.length = (cTy.byteWidth + 7) / 8;
+	    foreach (ref cl; classes)
+		cl = NO_CLASS;
+
+	    if (cTy.byteWidth > 4 * 8) {
+	    inmemory:
+		foreach (ref cl; classes)
+		    cl = MEMORY;
+		return classes;
+	    }
+		    
+	    for (auto i = 0; i < cTy.length; i++) {
+		auto f = cTy[i].value;
+		Location loc = new MemoryLocation(0, 0);
+		loc = f.loc.fieldLocation(loc, this);
+		auto start = loc.address(this) / 8;
+		auto end = (loc.address(this)
+			    + f.type.byteWidth + 7) / 8;
+		auto fieldClass = classify(f.type);
+		for (auto j = start; j < end; j++) {
+		    auto k = j - start;
+		    if (classes[j] == NO_CLASS)
+			classes[j] = fieldClass[k];
+		    else if (classes[j] == MEMORY
+			     || fieldClass[k] == MEMORY)
+			classes[j] = MEMORY;
+		    else if (classes[j] == INTEGER
+			     || fieldClass[k] == INTEGER)
+			classes[j] = INTEGER;
+		    else if (classes[j] == X87
+			     || classes[j] == X87UP
+			     || classes[j] == COMPLEX_X87
+			     || fieldClass[k] == X87
+			     || fieldClass[k] == X87UP
+			     || fieldClass[k] == COMPLEX_X87)
+			classes[j] = MEMORY;
+		    else
+			classes[j] = SSE;
+		}
+	    }
+	    foreach (i, cl; classes) {
+		if (cl == MEMORY)
+		    goto inmemory;
+		if (cl == X87UP
+		    && (i == 0 || classes[i - 1] != X87))
+		    goto inmemory;
+	    }
+	    if (classes.length > 1) {
+		foreach (i, ref cl; classes) {
+		    if (i == 0 && cl != SSE)
+			goto inmemory;
+		    if (i > 0) {
+			if (cl != SSEUP)
+			    goto inmemory;
+			if (classes[i - 1] != SSE
+			    || classes[i - 1] != SSEUP)
+			    cl = SSE;
+		    }
+		}
+	    }
+	    return classes;
+	}
     }
 
     union float32 {

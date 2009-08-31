@@ -294,6 +294,13 @@ class ArmState: MachineState
 	    throw new EvalException("function call not supported");
 	}
 
+	Value returnValue(Type returnType)
+	{
+	    // XXX do this properly
+	    return new Value(new ConstantLocation(readRegister(0, 4)),
+			     returnType);
+	}
+
 	ulong findFlowControl(ulong start, ulong end)
 	{
 	    ulong addr = start;

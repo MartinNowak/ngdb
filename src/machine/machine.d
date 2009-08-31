@@ -198,6 +198,12 @@ interface MachineState: Scope
     Value call(ulong address, Type returnType, Value[] args);
 
     /**
+     * Return a value which represents a function return value of the
+     * given type.
+     */
+    Value returnValue(Type returnType);
+
+    /**
      * Scan the interval [start..end) and return the address of
      * any flow control instructions in the range. If there are none,
      * return end.

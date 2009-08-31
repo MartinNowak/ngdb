@@ -1928,12 +1928,8 @@ class FinishCommand: Command
 	    if (!db.currentThread)
 		return;
 	    if (rTy) {
-		/*
-		 * XXX factor out calling convention details
-		 */
 		MachineState s = db.currentThread.state;
-		Location loc = new RegisterLocation(0, s.grWidth(0));
-		Value val = new Value(loc, rTy);
+		Value val = s.returnValue(rTy);
 		db.pagefln("Value returned is %s", val.toString(null, s));
 	    }
 	    db.stopped();
