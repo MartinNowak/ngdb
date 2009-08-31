@@ -133,9 +133,9 @@ class X86State: MachineState
 
 	xmmType_ = new CompoundType(lang, "union", "xmmreg_t", 16);
 	addXmmS("ss", lang.floatType("float", 4));
-	addXmmS("sd", lang.floatType("float", 8));
+	addXmmS("sd", lang.floatType("double", 8));
 	addXmmP("ps", lang.floatType("float", 4));
-	addXmmP("pd", lang.floatType("float", 8));
+	addXmmP("pd", lang.floatType("double", 8));
 	addXmmP("pb", lang.integerType("uint8_t", false, 1));
 	addXmmP("pw", lang.integerType("uint16_t", false, 2));
 	addXmmP("pi", lang.integerType("uint32_t", false, 4));
@@ -993,9 +993,9 @@ class X86_64State: MachineState
 
 	xmmType_ = new CompoundType(lang, "union", "xmmreg_t", 16);
 	addXmmS("ss", lang.floatType("float", 4));
-	addXmmS("sd", lang.floatType("float", 8));
+	addXmmS("sd", lang.floatType("double", 8));
 	addXmmP("ps", lang.floatType("float", 4));
-	addXmmP("pd", lang.floatType("float", 8));
+	addXmmP("pd", lang.floatType("double", 8));
 	addXmmP("pb", lang.integerType("uint8_t", false, 1));
 	addXmmP("pw", lang.integerType("uint16_t", false, 2));
 	addXmmP("pi", lang.integerType("uint32_t", false, 4));
