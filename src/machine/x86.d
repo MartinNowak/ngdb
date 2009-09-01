@@ -1909,6 +1909,27 @@ private:
 	    reg64.r_rip.offsetof,	// X86_64Reg.RIP
 	    ];
     }
+    version (linux) {
+	static uint[] regmap_ = [
+	    reg64.r_rax.offsetof,	// X86_64Reg.RAX
+	    reg64.r_rdx.offsetof,	// X86_64Reg.RDX
+	    reg64.r_rcx.offsetof,	// X86_64Reg.RCX
+	    reg64.r_rbx.offsetof,	// X86_64Reg.RBX
+	    reg64.r_rsi.offsetof,	// X86_64Reg.RSI
+	    reg64.r_rdi.offsetof,	// X86_64Reg.RDI
+	    reg64.r_rbp.offsetof,	// X86_64Reg.RBP
+	    reg64.r_rsp.offsetof,	// X86_64Reg.RSP
+	    reg64.r_r8.offsetof,	// X86_64Reg.R8
+	    reg64.r_r9.offsetof,	// X86_64Reg.R9
+	    reg64.r_r10.offsetof,	// X86_64Reg.R10
+	    reg64.r_r11.offsetof,	// X86_64Reg.R11
+	    reg64.r_r12.offsetof,	// X86_64Reg.R12
+	    reg64.r_r13.offsetof,	// X86_64Reg.R13
+	    reg64.r_r14.offsetof,	// X86_64Reg.R14
+	    reg64.r_r15.offsetof,	// X86_64Reg.R15
+	    reg64.r_rip.offsetof,	// X86_64Reg.RIP
+	    ];
+    }
 
     Target	target_;
     bool	grdirty_;
@@ -2117,6 +2138,34 @@ version (linux) {
 	uint r_esp;
 	uint r_ss;
     }
+    struct reg64 {
+	ulong	r_r15;
+	ulong	r_r14;
+	ulong	r_r13;
+	ulong	r_r12;
+	ulong	r_r11;
+	ulong	r_r10;
+	ulong	r_r9;
+	ulong	r_r8;
+	ulong	r_rdi;
+	ulong	r_rsi;
+	ulong	r_rbp;
+	ulong	r_rbx;
+	ulong	r_rdx;
+	ulong	r_rcx;
+	ulong	r_rax;
+	uint	r_trapno;
+	ushort	r_fs;
+	ushort	r_gs;
+	uint	r_err;
+	ushort	r_es;
+	ushort	r_ds;
+	ulong	r_rip;
+	ulong	r_cs;
+	ulong	r_rflags;
+	ulong	r_rsp;
+	ulong	r_ss;
+    };
     struct xmmreg32 {
 	/*
 	 * XXX should get struct from npx.h.  Here we give a slightly
@@ -2127,6 +2176,17 @@ version (linux) {
 	ubyte	xmm_acc[8][16];
 	ubyte	xmm_reg[8][16];
 	ubyte	xmm_pad[224];
+    };
+    struct xmmreg64 {
+	/*
+	 * XXX should get struct from npx.h.  Here we give a slightly
+	 * simplified struct.  This may be too much detail.  Perhaps
+	 * an array of ulongs is best.
+	 */
+	uint	xmm_env[8];
+	ubyte	xmm_acc[8][16];
+	ubyte	xmm_reg[16][16];
+	ulong	xmm_pad[12];
     };
     enum {
 	PTRACE_GETREGS =            12,

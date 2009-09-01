@@ -1037,9 +1037,18 @@ private:
 	    ssize_t nread;
 	    lseek(fd, 0, SEEK_SET);
 	    nread = read(fd, result.ptr, result.length);
-	    if ((nread < 0 && errno == EFBIG) || nread == result.length) {
-		result.length = 2 * result.length;
-		continue;
+	    version (FreeBSD) {
+		if ((nread < 0 && errno == EFBIG)
+		    || nread == result.length) {
+		    result.length = 2 * result.length;
+		    continue;
+		}
+	    }
+	    version (linux) {
+		if (nread == result.length) {
+		    result.length = 2 * result.length;
+		    continue;
+		}
 	    }
 	    result.length = nread;
 	    break;
