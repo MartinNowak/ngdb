@@ -2717,7 +2717,9 @@ class ExamineCommand: Command
 	    uint count = count_;
 	    if (fmt_ == "i") {
 		while (count > 0) {
-		    db.pagefln("%-31s %s", db.lookupAddress(addr), s.disassemble(addr, &db.lookupAddress));
+		    string addrString = db.lookupAddress(addr);
+		    db.pagefln("%-31s %s", addrString,
+			       s.disassemble(addr, &db.lookupAddress));
 		    count--;
 		}
 	    } else {
