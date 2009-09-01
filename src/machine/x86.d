@@ -584,7 +584,11 @@ class X86State: MachineState
 	     * at it.
 	     */
 	    auto cTy = cast(CompoundType) returnType;
-	    if (cTy && cTy.byteWidth > 8) {
+	    version (FreeBSD)
+		auto regStructSize = 8;
+	    version (linux)
+		auto regStructSize = 0;
+	    if (cTy && cTy.byteWidth > regStructSize) {
 		regs_.r_esp -= cTy.byteWidth;
 		ubyte[4] v;
 		writeInteger(regs_.r_esp, v);
@@ -687,7 +691,11 @@ class X86State: MachineState
 	{
 	    ubyte[] retval;
 	    auto cTy = cast(CompoundType) returnType;
-	    if (cTy && cTy.byteWidth > 8) {
+	    version (FreeBSD)
+		auto regStructSize = 8;
+	    version (linux)
+		auto regStructSize = 0;
+	    if (cTy && cTy.byteWidth > regStructSize) {
 		retval = readMemory(regs_.r_eax, cTy.byteWidth);
 	    } else if (returnType.isNumericType && !returnType.isIntegerType) {
 		retval = readRegister(ST0, returnType.byteWidth);
