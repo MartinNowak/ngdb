@@ -702,10 +702,15 @@ class PtraceTarget: Target, TargetBreakpointListener
 		 * Re-read dynamic entries - the runtime linker may have
 		 * changed the value of DT_DEBUG.
 		 */
-		foreach (mod; modules_)
+		PtraceModule execMod;
+		foreach (mod; modules_) {
 		    mod.digestDynamic(this);
-		sharedLibraryBreakpoint_ =
-		    modules_[0].findSharedLibraryBreakpoint(this);
+		    if (mod.obj_ && mod.obj_.isExecutable)
+			execMod = mod;
+		}
+		if (execMod)
+		    sharedLibraryBreakpoint_ =
+			execMod.findSharedLibraryBreakpoint(this);
 		if (sharedLibraryBreakpoint_) {
 		    debug (breakpoints)
 			writefln("Shared library breakpoint @ %#x",
@@ -911,7 +916,6 @@ private:
 	    return;
 	lastMaps_ = maps;
 
-
 	PtraceModule[] modules;
 	PtraceModule lastMod;
 
@@ -1009,52 +1013,70 @@ private:
 	modules_ = newModules;
     }
 
-    string readMaps()
-    {
-	version (FreeBSD)
+    version (FreeBSD) {
+	string readMaps()
+	{
 	    string mapfile = "/proc/" ~ std.string.toString(pid_) ~ "/map";
-	version (linux)
-	    string mapfile = "/proc/" ~ std.string.toString(pid_) ~ "/maps";
-	string result;
+	    string result;
 
-	auto fd = open(toStringz(mapfile), O_RDONLY);
-	if (fd < 0) {
-	    writefln("can't read %s", mapfile);
-	    version (FreeBSD) {
+	    auto fd = open(toStringz(mapfile), O_RDONLY);
+	    if (fd < 0) {
+		writefln("can't read %s", mapfile);
 		writefln("Add this line to /etc/fstab:");
 		writefln("proc /proc procfs rw 0 0");
+		exit(1);
 	    }
-	    exit(1);
-	}
 
-	result.length = 512;
-	for (;;) {
-	    /*
-	     * The kernel requires that we read the whole thing in one
-	     * call. We keep resizing the buffer until we read less
-	     * than the buffer size.
-	     */
-	    ssize_t nread;
-	    lseek(fd, 0, SEEK_SET);
-	    nread = read(fd, result.ptr, result.length);
-	    version (FreeBSD) {
+	    result.length = 512;
+	    for (;;) {
+		/*
+		 * The kernel requires that we read the whole thing in one
+		 * call. We keep resizing the buffer until we read less
+		 * than the buffer size.
+		 */
+		ssize_t nread;
+		lseek(fd, 0, SEEK_SET);
+		nread = read(fd, result.ptr, result.length);
 		if ((nread < 0 && errno == EFBIG)
 		    || nread == result.length) {
 		    result.length = 2 * result.length;
 		    continue;
 		}
+		result.length = nread;
+		break;
 	    }
-	    version (linux) {
-		if (nread == result.length) {
-		    result.length = 2 * result.length;
-		    continue;
-		}
-	    }
-	    result.length = nread;
-	    break;
-	}
 
-	return result;
+	    return result;
+	}
+    }
+    version (linux) {
+	string readMaps()
+	{
+	    string mapfile = "/proc/" ~ std.string.toString(pid_) ~ "/maps";
+	    string result;
+
+	    auto fd = open(toStringz(mapfile), O_RDONLY);
+	    if (fd < 0) {
+		writefln("can't read %s", mapfile);
+		exit(1);
+	    }
+
+	    for (;;) {
+		/*
+		 * The kernel requires that we read the whole thing in one
+		 * call. We keep resizing the buffer until we read less
+		 * than the buffer size.
+		 */
+		char buf[512];
+		ssize_t nread;
+		nread = read(fd, buf.ptr, buf.length);
+		if (nread <= 0)
+		    break;
+		result ~= buf[0..nread];
+	    }
+
+	    return result;
+	}
     }
 
     version (linux) {
@@ -1091,6 +1113,8 @@ private:
     {
 	bool ret = true;
 
+	version (linux)
+	    getModules;
 	bool checkBreakpoints = breakpointsActive_;
 	version (FreeBSD) {
 	    getThreads();
