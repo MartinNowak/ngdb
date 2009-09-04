@@ -1051,6 +1051,7 @@ template ElfFileBase()
 	    endian_ = new LittleEndian;
 	else
 	    endian_ = new BigEndian;
+	type_ = read(eh.e_type);
 	machine_ = read(eh.e_machine);
 
 	debug (elf)
@@ -1130,6 +1131,11 @@ template ElfFileBase()
 	    .close(fd_);
 	    fd_ = -1;
 	}
+    }
+
+    bool isExecutable()
+    {
+	return type_ == ET_EXEC;
     }
 
     MachineState getState(Target target)
@@ -1495,6 +1501,7 @@ private:
     }
 
     int		fd_ = -1;
+    int		type_;
     uint	machine_;
     ulong	entry_;
     ulong	offset_;

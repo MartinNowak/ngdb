@@ -42,6 +42,8 @@ struct Symbol
 
 class Objfile: Endian
 {
+    abstract bool isExecutable();
+
     abstract bool is64();
 
     abstract MachineState getState(Target);
