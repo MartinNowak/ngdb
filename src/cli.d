@@ -2224,9 +2224,16 @@ class InfoModulesCommand: Command
 
 	void run(Debugger db, string[] args)
 	{
+	    ulong pc = 0;
+	    if (db.currentThread)
+		pc = db.currentThread.state.pc;
 	    foreach (i, mod; db.modules_) {
-		db.pagefln("%d: %#x .. %#x\t%s",
-			   i + 1, mod.start, mod.end, mod.filename);
+		string addrs = format("%#x .. %#x", mod.start, mod.end);
+		bool active = false;
+		if (pc >= mod.start && pc < mod.end)
+		    active = true;
+		db.pagefln("%s%2d: %-32s %s",
+			   active ? "*" : " ", i + 1, addrs, mod.filename);
 	    }
 	}
     }
