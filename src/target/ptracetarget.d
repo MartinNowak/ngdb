@@ -46,8 +46,10 @@ version (DigitalMars) {
 } else
     import std.c.unix.unix;
 
-version (FreeBSD)
+version (FreeBSD) {
 	version = use_PT_IO;
+	const int EFBIG = 27;
+}
 
 static import std.file;
 

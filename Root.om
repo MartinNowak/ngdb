@@ -3,10 +3,10 @@
 .PHONY:	clean
 
 CC=cc
-CFLAGS=-g -O -msse3 -mfpmath=sse
+CFLAGS=-g -msse3 -mfpmath=sse
 
 CXX=c++
-CXXFLAGS=-g -O -msse3 -mfpmath=sse
+CXXFLAGS=-g -msse3 -mfpmath=sse
 
 SelectOption(question, options, default) =
         if $(defined take_defaults)
@@ -40,7 +40,7 @@ case dmd
 
 case gdc
    DMD=gdmd
-   DFLAGS= -g -version=GDC
+   DFLAGS= -g -version=GDC -version=FreeBSD
    SPECS = $(file specs)
    LDFLAGS= -L-specs=$(SPECS)
    LDFLAGS= -g 
