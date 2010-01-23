@@ -193,7 +193,7 @@ class CommandTable
 		string s = c.name;
 		if (s.length >= name.length)
 		    if (s[0..name.length] == name)
-			matches ~= s;
+			matches ~= s[name.length..$];
 	    }
 	    return matches;
 	}
@@ -1562,7 +1562,7 @@ version (editline) {
 	string[] matches = commands_.complete(this, args);
 
 	if (matches.length == 1) {
-	    string s = matches[0][args.length..$] ~ " ";
+	    string s = matches[0] ~ " ";
 	    if (el_insertstr(el, toStringz(s)) == -1)
 		return CC_ERROR;
 	    return CC_REFRESH;
@@ -1582,20 +1582,13 @@ version (editline) {
 			break gotPrefix;
 		}
 	    }
-	    if (i > args.length) {
-		string s = m0[args.length..i];
+	    if (i > 0) {
+		string s = m0[0..i];
 		if (el_insertstr(el, toStringz(s)) == -1)
 		    return CC_ERROR;
 		return CC_REFRESH;
 	    }
-	    writefln("");
-	    foreach (j, m; matches) {
-		if (j > 0)
-		    writef("\t");
-		writef("%s", m);
-	    }
-	    writefln("");
-	    return CC_REDISPLAY;
+	    return CC_ERROR;
 	}
 
 	return CC_ERROR;
@@ -2036,7 +2029,7 @@ class BreakCommand: Command
 	    string[] matches;
 	    foreach (sym; syms)
 		if (sym.length >= args.length && sym[0..args.length] == args)
-		    matches ~= sym;
+		    matches ~= sym[args.length..$];
 	    return matches;
 	}
     }
