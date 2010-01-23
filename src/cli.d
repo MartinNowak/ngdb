@@ -84,7 +84,7 @@ class Command
     /**
      * Execute the command
      */
-    abstract void run(Debugger db, string[] args);
+    abstract void run(Debugger db, string args);
 
     /**
      * Called when an action which sets the current source file and
@@ -97,7 +97,7 @@ class Command
     /**
      * Called for command line completion.
      */
-    string[] complete(Debugger db, string[] args)
+    string[] complete(Debugger db, string args)
     {
 	return null;
     }
@@ -105,21 +105,35 @@ class Command
 
 class CommandTable
 {
-    void run(Debugger db, string[] args, string prefix)
+    /**
+     * Return command name, set args to command arguments.
+     */
+    string parse(string cmd, out string args)
     {
-	string message;
-	string name = args[0];
-	string format = null;
+	string name;
 	int i;
 
-	if ((i = find(name, '/')) >= 0) {
-	    format = name[i..$];
-	    name = name[0..i];
-	    args = format ~ args[1..$];
+	i = find(cmd, '/');
+	if (i < 0)
+	    i = find(cmd, ' ');
+
+	if (i >= 0) {
+	    name = strip(cmd[0..i]);
+	    args = strip(cmd[i..$]);
 	} else {
-	    args = args[1..$];
+	    name = cmd;
+	    args = "";
 	}
 
+	return name;
+    }
+
+    void run(Debugger db, string cmd, string prefix)
+    {
+	string message;
+	string name, args;
+
+	name = parse(cmd, args);
 	Command c = lookup(name, message);
 	if (c)
 	    c.run(db, args);
@@ -168,12 +182,13 @@ class CommandTable
 	}
     }
 
-    string[] complete(Debugger db, string[] args)
+    string[] complete(Debugger db, string cmd)
     {
+	string name, args;
 
-	if (args.length == 1) {
+	name = parse(cmd, args);
+	if (args.length == 0) {
 	    string[] matches;
-	    string name = args[0];
 	    foreach (c; list_) {
 		string s = c.name;
 		if (s.length >= name.length)
@@ -183,11 +198,10 @@ class CommandTable
 	    return matches;
 	}
 
-	string name = args[0];
 	string message;
 	Command c = lookup(name, message);
 	if (c)
-	    return c.complete(db, args[1..$]);
+	    return c.complete(db, args);
 	else
 	    return null;
     }
@@ -632,7 +646,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
     void run()
     {
 	string buf;
-	string[] args;
+	string args;
 
 	sigaction_t sa;
 	sa.sa_handler = &ignoreSig;
@@ -673,17 +687,17 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 		HistEvent ev;
 		if (buf.length > 1) {
 		    history(hist_, &ev, H_ENTER, toStringz(buf));
-		    args = split(strip(buf).dup, " ");
+		    args = strip(buf).dup;
 		}
 	    } else {
-		args = split(strip(buf).dup, " ");
+		args = strip(buf).dup;
 	    }
 
 	    if (args.length == 0)
 		continue;
 
 	    pageline_ = 0;
-	    if (args[0] == "history") {
+	    if (args == "history") {
 		version (editline) {
 		for (int rv = history(hist_, &ev, H_LAST);
 		     rv != -1;
@@ -743,10 +757,19 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	return sf;
     }
 
-    bool parseFormat(string fmt, out uint count, out uint width, out string f)
+    bool parseFormat(ref string args,
+		     out uint count, out uint width, out string f)
     {
-	assert(fmt[0] == '/');
-	fmt = fmt[1..$];
+	assert(args[0] == '/');
+	int i = find(args, ' ');
+	string fmt;
+	if (i >= 0) {
+	    fmt = args[1..i];
+	    args = strip(args[i..$]);
+	} else {
+	    fmt = args[1..$];
+	    args = "";
+	}
 	if (fmt.length == 0)
 	    return false;
 	if (isdigit(fmt[0])) {
@@ -1494,15 +1517,11 @@ version (editline) {
 	LineInfo* li = el_line(el);
 
 	size_t n = li.cursor - li.buffer;
-	string[] args = split(chomp(li.buffer[0..n].dup), " ");
+	string args = chomp(li.buffer[0..n].dup);
 	string[] matches = commands_.complete(this, args);
 
-	string lastArg = "";
-	if (args.length)
-	    lastArg = args[$ - 1];
-
 	if (matches.length == 1) {
-	    string s = matches[0][lastArg.length..$] ~ " ";
+	    string s = matches[0][args.length..$] ~ " ";
 	    if (el_insertstr(el, toStringz(s)) == -1)
 		return CC_ERROR;
 	    return CC_REFRESH;
@@ -1522,8 +1541,8 @@ version (editline) {
 			break gotPrefix;
 		}
 	    }
-	    if (i > lastArg.length) {
-		string s = m0[lastArg.length..i];
+	    if (i > args.length) {
+		string s = m0[args.length..i];
 		if (el_insertstr(el, toStringz(s)) == -1)
 		    return CC_ERROR;
 		return CC_REFRESH;
@@ -1589,7 +1608,7 @@ class QuitCommand: Command
 	    return "Exit the debugger";
 	}
 
-	void run(Debugger db, string[] args)
+	void run(Debugger db, string args)
 	{
 	    db.quit_ = true;
 	}
@@ -1614,7 +1633,7 @@ class HelpCommand: Command
 	    return "Print this message";
 	}
 
-	void run(Debugger db, string[] args)
+	void run(Debugger db, string args)
 	{
 	    foreach (c; db.commands_.list_)
 		db.pagefln("%s: %s", c.name, c.description);
@@ -1640,7 +1659,7 @@ class InfoCommand: Command
 	    return "Print information";
 	}
 
-	void run(Debugger db, string[] args)
+	void run(Debugger db, string args)
 	{
 	    if (args.length == 0) {
 		db.pagefln("usage: info subcommand [args ...]");
@@ -1648,7 +1667,7 @@ class InfoCommand: Command
 	    }
 	    db.infoCommands_.run(db, args, "info ");
 	}
-	string[] complete(Debugger db, string[] args)
+	string[] complete(Debugger db, string args)
 	{
 	    if (args.length == 0)
 		return null;
@@ -1675,7 +1694,7 @@ class RunCommand: Command
 	    return "run the program being debugged";
 	}
 
-	void run(Debugger db, string[] args)
+	void run(Debugger db, string args)
 	{
 	    if (db.target_ && db.target_.state != TargetState.EXIT) {
 		db.pagefln("Program is already being debugged");
@@ -1689,7 +1708,7 @@ class RunCommand: Command
 
 	    PtraceRun pt = new PtraceRun;
 	    if (args.length > 0 || runArgs_.length == 0) {
-		runArgs_ = db.prog_ ~ args;
+		runArgs_ = db.prog_ ~ split(args, " ");
 	    }
 	    pt.connect(db, runArgs_);
 	    if (db.target_)
@@ -1717,7 +1736,7 @@ class KillCommand: Command
 	    return "kill the program being debugged";
 	}
 
-	void run(Debugger db, string[] args)
+	void run(Debugger db, string args)
 	{
 	    if (db.target_ && db.target_.state == TargetState.EXIT) {
 		db.pagefln("Program is not running");
@@ -1754,7 +1773,7 @@ class NextCommand: Command
 	    return "step the program being debugged, stepping over function calls";
 	}
 
-	void run(Debugger db, string[] args)
+	void run(Debugger db, string args)
 	{
 	    db.stepProgram(true);
 	}
@@ -1784,7 +1803,7 @@ class StepCommand: Command
 	    return "step the program being debugged, stepping into function calls";
 	}
 
-	void run(Debugger db, string[] args)
+	void run(Debugger db, string args)
 	{
 	    db.stepProgram(false);
 	}
@@ -1814,7 +1833,7 @@ class StepICommand: Command
 	    return "Step the program one instruction, stepping into function calls";
 	}
 
-	void run(Debugger db, string[] args)
+	void run(Debugger db, string args)
 	{
 	    db.stepInstruction(false);
 	}
@@ -1844,7 +1863,7 @@ class NextICommand: Command
 	    return "Step the program one instruction, stepping over function calls";
 	}
 
-	void run(Debugger db, string[] args)
+	void run(Debugger db, string args)
 	{
 	    db.stepInstruction(true);
 	}
@@ -1874,7 +1893,7 @@ class ContinueCommand: Command
 	    return "continue the program being debugged";
 	}
 
-	void run(Debugger db, string[] args)
+	void run(Debugger db, string args)
 	{
 	    if (db.target_.state == TargetState.EXIT) {
 		db.pagefln("Program is not being debugged");
@@ -1906,7 +1925,7 @@ class FinishCommand: Command
 	    return "Continue to calling stack frame";
 	}
 
-	void run(Debugger db, string[] args)
+	void run(Debugger db, string args)
 	{
 	    auto f = db.topFrame;
 	    if (!f) {
@@ -1955,26 +1974,25 @@ class BreakCommand: Command
 	    return "Set a breakpoint";
 	}
 
-	void run(Debugger db, string[] args)
+	void run(Debugger db, string args)
 	{
-	    if (args.length > 1) {
+	    if (find(args, ' ') >= 0) {
 		db.pagefln("usage: break [<function or line>]");
 		return;
 	    }
-	    db.setBreakpoint(args.length == 1 ? args[0] : null);
+	    db.setBreakpoint(args.length > 0 ? args : null);
 	}
 
-	string[] complete(Debugger db, string[] args)
+	string[] complete(Debugger db, string args)
 	{
-	    if (args.length != 1)
+	    if (args.length == 0)
 		return null;
 
 	    auto state = db.currentThread ? db.currentThread.state : null;
 	    string[] syms = db.contents(state);
 	    string[] matches;
-	    string s = args[0];
 	    foreach (sym; syms)
-		if (sym.length >= s.length && sym[0..s.length] == s)
+		if (sym.length >= args.length && sym[0..args.length] == args)
 		    matches ~= sym;
 	    return matches;
 	}
@@ -1999,17 +2017,17 @@ class ConditionCommand: Command
 	    return "Set breakpoint condition";
 	}
 
-	void run(Debugger db, string[] args)
+	void run(Debugger db, string args)
 	{
-	    if (args.length < 1) {
+	    int i = find(args, ' ');
+	    if (i < 0) {
 		db.pagefln("usage: condition <id> [expression]");
 		return;
 	    }
 	    try {
-		string expr;
-		if (args.length > 1)
-		    expr = join(args[1..$], " ");
-		db.setBreakpointCondition(toUint(args[0]), expr);
+		string num = args[0..i];
+		string expr = strip(args[i..$]);
+		db.setBreakpointCondition(toUint(num), expr);
 	    } catch (ConvError ce) {
 		db.pagefln("Can't parse breakpoint ID");
 	    }
@@ -2036,9 +2054,9 @@ class EnableCommand: Command
 	    return "Enable a breakpoint";
 	}
 
-	void run(Debugger db, string[] args)
+	void run(Debugger db, string args)
 	{
-	    if (args.length > 1) {
+	    if (find(args, ' ') >= 0) {
 		db.pagefln("usage: enable [<id>]");
 		return;
 	    }
@@ -2047,7 +2065,7 @@ class EnableCommand: Command
 		    bp.enable;
 	    } else {
 		try {
-		    db.enableBreakpoint(toUint(args[0]));
+		    db.enableBreakpoint(toUint(args));
 		} catch (ConvError ce) {
 		    db.pagefln("Can't parse breakpoint ID");
 		}
@@ -2074,18 +2092,18 @@ class DisableCommand: Command
 	    return "Disable a breakpoint";
 	}
 
-	void run(Debugger db, string[] args)
+	void run(Debugger db, string args)
 	{
-	    if (args.length > 1) {
+	    if (find(args, ' ') >= 0) {
 		db.pagefln("usage: disable [<id>]");
 		return;
 	    }
 	    if (args.length == 0) {
 		foreach (bp; db.breakpoints_)
-		    bp.disable;
+		    bp.enable;
 	    } else {
 		try {
-		    db.disableBreakpoint(toUint(args[0]));
+		    db.disableBreakpoint(toUint(args));
 		} catch (ConvError ce) {
 		    db.pagefln("Can't parse breakpoint ID");
 		}
@@ -2117,14 +2135,14 @@ class DeleteCommand: Command
 	    return "Delete a breakpoint";
 	}
 
-	void run(Debugger db, string[] args)
+	void run(Debugger db, string args)
 	{
-	    if (args.length != 1) {
-		db.pagefln("usage: delete <id>");
+	    if (args.length == 0 || find(args, ' ') >= 0) {
+		db.pagefln("usage: delete [<id>]");
 		return;
 	    }
 	    try {
-		db.deleteBreakpoint(toUint(args[0]));
+		db.deleteBreakpoint(toUint(args));
 	    } catch (ConvError ce) {
 		db.pagefln("Can't parse breakpoint ID");
 	    }
@@ -2150,7 +2168,7 @@ class InfoBreakCommand: Command
 	    return "List breakpoints";
 	}
 
-	void run(Debugger db, string[] args)
+	void run(Debugger db, string args)
 	{
 	    if (db.breakpoints_.length == 0) {
 		db.pagefln("No breakpoints");
@@ -2181,15 +2199,15 @@ class ThreadCommand: Command
 	    return "Select a thread";
 	}
 
-	void run(Debugger db, string[] args)
+	void run(Debugger db, string args)
 	{
-	    if (args.length != 1) {
+	    if (args.length == 0) {
 		db.pagefln("usage: thread <number>");
 		return;
 	    }
 	    uint n = ~0;
 	    try {
-		n = toUint(args[0]);
+		n = toUint(args);
 	    } catch (ConvError ce) {
 	    }
 	    foreach (t; db.threads_) {
@@ -2222,7 +2240,7 @@ class InfoModulesCommand: Command
 	    return "List moduless";
 	}
 
-	void run(Debugger db, string[] args)
+	void run(Debugger db, string args)
 	{
 	    ulong pc = 0;
 	    if (db.currentThread)
@@ -2257,7 +2275,7 @@ class InfoThreadCommand: Command
 	    return "List threads";
 	}
 
-	void run(Debugger db, string[] args)
+	void run(Debugger db, string args)
 	{
 	    foreach (i, t; db.threads_) {
 		db.pagefln("%s %-2d: %s",
@@ -2287,7 +2305,7 @@ class InfoRegistersCommand: Command
 	    return "List registerss";
 	}
 
-	void run(Debugger db, string[] args)
+	void run(Debugger db, string args)
 	{
 	    auto f = db.currentFrame;
 	    if (!f) {
@@ -2323,7 +2341,7 @@ class InfoFloatCommand: Command
 	    return "Display floating point state";
 	}
 
-	void run(Debugger db, string[] args)
+	void run(Debugger db, string args)
 	{
 	    auto f = db.currentFrame;
 	    if (!f) {
@@ -2353,7 +2371,7 @@ class InfoVariablesCommand: Command
 	    return "List variables";
 	}
 
-	void run(Debugger db, string[] args)
+	void run(Debugger db, string args)
 	{
 	    string fmt = null;
 
@@ -2362,9 +2380,9 @@ class InfoVariablesCommand: Command
 		return;
 	    }
 
-	    if (args.length > 0 && args[0][0] == '/') {
+	    if (args.length > 0 && args[0] == '/') {
 		uint count, width;
-		if (!db.parseFormat(args[0], count, width, fmt))
+		if (!db.parseFormat(args, count, width, fmt))
 		    return;
 		if (fmt == "i") {
 		    db.pagefln("Instruction format not supported");
@@ -2377,7 +2395,6 @@ class InfoVariablesCommand: Command
 		if (width != 4) {
 		    db.pagefln("Format width characters not supported");
 		}
-		args = args[1..$];
 	    }
 
 	    auto f = db.currentFrame;
@@ -2423,16 +2440,16 @@ class FrameCommand: Command
 	    return "Manipulate stack frame";
 	}
 
-	void run(Debugger db, string[] args)
+	void run(Debugger db, string args)
 	{
-	    if (args.length > 1) {
+	    if (find(args, ' ') >= 0) {
 		db.pagefln("usage: frame [frame index]");
 		return;
 	    }
-	    if (args.length == 1) {
+	    if (args.length > 0) {
 		uint frameIndex;
 		try {
-		    frameIndex = toUint(args[0]);
+		    frameIndex = toUint(args);
 		} catch (ConvError ce) {
 		    frameIndex = ~0;
 		}
@@ -2472,7 +2489,7 @@ class UpCommand: Command
 	    return "Select next outer stack frame";
 	}
 
-	void run(Debugger db, string[] args)
+	void run(Debugger db, string args)
 	{
 	    if (args.length != 0) {
 		db.pagefln("usage: up");
@@ -2509,7 +2526,7 @@ class DownCommand: Command
 	    return "Select next inner stack frame";
 	}
 
-	void run(Debugger db, string[] args)
+	void run(Debugger db, string args)
 	{
 	    if (args.length != 0) {
 		db.pagefln("usage: down");
@@ -2546,7 +2563,7 @@ class WhereCommand: Command
 	    return "Stack backtrace";
 	}
 
-	void run(Debugger db, string[] args)
+	void run(Debugger db, string args)
 	{
 	    for (Frame f = db.topFrame; f; f = f.outer)
 		db.pagefln("%d: %s", f.index_,
@@ -2573,7 +2590,7 @@ class PrintCommand: Command
 	    return "evaluate and print expressio";
 	}
 
-	void run(Debugger db, string[] args)
+	void run(Debugger db, string args)
 	{
 	    MachineState s;
 	    DebugInfo di;
@@ -2586,10 +2603,9 @@ class PrintCommand: Command
 		s = db.currentThread.state;
 
 	    if (args.length > 0
-		&& args[0].length > 0
-		&& args[0][0] == '/') {
+		&& args[0] == '/') {
 		uint count, width;
-		if (!db.parseFormat(args[0], count, width, fmt))
+		if (!db.parseFormat(args, count, width, fmt))
 		    return;
 		if (fmt == "i") {
 		    db.pagefln("Instruction format not supported");
@@ -2602,7 +2618,6 @@ class PrintCommand: Command
 		if (width != 4) {
 		    db.pagefln("Format width characters not supported");
 		}
-		args = args[1..$];
 	    }
 
 	    string expr;
@@ -2613,7 +2628,7 @@ class PrintCommand: Command
 		}
 		expr = lastExpr_;
 	    } else {
-		expr = join(args, " ");
+		expr = args;
 		lastExpr_ = expr;
 	    }
 
@@ -2664,7 +2679,7 @@ class ExamineCommand: Command
 	    return "Examine memory";
 	}
 
-	void run(Debugger db, string[] args)
+	void run(Debugger db, string args)
 	{
 	    MachineState s;
 	    DebugInfo di;
@@ -2679,10 +2694,9 @@ class ExamineCommand: Command
 	    else if (db.currentThread)
 		s = db.currentThread.state;
 
-	    if (args.length > 0 && args[0][0] == '/') {
-		if (!db.parseFormat(args[0], count_, width_, fmt_))
+	    if (args.length > 0 && args[0] == '/') {
+		if (!db.parseFormat(args, count_, width_, fmt_))
 		    return;
-		args = args[1..$];
 	    }
 
 	    ulong addr;
@@ -2693,7 +2707,7 @@ class ExamineCommand: Command
 		}
 		addr = lastAddr_;
 	    } else {
-		string expr = join(args, " ");
+		string expr = args;
 		Scope sc;
 		Language lang;
 		if (f) {
@@ -2778,7 +2792,7 @@ class ListCommand: Command
 	    return "list source file contents";
 	}
 
-	void run(Debugger db, string[] args)
+	void run(Debugger db, string args)
 	{
 	    uint line = 0;
 	    SourceFile sf = null;
@@ -2789,17 +2803,17 @@ class ListCommand: Command
 	    if (args.length == 0) {
 		sf = sourceFile_;
 		line = sourceLine_;
-	    } else if (args[0] == "-") {
+	    } else if (args == "-") {
 		sf = sourceFile_;
 		line = sourceLine_;
 		if (line > 20)
 		    line -= 20;
 		else
 		    line = 1;
-	    } else if (args.length == 1) {
-		if (!db.parseSourceLine(args[0], sf, line)) {
+	    } else  {
+		if (!db.parseSourceLine(args, sf, line)) {
 		    line = 0;
-		    sf = db.findFile(args[0]);
+		    sf = db.findFile(args);
 		}
 	    }
 	    if (sf) {
