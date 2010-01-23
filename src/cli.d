@@ -250,6 +250,10 @@ private class Breakpoint: TargetBreakpointListener
 	    }
 	}
 	writefln("Stopped at breakpoint %d", id);
+	if (command_) {
+	    db_.stopped();
+	    db_.executeCommand(command);
+	}
 	return true;
     }
 
@@ -285,6 +289,16 @@ private class Breakpoint: TargetBreakpointListener
 	} catch (EvalException ex) {
 	    db_.pagefln("Error parsing breakpoint condition: %s", ex.msg);
 	}
+    }
+
+    string command()
+    {
+	return command_;
+    }
+
+    void command(string s)
+    {
+	command_ = s;
     }
 
     void activate(TargetModule mod)
@@ -425,12 +439,15 @@ private class Breakpoint: TargetBreakpointListener
 	}
 	if (condition_)
 	    writefln("\tstop only if %s", condition_);
+	if (command_)
+	    writefln("\t%s", command_);
     }
 
     SourceFile sf_;
     uint line_;
     string func_;
     string condition_;
+    string command_;
     Expr expr_;
     bool enabled_ = true;
     Debugger db_;
@@ -646,7 +663,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
     void run()
     {
 	string buf;
-	string args;
+	string cmd;
 
 	sigaction_t sa;
 	sa.sa_handler = &ignoreSig;
@@ -687,30 +704,36 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 		HistEvent ev;
 		if (buf.length > 1) {
 		    history(hist_, &ev, H_ENTER, toStringz(buf));
-		    args = strip(buf).dup;
+		    cmd = strip(buf).dup;
 		}
 	    } else {
-		args = strip(buf).dup;
+		cmd = strip(buf).dup;
 	    }
 
-	    if (args.length == 0)
+	    if (cmd.length == 0)
 		continue;
 
 	    pageline_ = 0;
-	    if (args == "history") {
-		version (editline) {
+	    executeCommand(cmd);
+	}
+    }
+
+    void executeCommand(string cmd)
+    {
+	if (cmd == "history") {
+	    version (editline) {
+		HistEvent ev;
 		for (int rv = history(hist_, &ev, H_LAST);
 		     rv != -1;
 		     rv = history(hist_, &ev, H_PREV))
 		    writef("%d %s", ev.num, .toString(ev.str));
-		}
-	    } else {
-		try {
-		    commands_.run(this, args, "");
-		} catch (PagerQuit pq) {
-		} catch (TargetException te) {
-		    writefln("%s", te.msg);
-		}
+	    }
+	} else {
+	    try {
+		commands_.run(this, cmd, "");
+	    } catch (PagerQuit pq) {
+	    } catch (TargetException te) {
+		writefln("%s", te.msg);
 	    }
 	}
     }
@@ -868,10 +891,17 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	return false;
     }
 
+    void started()
+    {
+	stopped_ = false;
+    }
+
     void stopped()
     {
-	if (!target_)
+	if (!target_ || stopped_)
 	    return;
+
+	stopped_ = true;
 
 	auto t = currentThread;
 	auto s = t.state;
@@ -1020,6 +1050,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	MachineState s = t.state;
 	DebugInfo di;
 
+	started();
 	if (findDebugInfo(s, di)) {
 	    Location frameLoc;
 	    di.findFrameBase(s, frameLoc);
@@ -1173,6 +1204,8 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	    return;
 	}
 
+	started();
+
 	TargetThread t = currentThread;
 	MachineState s = t.state;
 
@@ -1276,6 +1309,13 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 		bp.condition = cond;
     }
 
+    void setBreakpointCommand(uint bpid, string cmd)
+    {
+	foreach (bp; breakpoints_)
+	    if (bp.id == bpid)
+		bp.command = cmd;
+    }
+
     void enableBreakpoint(uint bpid)
     {
 	foreach (bp; breakpoints_)
@@ -1369,6 +1409,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	// TargetListener
 	void onTargetStarted(Target target)
 	{
+	    stopped_ = false;
 	    target_ = target;
 	}
 	void onThreadCreate(Target target, TargetThread thread)
@@ -1588,6 +1629,7 @@ version (editline) {
     uint currentSourceLine_;
     uint nextBPID_;
     Value[] valueHistory_;
+    bool stopped_;
 }
 
 class QuitCommand: Command
@@ -1900,6 +1942,7 @@ class ContinueCommand: Command
 		return;
 	    }
 
+	    db.started();
 	    db.target_.cont();
 	    db.target_.wait();
 	    db.stopped();
@@ -2035,6 +2078,41 @@ class ConditionCommand: Command
     }
 }
 
+class CommandCommand: Command
+{
+    static this()
+    {
+	Debugger.registerCommand(new CommandCommand);
+    }
+
+    override {
+	string name()
+	{
+	    return "command";
+	}
+
+	string description()
+	{
+	    return "Set breakpoint stop command";
+	}
+
+	void run(Debugger db, string args)
+	{
+	    int i = find(args, ' ');
+	    if (i < 0) {
+		db.pagefln("usage: command <id> [command]");
+		return;
+	    }
+	    try {
+		string num = args[0..i];
+		string cmd = strip(args[i..$]);
+		db.setBreakpointCommand(toUint(num), cmd);
+	    } catch (ConvError ce) {
+		db.pagefln("Can't parse breakpoint ID");
+	    }
+	}
+    }
+}
 
 class EnableCommand: Command
 {
