@@ -45,6 +45,7 @@ version (DigitalMars)
 import std.c.posix.posix;
 else
 import std.c.unix.unix;
+import std.c.stdlib;
 import std.conv;
 import std.ctype;
 static import std.path;
@@ -669,6 +670,27 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
     {
     }
 
+    bool interactive()
+    {
+	return interactive_;
+    }
+
+    void sourceFile(string filename)
+    {
+	bool oldInteractive = interactive_;
+	string[] oldSourceLines = sourceLines_;
+	string file = cast(string) std.file.read(filename);
+	sourceLines_ = splitlines(file);
+
+	interactive_ = false;
+	while (sourceLines_.length > 0) {
+	    string cmd = inputline("");
+	    executeCommand(cmd);
+	}
+	interactive_ = oldInteractive;
+	sourceLines_ = oldSourceLines;
+    }
+
     void prompt(string s)
     {
 	prompt_ = s;
@@ -676,6 +698,15 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 
     string inputline(string prompt)
     {
+	if (!interactive_) {
+	    if (sourceLines_.length > 0) {
+		string line = sourceLines_[0];
+		sourceLines_ = sourceLines_[1..$];
+		return line;
+	    }
+	    return "";
+	}
+	
 	version (editline) {
 	    int num;
 	    elPrompt_ = prompt;
@@ -690,6 +721,14 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
     {
 	string buf;
 	string cmd;
+
+	try
+	    sourceFile(".ngdbinit");
+	catch {}
+
+	try
+	    sourceFile(.toString(getenv("HOME")) ~ "/.ngdbinit");
+	catch {}
 
 	sigaction_t sa;
 	sa.sa_handler = &ignoreSig;
@@ -763,6 +802,9 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 
     bool yesOrNo(...)
     {
+	if (!interactive_)
+	    return true;
+
 	string prompt;
 
 	void putc(dchar c)
@@ -1645,8 +1687,9 @@ version (editline) {
     static CommandTable commands_;
     static CommandTable infoCommands_;
 
+    bool interactive_ = true;
+    string[] sourceLines_;
     bool quit_ = false;
-
     string prog_;
     string core_;
     string prompt_;
@@ -3002,7 +3045,9 @@ class DefineCommand: Command
 		    return;
 	    }
 
-	    db.pagefln("Enter commands for \"%s\", finish with \"end\"", args);
+	    if (db.interactive)
+		db.pagefln("Enter commands for \"%s\", finish with \"end\"",
+			   args);
 	    string line;
 	    string[] cmds;
 	    for (;;) {
@@ -3057,4 +3102,38 @@ private:
     string name_;
     string[] cmds_;
     static uint depth_ = 0;
+}
+
+class SourceCommand: Command
+{
+    static this()
+    {
+	Debugger.registerCommand(new SourceCommand);
+    }
+
+    override {
+	string name()
+	{
+	    return "source";
+	}
+
+	string description()
+	{
+	    return "Read commands from a file";
+	}
+
+	void run(Debugger db, string args)
+	{
+	    if (args.length == 0 || find(args, ' ') >= 0) {
+		db.pagefln("usage: source filename");
+		return;
+	    }		
+
+	    try
+		db.sourceFile(args);
+	    catch {
+		writefln("Can't open file %s", args);
+	    }
+	}
+    }
 }
