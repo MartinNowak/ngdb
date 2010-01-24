@@ -101,6 +101,14 @@ class Command
     {
 	return null;
     }
+
+    /**
+     * Return true if this is a builtin command
+     */
+    bool builtin()
+    {
+	return true;
+    }
 }
 
 class CommandTable
@@ -143,6 +151,12 @@ class CommandTable
 
     void add(Command c)
     {
+	if (c.name in list_) {
+	    auto s = list_[c.name].shortName;
+	    list_.remove(c.name);
+	    if (s)
+		shortNames_.remove(s);
+	}
 	list_[c.name] = c;
 	auto s = c.shortName;
 	if (s)
@@ -660,6 +674,18 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	prompt_ = s;
     }
 
+    string inputline(string prompt)
+    {
+	version (editline) {
+	    int num;
+	    elPrompt_ = prompt;
+	    return .toString(el_gets(el_, &num)).dup;
+	} else {
+	    writef("%s ", prompt_);
+	    return chomp(readln());
+	}
+    }
+
     void run()
     {
 	string buf;
@@ -674,18 +700,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	if (core_)
 	    stopped();
 
-	string inputline()
-	{
-	    version (editline) {
-		int num;
-		return .toString(el_gets(el_, &num));
-	    } else {
-		writef("%s ", prompt_);
-		return chomp(readln());
-	    }
-	}
-
-	while (!quit_ && (buf = inputline()) != null) {
+	while (!quit_ && (buf = inputline(prompt_)) != null) {
 	    int ac;
 	    char** av;
 
@@ -704,17 +719,20 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 		HistEvent ev;
 		if (buf.length > 1) {
 		    history(hist_, &ev, H_ENTER, toStringz(buf));
-		    cmd = strip(buf).dup;
+		    cmd = strip(buf);
 		}
 	    } else {
-		cmd = strip(buf).dup;
+		cmd = strip(buf);
 	    }
 
 	    if (cmd.length == 0)
 		continue;
 
 	    pageline_ = 0;
-	    executeCommand(cmd);
+	    try {
+		executeCommand(cmd);
+	    } catch (PagerQuit pq) {
+	    }
 	}
     }
 
@@ -731,11 +749,36 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	} else {
 	    try {
 		commands_.run(this, cmd, "");
-	    } catch (PagerQuit pq) {
 	    } catch (TargetException te) {
 		writefln("%s", te.msg);
 	    }
 	}
+    }
+
+    Command lookupCommand(string cmd)
+    {
+	string msg;
+	return commands_.lookup(cmd, msg);
+    }
+
+    bool yesOrNo(...)
+    {
+	string prompt;
+
+	void putc(dchar c)
+	{
+	    std.utf.encode(prompt, c);
+	}
+
+	std.format.doFormat(&putc, _arguments, _argptr);
+	prompt ~= " (y or n)";
+	string s;
+	do {
+	    s = std.string.tolower(strip(inputline(prompt)));
+	} while (s.length == 0 || (s[0] != 'y' && s[0] != 'n'));
+	if (s[0] == 'y')
+	    return true;
+	return false;
     }
 
     void pagefln(...)
@@ -1531,6 +1574,8 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 
 private:
 version (editline) {
+    string elPrompt_;
+
     extern(C) static char* _prompt(EditLine *el)
     {
 	void* p;
@@ -1550,7 +1595,7 @@ version (editline) {
 
     string prompt(EditLine *el)
     {
-	return prompt_ ~ " ";
+	return elPrompt_ ~ " ";
     }
 
     char complete(EditLine *el, int ch)
@@ -2919,4 +2964,97 @@ class ListCommand: Command
 
     SourceFile sourceFile_;
     uint sourceLine_;
+}
+
+class DefineCommand: Command
+{
+    static this()
+    {
+	Debugger.registerCommand(new DefineCommand);
+    }
+
+    override {
+	string name()
+	{
+	    return "define";
+	}
+
+	string description()
+	{
+	    return "define a macro";
+	}
+
+	void run(Debugger db, string args)
+	{
+	    if (args.length == 0 || find(args, ' ') >= 0) {
+		db.pagefln("usage: define name");
+		return;
+	    }		
+
+	    Command c = db.lookupCommand(args);
+	    if (c) {
+		if (c.builtin) {
+		    db.pagefln("Can't redefine built-in command \"%s\"",
+			       args);
+		    return;
+		}
+		if (!db.yesOrNo("Redefine command \"%s\"?", args))
+		    return;
+	    }
+
+	    db.pagefln("Enter commands for \"%s\", finish with \"end\"", args);
+	    string line;
+	    string[] cmds;
+	    for (;;) {
+		line = strip(db.inputline(">"));
+		if (line == "end")
+		    break;
+		cmds ~= line;
+	    }
+	    Debugger.registerCommand(new MacroCommand(args, cmds));
+	}
+    }
+}
+
+class MacroCommand: Command
+{
+    this(string name, string[] cmds)
+    {
+	name_ = name;
+	cmds_ = cmds;
+    }
+
+    override {
+	string name()
+	{
+	    return name_;
+	}
+
+	string description()
+	{
+	    return name_;
+	}
+
+	void run(Debugger db, string args)
+	{
+	    if (depth_ > 1000) {
+		db.pagefln("Recursion too deep");
+		depth_ = 0;
+		throw new PagerQuit;
+	    }
+	    depth_++;
+	    foreach (cmd; cmds_)
+		db.executeCommand(cmd);
+	    depth_--;
+	}
+
+	bool builtin()
+	{
+	    return false;
+	}
+    }
+private:
+    string name_;
+    string[] cmds_;
+    static uint depth_ = 0;
 }
