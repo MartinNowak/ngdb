@@ -3087,9 +3087,13 @@ class MacroCommand: Command
 		depth_ = 0;
 		throw new PagerQuit;
 	    }
+	    string[] arglist = split(args, " ");
 	    depth_++;
-	    foreach (cmd; cmds_)
+	    foreach (cmd; cmds_) {
+		foreach (i, arg; arglist)
+		    cmd = replace(cmd, "$arg" ~ std.string.toString(i), arg);
 		db.executeCommand(cmd);
+	    }
 	    depth_--;
 	}
 
