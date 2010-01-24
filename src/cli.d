@@ -677,11 +677,16 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 
     void sourceFile(string filename)
     {
-	bool oldInteractive = interactive_;
-	string[] oldSourceLines = sourceLines_;
 	string file = cast(string) std.file.read(filename);
 	sourceLines_ = splitlines(file);
+	executeMacro(splitlines(file));
+    }
 
+    void executeMacro(string[] lines)
+    {
+	bool oldInteractive = interactive_;
+	string[] oldSourceLines = sourceLines_;
+	sourceLines_ = lines;
 	interactive_ = false;
 	while (sourceLines_.length > 0) {
 	    string cmd = inputline("");
@@ -715,6 +720,36 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	    writef("%s ", prompt_);
 	    return chomp(readln());
 	}
+    }
+
+    /**
+     * Read the body of a compound statement (define, if, while etc.).
+     * If optEnd is non-null, it can finish the statement as well as
+     * "end". The value of the keyword that finishes the statement is
+     * returned in endString.
+     */
+    string[] readStatementBody(string optEnd, out string endString)
+    {
+	string[] cmds;
+	uint level = 1;
+	for (;;) {
+	    string line = strip(inputline(">"));
+	    if (line == "end"
+		|| optEnd && line == optEnd) {
+		level--;
+		if (level == 0) {
+		    endString = line;
+		    break;
+		}
+	    }
+	    int i = find(line, ' ');
+	    if (i >= 0) {
+		if (line[0..i] == "if" || line[0..i] == "while")
+		    level++;
+	    }
+	    cmds ~= line;
+	}
+	return cmds;
     }
 
     void run()
@@ -2815,6 +2850,88 @@ private:
     string lastExpr_;
 }
 
+class SetCommand: Command
+{
+    static this()
+    {
+	Debugger.registerCommand(new SetCommand);
+    }
+
+    override {
+	string name()
+	{
+	    return "set";
+	}
+
+	string description()
+	{
+	    return "evaluate expressio";
+	}
+
+	void run(Debugger db, string args)
+	{
+	    MachineState s;
+	    DebugInfo di;
+	    string fmt = null;
+
+	    auto f = db.currentFrame;
+	    if (f)
+		s = f.state_;
+	    else
+		s = db.currentThread.state;
+
+	    if (args.length > 0
+		&& args[0] == '/') {
+		uint count, width;
+		if (!db.parseFormat(args, count, width, fmt))
+		    return;
+		if (fmt == "i") {
+		    db.pagefln("Instruction format not supported");
+		    return;
+		}
+		if (count != 1) {
+		    db.pagefln("Counts greater than one not supported");
+		    return;
+		}
+		if (width != 4) {
+		    db.pagefln("Format width characters not supported");
+		}
+	    }
+
+	    string expr;
+	    if (args.length == 0) {
+		if (!lastExpr_) {
+		    db.pagefln("No previous expression to print");
+		    return;
+		}
+		expr = lastExpr_;
+	    } else {
+		expr = args;
+		lastExpr_ = expr;
+	    }
+
+	    Scope sc;
+	    Language lang;
+	    if (f) {
+		sc = f.scope_;
+		lang = f.lang_;
+	    } else {
+		sc = db;
+		lang = CLikeLanguage.instance;
+	    }
+
+	    try {
+		auto e = lang.parseExpr(expr, sc);
+		auto v = e.eval(sc, s).toValue(s);
+	    } catch (EvalException ex) {
+		db.pagefln("%s", ex.msg);
+	    }
+	}
+    }
+private:
+    string lastExpr_;
+}
+
 class ExamineCommand: Command
 {
     static this()
@@ -3048,14 +3165,8 @@ class DefineCommand: Command
 	    if (db.interactive)
 		db.pagefln("Enter commands for \"%s\", finish with \"end\"",
 			   args);
-	    string line;
-	    string[] cmds;
-	    for (;;) {
-		line = strip(db.inputline(">"));
-		if (line == "end")
-		    break;
-		cmds ~= line;
-	    }
+	    string line, junk;
+	    string[] cmds = db.readStatementBody(null, junk);
 	    Debugger.registerCommand(new MacroCommand(args, cmds));
 	}
     }
@@ -3088,12 +3199,14 @@ class MacroCommand: Command
 		throw new PagerQuit;
 	    }
 	    string[] arglist = split(args, " ");
-	    depth_++;
+	    string[] cmds;
 	    foreach (cmd; cmds_) {
 		foreach (i, arg; arglist)
 		    cmd = replace(cmd, "$arg" ~ std.string.toString(i), arg);
-		db.executeCommand(cmd);
+		cmds ~= cmd;
 	    }
+	    depth_++;
+	    db.executeMacro(cmds);
 	    depth_--;
 	}
 
@@ -3137,6 +3250,136 @@ class SourceCommand: Command
 		db.sourceFile(args);
 	    catch {
 		writefln("Can't open file %s", args);
+	    }
+	}
+    }
+}
+
+class IfCommand: Command
+{
+    static this()
+    {
+	Debugger.registerCommand(new IfCommand);
+    }
+
+    override {
+	string name()
+	{
+	    return "if";
+	}
+
+	string description()
+	{
+	    return "Conditionally execute commands";
+	}
+
+	void run(Debugger db, string args)
+	{
+	    if (args.length == 0 || find(args, ' ') >= 0) {
+		db.pagefln("usage: if expr");
+		return;
+	    }		
+
+	    auto f = db.currentFrame;
+	    MachineState s;
+	    if (f)
+		s = f.state_;
+	    else
+		s = db.currentThread.state;
+
+	    Scope sc;
+	    Language lang;
+	    if (f) {
+		sc = f.scope_;
+		lang = f.lang_;
+	    } else {
+		sc = db;
+		lang = CLikeLanguage.instance;
+	    }
+
+	    bool cond = false;
+	    try {
+		auto e = lang.parseExpr(args, sc);
+		auto v = e.eval(sc, s).toValue(s);
+		if (v.type.isIntegerType)
+		    cond = s.readInteger(v.loc.readValue(s)) != 0;
+	    } catch (EvalException ex) {
+		db.pagefln("%s", ex.msg);
+		return;
+	    }
+
+	    string endString;
+	    string[] ifCmds = db.readStatementBody("else", endString);
+	    string[] elseCmds;
+	    if (endString == "else")
+		elseCmds = db.readStatementBody("", endString);
+	    if (cond)
+		db.executeMacro(ifCmds);
+	    else
+		db.executeMacro(elseCmds);
+	}
+    }
+}
+
+class WhileCommand: Command
+{
+    static this()
+    {
+	Debugger.registerCommand(new WhileCommand);
+    }
+
+    override {
+	string name()
+	{
+	    return "while";
+	}
+
+	string description()
+	{
+	    return "Conditionally execute commands";
+	}
+
+	void run(Debugger db, string args)
+	{
+	    if (args.length == 0 || find(args, ' ') >= 0) {
+		db.pagefln("usage: while expr");
+		return;
+	    }		
+
+	    auto f = db.currentFrame;
+	    MachineState s;
+	    if (f)
+		s = f.state_;
+	    else
+		s = db.currentThread.state;
+
+	    string endString;
+	    string[] cmds = db.readStatementBody("", endString);
+
+	    Scope sc;
+	    Language lang;
+	    if (f) {
+		sc = f.scope_;
+		lang = f.lang_;
+	    } else {
+		sc = db;
+		lang = CLikeLanguage.instance;
+	    }
+
+	    for (;;) {
+		bool cond = false;
+		try {
+		    auto e = lang.parseExpr(args, sc);
+		    auto v = e.eval(sc, s).toValue(s);
+		    if (v.type.isIntegerType)
+			cond = s.readInteger(v.loc.readValue(s)) != 0;
+		} catch (EvalException ex) {
+		    db.pagefln("%s", ex.msg);
+		    return;
+		}
+		if (!cond)
+		    break;
+		db.executeMacro(cmds);
 	    }
 	}
     }
