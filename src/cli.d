@@ -678,7 +678,6 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
     void sourceFile(string filename)
     {
 	string file = cast(string) std.file.read(filename);
-	sourceLines_ = splitlines(file);
 	executeMacro(splitlines(file));
     }
 
@@ -690,7 +689,8 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	interactive_ = false;
 	while (sourceLines_.length > 0) {
 	    string cmd = inputline("");
-	    executeCommand(cmd);
+	    if (cmd.length > 0)
+		executeCommand(cmd);
 	}
 	interactive_ = oldInteractive;
 	sourceLines_ = oldSourceLines;
@@ -734,8 +734,13 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	uint level = 1;
 	for (;;) {
 	    string line = strip(inputline(">"));
+
+	    /*
+	     * Only check for optEnd at the outermost level so that we
+	     * don't get confused by nested if statements.
+	     */
 	    if (line == "end"
-		|| optEnd && line == optEnd) {
+		|| (level == 1 && optEnd && line == optEnd)) {
 		level--;
 		if (level == 0) {
 		    endString = line;
@@ -757,6 +762,8 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	string buf;
 	string cmd;
 
+	target_ = new ColdTarget(this, prog_, core_);
+
 	try
 	    sourceFile(".ngdbinit");
 	catch {}
@@ -770,7 +777,6 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	sa.sa_flags = 0;
 	sigaction(SIGINT, &sa, null);
 
-	target_ = new ColdTarget(this, prog_, core_);
 	if (core_)
 	    stopped();
 
@@ -812,6 +818,8 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 
     void executeCommand(string cmd)
     {
+	if (cmd[0] == '#')
+	    return;
 	if (cmd == "history") {
 	    version (editline) {
 		HistEvent ev;
@@ -3260,6 +3268,7 @@ class IfCommand: Command
 	    string[] elseCmds;
 	    if (endString == "else")
 		elseCmds = db.readStatementBody("", endString);
+
 	    if (cond)
 		db.executeMacro(ifCmds);
 	    else
