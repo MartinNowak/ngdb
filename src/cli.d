@@ -1524,6 +1524,45 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	infoCommands_.add(c);
     }
 
+    Value evaluateExpr(string expr, out MachineState state)
+    {
+	MachineState s;
+	DebugInfo di;
+	string fmt = null;
+
+	auto f = currentFrame;
+	if (f)
+	    s = f.state_;
+	else
+	    s = currentThread.state;
+
+	Scope sc;
+	Language lang;
+	if (f) {
+	    sc = f.scope_;
+	    lang = f.lang_;
+	} else {
+	    sc = this;
+	    lang = CLikeLanguage.instance;
+	}
+
+	try {
+	    auto e = lang.parseExpr(expr, sc);
+	    auto v = e.eval(sc, s).toValue(s);
+	    state = s;
+	    return v;
+	} catch (EvalException ex) {
+	    pagefln("%s", ex.msg);
+	    return null;
+	}
+    }
+
+    Value evaluateExpr(string expr)
+    {
+	MachineState s;
+	return evaluateExpr(expr, s);
+    }
+
     override
     {
 	// TargetListener
@@ -2786,15 +2825,7 @@ class PrintCommand: Command
 
 	void run(Debugger db, string args)
 	{
-	    MachineState s;
-	    DebugInfo di;
 	    string fmt = null;
-
-	    auto f = db.currentFrame;
-	    if (f)
-		s = f.state_;
-	    else
-		s = db.currentThread.state;
 
 	    if (args.length > 0
 		&& args[0] == '/') {
@@ -2826,23 +2857,14 @@ class PrintCommand: Command
 		lastExpr_ = expr;
 	    }
 
-	    Scope sc;
-	    Language lang;
-	    if (f) {
-		sc = f.scope_;
-		lang = f.lang_;
-	    } else {
-		sc = db;
-		lang = CLikeLanguage.instance;
-	    }
-
-	    try {
-		auto e = lang.parseExpr(expr, sc);
-		auto v = e.eval(sc, s).toValue(s);
-		db.pagefln("$%s = (%s) %s", db.valueHistory_.length, v.type.toString, v.toString(fmt, s));
+	    MachineState s;
+	    auto v = db.evaluateExpr(expr, s);
+	    if (v) {
+		db.pagefln("$%s = (%s) %s",
+			   db.valueHistory_.length,
+			   v.type.toString,
+			   v.toString(fmt, s));
 		db.valueHistory_ ~= v;
-	    } catch (EvalException ex) {
-		db.pagefln("%s", ex.msg);
 	    }
 	}
     }
@@ -2870,66 +2892,13 @@ class SetCommand: Command
 
 	void run(Debugger db, string args)
 	{
-	    MachineState s;
-	    DebugInfo di;
-	    string fmt = null;
-
-	    auto f = db.currentFrame;
-	    if (f)
-		s = f.state_;
-	    else
-		s = db.currentThread.state;
-
-	    if (args.length > 0
-		&& args[0] == '/') {
-		uint count, width;
-		if (!db.parseFormat(args, count, width, fmt))
-		    return;
-		if (fmt == "i") {
-		    db.pagefln("Instruction format not supported");
-		    return;
-		}
-		if (count != 1) {
-		    db.pagefln("Counts greater than one not supported");
-		    return;
-		}
-		if (width != 4) {
-		    db.pagefln("Format width characters not supported");
-		}
-	    }
-
-	    string expr;
 	    if (args.length == 0) {
-		if (!lastExpr_) {
-		    db.pagefln("No previous expression to print");
-		    return;
-		}
-		expr = lastExpr_;
-	    } else {
-		expr = args;
-		lastExpr_ = expr;
+		db.pagefln("usage: set expr");
+		return;
 	    }
-
-	    Scope sc;
-	    Language lang;
-	    if (f) {
-		sc = f.scope_;
-		lang = f.lang_;
-	    } else {
-		sc = db;
-		lang = CLikeLanguage.instance;
-	    }
-
-	    try {
-		auto e = lang.parseExpr(expr, sc);
-		auto v = e.eval(sc, s).toValue(s);
-	    } catch (EvalException ex) {
-		db.pagefln("%s", ex.msg);
-	    }
+	    db.evaluateExpr(args);
 	}
     }
-private:
-    string lastExpr_;
 }
 
 class ExamineCommand: Command
@@ -3280,33 +3249,11 @@ class IfCommand: Command
 		return;
 	    }		
 
-	    auto f = db.currentFrame;
-	    MachineState s;
-	    if (f)
-		s = f.state_;
-	    else
-		s = db.currentThread.state;
-
-	    Scope sc;
-	    Language lang;
-	    if (f) {
-		sc = f.scope_;
-		lang = f.lang_;
-	    } else {
-		sc = db;
-		lang = CLikeLanguage.instance;
-	    }
-
 	    bool cond = false;
-	    try {
-		auto e = lang.parseExpr(args, sc);
-		auto v = e.eval(sc, s).toValue(s);
-		if (v.type.isIntegerType)
-		    cond = s.readInteger(v.loc.readValue(s)) != 0;
-	    } catch (EvalException ex) {
-		db.pagefln("%s", ex.msg);
-		return;
-	    }
+	    MachineState s;
+	    auto v = db.evaluateExpr(args, s);
+	    if (v.type.isIntegerType)
+		cond = s.readInteger(v.loc.readValue(s)) != 0;
 
 	    string endString;
 	    string[] ifCmds = db.readStatementBody("else", endString);
@@ -3346,37 +3293,15 @@ class WhileCommand: Command
 		return;
 	    }		
 
-	    auto f = db.currentFrame;
-	    MachineState s;
-	    if (f)
-		s = f.state_;
-	    else
-		s = db.currentThread.state;
-
 	    string endString;
 	    string[] cmds = db.readStatementBody("", endString);
 
-	    Scope sc;
-	    Language lang;
-	    if (f) {
-		sc = f.scope_;
-		lang = f.lang_;
-	    } else {
-		sc = db;
-		lang = CLikeLanguage.instance;
-	    }
-
 	    for (;;) {
 		bool cond = false;
-		try {
-		    auto e = lang.parseExpr(args, sc);
-		    auto v = e.eval(sc, s).toValue(s);
-		    if (v.type.isIntegerType)
-			cond = s.readInteger(v.loc.readValue(s)) != 0;
-		} catch (EvalException ex) {
-		    db.pagefln("%s", ex.msg);
-		    return;
-		}
+		MachineState s;
+		auto v = db.evaluateExpr(args, s);
+		if (v.type.isIntegerType)
+		    cond = s.readInteger(v.loc.readValue(s)) != 0;
 		if (!cond)
 		    break;
 		db.executeMacro(cmds);
