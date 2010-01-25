@@ -1340,3 +1340,63 @@ class VoidType: TypeBase
 	}
     }
 }
+
+class UserType: TypeBase
+{
+    this(Language lang)
+    {
+	super(lang);
+	type_ = lang.voidType;
+    }
+
+    override {
+	string toString()
+	{
+	    return type_.toString;
+	}
+	Language language()
+	{
+	    return type_.language;
+	}
+	bool coerce(MachineState, ref Value val)
+	{
+	    type_ = val.type;
+	    return true;
+	}
+	string valueToString(string fmt, MachineState state, Location loc)
+	{
+	    return type_.valueToString(fmt, state, loc);
+	}
+	size_t byteWidth()
+	{
+	    return type_.byteWidth;
+	}
+	Type pointerType(uint width)
+	{
+	    return type_.pointerType(width);
+	}
+	Type referenceType(uint width)
+	{
+	    return type_.referenceType(width);
+	}
+	Type modifierType(string modifier)
+	{
+	    return type_.modifierType(modifier);
+	}
+	bool isCharType()
+	{
+	    return type_.isCharType;
+	}
+	bool isIntegerType()
+	{
+	    return type_.isIntegerType;
+	}
+	bool isNumericType()
+	{
+	    return type_.isNumericType;
+	}
+    }
+
+private:
+    Type type_;
+}

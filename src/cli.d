@@ -1532,6 +1532,15 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	infoCommands_.add(c);
     }
 
+    Language currentLanguage()
+    {
+	auto f = currentFrame;
+	if (f)
+	    return f.lang_;
+	else
+	    return CLikeLanguage.instance;
+    }
+
     Value evaluateExpr(string expr, out MachineState state)
     {
 	MachineState s;
@@ -1662,14 +1671,31 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 
 	    if (name.length == 0 || name[0] != '$')
 		return false;
-	    try {
-		uint num = name.length > 1
-		    ? toUint(name[1..$]) : valueHistory_.length - 1;
-		if (num >= valueHistory_.length)
+	    name = name[1..$];
+	    if (name.length == 0 || isdigit(name[0])) {
+		try {
+		    uint num = name.length > 0
+			? toUint(name) : valueHistory_.length - 1;
+		    if (num >= valueHistory_.length)
+			return false;
+		    val = valueHistory_[num];
+		    return true;
+		} catch (ConvError ce) {
 		    return false;
-		val = valueHistory_[num];
+		}
+	    } else if (isalpha(name[0]) || name[0] == '_') {
+		auto vp = name in userVars_;
+		if (vp) {
+		    val = *vp;
+		    return true;
+		}
+		auto lang = currentLanguage;
+		Value var = new Value(new UserLocation,
+				      new UserType(lang));
+		userVars_[name] = var;
+		val = var;
 		return true;
-	    } catch (ConvError ce) {
+	    } else {
 		return false;
 	    }
 	}
@@ -1792,6 +1818,7 @@ version (editline) {
     uint currentSourceLine_;
     uint nextBPID_;
     Value[] valueHistory_;
+    Value[string] userVars_;
     bool stopped_;
 }
 

@@ -779,6 +779,74 @@ class SubrangeLocation: Location
     size_t length_;
 }
 
+class UserLocation: Location
+{
+    this()
+    {
+    }
+
+    override {
+	bool valid(MachineState)
+	{
+	    return true;
+	}
+
+	size_t length()
+	{
+	    return value_.length;
+	}
+
+	void length(size_t length)
+	{
+	    value_.length = length;
+	}
+
+	ubyte[] readValue(MachineState state)
+	{
+	    return value_;
+	}
+
+	void writeValue(MachineState state, ubyte[] value)
+	{
+	    value_.length = value.length;
+	    value_[] = value[];
+	}
+
+	bool hasAddress(MachineState)
+	{
+	    return false;
+	}
+
+	ulong address(MachineState)
+	{
+	    assert(false);
+	    return 0;
+	}
+
+	bool isLval(MachineState)
+	{
+	    return true;
+	}
+
+	Location fieldLocation(Location baseLoc, MachineState state)
+	{
+	    return null;
+	}
+
+	Location subrange(size_t start, size_t length, MachineState state)
+	{
+	    return new SubrangeLocation(this, start, length);
+	}
+
+	Location dup()
+	{
+	    return this;
+	}
+    }
+
+    ubyte[] value_;
+}
+
 class Value: DebugItem
 {
     this(Location loc, Type type)
