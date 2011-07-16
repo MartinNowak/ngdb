@@ -107,31 +107,31 @@ class LittleEndian: Endian
     void write(ushort v, out ushort res)
     {
 	ubyte b[2];
-	b[0] = v;
-	b[1] = v >> 8;
-	res = *(cast(ushort*) &b[0]);
+	b[0] = v & 0xFF;
+	b[1] = (v >> 8)  & 0xFF;
+	res = *(cast(ushort*)b.ptr);
     }
     void write(uint v, out uint res)
     {
 	ubyte b[4];
-	b[0] = v;
-	b[1] = v >> 8;
-	b[2] = v >> 16;
-	b[3] = v >> 24;
-	res = *(cast(uint*) &b[0]);
+	b[0] = v & 0xFF;
+	b[1] = (v >> 8) & 0xFF;
+	b[2] = (v >> 16) & 0xFF;
+	b[3] = (v >> 24) & 0xFF;
+	res = *(cast(uint*)b.ptr);
     }
     void write(ulong v, out ulong res)
     {
 	ubyte b[8];
-	b[0] = v;
-	b[1] = v >> 8;
-	b[2] = v >> 16;
-	b[3] = v >> 24;
-	b[4] = v >> 32;
-	b[5] = v >> 40;
-	b[6] = v >> 48;
-	b[7] = v >> 56;
-	res = *(cast(ulong*) &b[0]);
+	b[0] = v & 0xFF;
+	b[1] = (v >> 8) & 0xFF;
+	b[2] = (v >> 16) & 0xFF;
+	b[3] = (v >> 24) & 0xFF;
+	b[4] = (v >> 32) & 0xFF;
+	b[5] = (v >> 40) & 0xFF;
+	b[6] = (v >> 48) & 0xFF;
+	b[7] = (v >> 56) & 0xFF;
+	res = *(cast(ulong*)b.ptr);
     }
 }
 
@@ -173,30 +173,30 @@ class BigEndian: Endian
     void write(ushort v, out ushort res)
     {
 	ubyte b[2];
-	b[1] = v;
-	b[0] = v >> 8;
-	res = *(cast(ushort*) &b[0]);
+	b[1] = v & 0xFF;
+	b[0] = (v >> 8) & 0xFF;
+	res = *(cast(ushort*)b.ptr);
     }
     void write(uint v, out uint res)
     {
 	ubyte b[4];
-	b[3] = v;
-	b[2] = v >> 8;
-	b[1] = v >> 16;
-	b[0] = v >> 24;
-	res = *(cast(uint*) &b[0]);
+	b[3] = v & 0xFF;
+	b[2] = (v >> 8) & 0xFF;
+	b[1] = (v >> 16) & 0xFF;
+	b[0] = (v >> 24) & 0xFF;
+        res = *(cast(uint*)b.ptr);
     }
     void write(ulong v, out ulong res)
     {
 	ubyte b[8];
-	b[7] = v;
-	b[6] = v >> 8;
-	b[5] = v >> 16;
-	b[4] = v >> 24;
-	b[3] = v >> 32;
-	b[2] = v >> 40;
-	b[1] = v >> 48;
-	b[0] = v >> 56;
-	res = *(cast(ulong*) &b[0]);
+	b[7] = v & 0xFF;
+	b[6] = (v >> 8) & 0xFF;
+	b[5] = (v >> 16) & 0xFF;
+	b[4] = (v >> 24) & 0xFF;
+	b[3] = (v >> 32) & 0xFF;
+	b[2] = (v >> 40) & 0xFF;
+	b[1] = (v >> 48) & 0xFF;
+	b[0] = (v >> 56) & 0xFF;
+	res = *(cast(ulong*)b.ptr);
     }
 }
