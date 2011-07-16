@@ -900,6 +900,7 @@ enum {
     RT_DELETE			// removing a shared library
 }
 
+import std.conv : to;
 import std.stdio;
 import std.string;
 //import std.c.unix.unix;
@@ -1097,7 +1098,7 @@ template ElfFileBase()
 	foreach (ref sh; sections_) {
 	    if (read(sh.sh_type) == SHT_NULL)
 		continue;
-	    if (.toString(&shStrings_[sh.sh_name]) != ".plt")
+	    if (to!string(&shStrings_[sh.sh_name]) != ".plt")
 		continue;
 	    pltStart_ = read(sh.sh_addr) + offset_;
 	    pltEnd_ = pltStart_ + read(sh.sh_size);
@@ -1193,11 +1194,11 @@ template ElfFileBase()
 	tlsindex_ = i;
     }
 
-    int lookupSection(string name)
+    sizediff_t lookupSection(string name)
     {
 	foreach (i, ref sh; sections_) {
-	    if (std.string.toString(&shStrings_[sh.sh_name]) == name)
-		return i;
+	    if (to!string(&shStrings_[sh.sh_name]) == name)
+                return to!sizediff_t(i);
 	}
 	return -1;
     }
@@ -1209,7 +1210,7 @@ template ElfFileBase()
 
     char[] readSection(string name)
     {
-	int i = lookupSection(name);
+	auto i = lookupSection(name);
 	if (i < 0)
 	    throw new Exception("no such section");
 	return readSection(i);
@@ -1219,14 +1220,15 @@ template ElfFileBase()
     {
 	foreach (ph; ph_)
 	    if (ph.p_type == PT_INTERP) {
-		string s;
+		char[] s;
 		s.length = read(ph.p_filesz);
 		if (s.length == 0)
-		    return s;
-		if (pread(fd_, &s[0], s.length, read(ph.p_offset))
+		    return null;
+		if (pread(fd_, s.ptr, s.length, read(ph.p_offset))
 		    != s.length)
 		    throw new Exception("Can't read from file");
-		return s;
+                // TODO: use assumeUnique ?
+		return s.idup;
 	    }
 	return null;
     }
@@ -1260,7 +1262,7 @@ template ElfFileBase()
 		    ubyte* desc = cast(ubyte*)
 			(name + roundup(read(n.n_namesz)));
 
-		    dg(n.n_type, .toString(name), desc);
+		    dg(n.n_type, to!string(name), desc);
 		    i += Note.sizeof;
 		    i += roundup(read(n.n_namesz))
 			+ roundup(read(n.n_descsz));
@@ -1298,7 +1300,7 @@ template ElfFileBase()
 	ubyte* p = &dyn[0], end = p + dyn.length;
 	while (p < end) {
 	    Dyn* d = cast(Dyn*) p;
-	    dg(read(d.d_tag), read(d.d_val));
+	    dg(to!uint(read(d.d_tag)), to!ulong(read(d.d_val)));
 	    p += Dyn.sizeof;
 	}
     }
@@ -1416,7 +1418,7 @@ template ElfFileBase()
 	void findNeeded(uint tag, ulong val)
 	{
 	    if (tag == DT_NEEDED && val < strtab.length)
-		dg(.toString(&strtab[val]));
+		dg(to!string(&strtab[val]));
 	}
 
 	enumerateDynamic(target, &findStrtab);
@@ -1432,7 +1434,7 @@ template ElfFileBase()
     }
 
 private:
-    char[] readSection(int si)
+    char[] readSection(size_t si)
     {
 	Shdr *sh = &sections_[si];
 	char[] s;
@@ -1444,7 +1446,7 @@ private:
 	return s;
     }
 
-    Symbol[] readSymbols(int si)
+    Symbol[] readSymbols(size_t si)
     {
 	Shdr* sh = &sections_[si];
 	if (read(sh.sh_entsize) != Sym.sizeof)
@@ -1461,7 +1463,7 @@ private:
 	symbols.length = syms.length;
 	foreach (i, ref sym; syms) {
 	    Symbol* s = &symbols[i];
-	    s.name = std.string.toString(&strings[read(sym.st_name)]);
+	    s.name = to!string(&strings[read(sym.st_name)]);
 	    s.value = read(sym.st_value) + offset_;
 	    s.size = sym.st_size;
 	    s.type = sym.st_type;

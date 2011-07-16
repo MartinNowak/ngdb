@@ -51,6 +51,7 @@
 
 module objfile.elf64;
 
+import std.conv;
 import std.stdint;
 import objfile.elf: Ident;
 
@@ -191,7 +192,7 @@ struct Move {
     // Compose and decompose m_info
     int m_sym()
     {
-	return m_info >> 8;
+	return to!int(m_info >> 8);
     }
     int m_size()
     {
@@ -237,7 +238,7 @@ struct Sym {
     }
     void set_st_info(int bind, int type)
     {
-	st_info = (bind << 4) + (type & 0xff);
+	st_info = to!ubyte((bind << 4) + (type & 0xff));
     }
 
     // Access the fields of st_other

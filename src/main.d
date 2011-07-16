@@ -30,7 +30,7 @@ import std.path;
 import cli;
 
 int
-main(char[][] args)
+main(string[] args)
 {
     if (args.length < 2 || args.length > 3) {
 	writefln("usage: %s <program> [<corefile>]", args[0]);

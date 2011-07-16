@@ -1297,9 +1297,7 @@ class CLikeLanguage: Language
 		if (tok.id != "int literal")
 		    throw unexpected(tok);
 		lex.consume;
-		ptr.pend_ = new arrayTransform(this, ptr.pend_,
-					       strtoul(toStringz(tok.value),
-						       null, 0));
+		ptr.pend_ = new arrayTransform(this, ptr.pend_, to!uint(tok.value));
 		tok = lex.nextToken;
 		if (tok.id != "]")
 		    throw unexpected(tok);
@@ -2071,8 +2069,7 @@ class DLanguage: CLikeLanguage
 	if (tok.id != "int literal")
 	    throw unexpected(tok);
 	lex.consume;
-	tr = new arrayTransform(this, tr,
-				strtoul(toStringz(tok.value), null, 0));
+	tr = new arrayTransform(this, tr, to!uint(tok.value));
 	tok = lex.nextToken;
 	if (tok.id != "]")
 	    throw unexpected(tok);
@@ -2109,8 +2106,7 @@ class DLanguage: CLikeLanguage
 	    if (tok.id != "int literal")
 		throw unexpected(tok);
 	    lex.consume;
-	    tr = new arrayTransform(this, tr,
-				    strtoul(toStringz(tok.value), null, 0));
+	    tr = new arrayTransform(this, tr, to!uint(tok.value));
 	    tok = lex.nextToken;
 	    if (tok.id != "]")
 		throw unexpected(tok);

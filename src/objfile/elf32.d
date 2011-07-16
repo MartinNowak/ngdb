@@ -51,6 +51,7 @@
 
 module objfile.elf32;
 
+import std.conv;
 import std.stdint;
 import objfile.elf: Ident;
 
@@ -221,7 +222,7 @@ struct Sym {
     }
     void set_st_info(int bind, int type)
     {
-	st_info = (bind << 4) + (type & 0xff);
+	st_info = to!ubyte((bind << 4) + (type & 0xff));
     }
 
     // Access the fields of st_other
