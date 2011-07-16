@@ -28,6 +28,7 @@ module debuginfo.language;
 
 version(tangobos) import std.compat;
 import std.string;
+import std.conv;
 import std.ctype;
 import std.stdio;
 import std.c.stdlib;
@@ -102,7 +103,7 @@ class Language
     abstract string renderReferenceType(string baseType);
     abstract string renderStringConstant(MachineState state, Type type, Location loc);
     abstract string renderNamespaceSeparator();
-    abstract string renderCharConstant(int ch);
+    abstract string renderCharConstant(dchar ch);
     abstract string renderStructConstant(string);
     abstract string renderArrayConstant(string);
     abstract string renderNullPointer();
@@ -196,9 +197,9 @@ class CLikeLanguage: Language
 	{
 	    return "::";
 	}
-	string renderCharConstant(int ch)
+	string renderCharConstant(dchar ch)
 	{
-	    string specials[char] = [
+	    string specials[dchar] = [
 		'\0': "\\0",
 		'\a': "\\a",
 		'\b': "\\b",
@@ -207,16 +208,12 @@ class CLikeLanguage: Language
 		'\r': "\\r",
 		'\t': "\\t",
 		'\v': "\\v"];
-	    if (ch in specials || isprint(ch)) {
-		string res = " '";
-		if (ch in specials)
-		    res ~= specials[ch];
-		else
-		    res ~= cast(char) ch;
-		res ~= "'";
-		return res;
-	    }
-	    return "";
+            if (auto sp = ch in specials) {
+                return std.string.format("'%s'", *sp);
+            } else if (isprint(ch)) {
+                return std.string.format("'%s'", ch);
+            } else
+                return "";
 	}
 	string renderStructConstant(string s)
 	{

@@ -27,6 +27,7 @@
 module debuginfo.types;
 
 version(tangobos) import std.compat;
+import std.conv;
 import std.string;
 
 import debuginfo.debuginfo;
@@ -270,11 +271,11 @@ class CharType: IntegerType
 	    if (isSigned) {
 		long val = state.readInteger(loc.readValue(state));
 		return super.valueToString(fmt, state, loc)
-		    ~ lang_.renderCharConstant(val);
+		    ~ lang_.renderCharConstant(to!dchar(val));
 	    } else {
 		ulong val = state.readInteger(loc.readValue(state));
 		return super.valueToString(fmt, state, loc)
-		    ~ lang_.renderCharConstant(val);
+		    ~ lang_.renderCharConstant(to!dchar(val));
 	    }		
 	}
 
