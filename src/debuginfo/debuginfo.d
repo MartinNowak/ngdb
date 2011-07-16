@@ -30,7 +30,7 @@ version(tangobos) import std.compat;
 import std.string;
 import std.c.stdlib;
 
-import debuginfo.expr: EvalException;
+import debuginfo.expr;
 import debuginfo.language;
 import debuginfo.types;
 import machine.machine;
