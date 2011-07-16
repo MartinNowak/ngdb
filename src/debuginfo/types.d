@@ -142,7 +142,7 @@ class IntegerType: TypeBase
 		+ byteWidth_ * 31;
 	}
 
-	int opEquals(Object o)
+	bool opEquals(Object o)
 	{
 	    IntegerType ty = cast(IntegerType) o;
 	    if (!ty)
@@ -307,7 +307,7 @@ class BooleanType: TypeBase
 		+ byteWidth_ * 31;
 	}
 
-	int opEquals(Object o)
+	bool opEquals(Object o)
 	{
 	    BooleanType ty = cast(BooleanType) o;
 	    if (!ty)
@@ -381,7 +381,7 @@ class FloatType: TypeBase
 		+ byteWidth_ * 31;
 	}
 
-	int opEquals(Object o)
+	bool opEquals(Object o)
 	{
 	    FloatType ty = cast(FloatType) o;
 	    if (!ty)
