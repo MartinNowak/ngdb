@@ -36,12 +36,12 @@ import debuginfo.dwarf;
 import debuginfo.types;
 import machine.machine;
 
+import std.exception;
 import std.stdint;
 import std.stdio;
 import std.string;
 import std.c.stdlib;
 
-import core.stdc.errno;
 import core.sys.posix.sys.types;
 import core.sys.posix.sys.wait;
 import core.sys.posix.fcntl;
@@ -76,15 +76,12 @@ version (linux) {
    }
 }
 
-class PtraceException: Exception
+class PtraceException: ErrnoException
 {
-    this()
+    this(string msg = null, string file =__FILE__, uint line = __LINE__)
     {
-	errno_ = errno;
-	char[] s = std.string.toString(errno_).dup;
-	super(s);
+        super(msg, file, line);
     }
-    int errno_;
 }
 
 class PtraceModule: TargetModule
@@ -593,7 +590,7 @@ class PtraceTarget: Target, TargetBreakpointListener
 		    if (pt2 !is pt)
 			pt2.resume;
 	    } catch (PtraceException pte) {
-		if (pte.errno_ == ESRCH)
+		if (pte.errno == ESRCH)
 		    onExit;
 	    }
 	}
@@ -633,7 +630,7 @@ class PtraceTarget: Target, TargetBreakpointListener
 			    ptrace(PT_CONTINUE, t.lwpid_, null, 0);
 		state_ = TargetState.RUNNING;
 	    } catch (PtraceException pte) {
-		if (pte.errno_ == ESRCH)
+		if (pte.errno == ESRCH)
 		    onExit;
 	    }
 	}
@@ -657,7 +654,7 @@ class PtraceTarget: Target, TargetBreakpointListener
 		    state_ = TargetState.STOPPED;
 		} while (!stopped(status));
 	    } catch (PtraceException pte) {
-		if (pte.errno_ == ESRCH)
+		if (pte.errno == ESRCH)
 		    onExit;
 	    }
 	}
@@ -742,7 +739,7 @@ class PtraceTarget: Target, TargetBreakpointListener
 	    try {
 		ptrace(PT_LWPINFO, pid_, cast(char*) &info, info.sizeof);
 	    } catch (PtraceException pte) {
-		if (pte.errno_ == ESRCH)
+		if (pte.errno == ESRCH)
 		    onExit;
 		return null;
 	    }
@@ -773,7 +770,7 @@ class PtraceTarget: Target, TargetBreakpointListener
 		io.piod_len = bytes;
 		ptrace(PT_IO, pid_, cast(char*) &io, 0);
 	    } catch (PtraceException pte) {
-		if (pte.errno_ == ESRCH)
+		if (pte.errno == ESRCH)
 		    onExit;
 		throw new TargetException("Can't read target memory");
 	    }
@@ -796,7 +793,7 @@ class PtraceTarget: Target, TargetBreakpointListener
 	    } catch (PtraceException pte) {
 		debug (ptrace)
 		    writefln("ptrace error: %s", pte.msg);
-		if (pte.errno_ == ESRCH)
+		if (pte.errno == ESRCH)
 		    onExit;
 		throw new TargetException("Can't read target memory");
 	    }
@@ -817,7 +814,7 @@ class PtraceTarget: Target, TargetBreakpointListener
 		io.piod_len = toWrite.length;
 		ptrace(PT_IO, pid_, cast(char*) &io, 0);
 	    } catch (PtraceException pte) {
-		if (pte.errno_ == ESRCH)
+		if (pte.errno == ESRCH)
 		    onExit;
 	    }
 	} else {
@@ -853,7 +850,7 @@ class PtraceTarget: Target, TargetBreakpointListener
 		    ptrace(op, pid_, cast(char*) i, word);
 		}
 	    } catch (PtraceException pte) {
-		if (pte.errno_ == ESRCH)
+		if (pte.errno == ESRCH)
 		    onExit;
 		throw new TargetException("Can't write target memory");
 	    }
