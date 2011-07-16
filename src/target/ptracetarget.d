@@ -287,10 +287,13 @@ class PtraceModule: TargetModule
 	return obj_.getState(target);
     }
 
-    int opEquals(PtraceModule mod)
+    override equals_t opEquals(Object o)
     {
-	return filename_ == mod.filename_
-	    && start_ == mod.start_;
+        if (auto mod = cast(PtraceModule)o)
+            return filename_ == mod.filename_
+                && start_ == mod.start_;
+        else
+            return false;
     }
 
 private:
