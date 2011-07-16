@@ -2,7 +2,7 @@ module machine.x86dis;
 
 import std.string;
 import std.stdio;
-import std.conv : octal;
+import std.conv : to, octal;
 
 private enum
 {
@@ -2019,7 +2019,7 @@ struct DecodeState
 	    return xmmNames[regno];
 	}
     }
-    long fetchImmediate(int size)
+    ulong fetchImmediate(int size)
     {
 	switch (size) {
 	case BYTE:
@@ -2559,7 +2559,7 @@ struct DecodeState
 	    switch (operand[0]) {
 	    case 'A':
 		assert(opsize == "p");
-		operands ~= displayFarcall(operandSize, fetchImmediate(operandSize), fetchImmediate(WORD));
+		operands ~= displayFarcall(operandSize, fetchImmediate(operandSize), to!uint(fetchImmediate(WORD)));
 		continue;
 	    case 'C':
 		operands ~= displayControl(reg);

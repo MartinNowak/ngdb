@@ -164,7 +164,7 @@ class X86State: MachineState
 	void dumpState()
 	{
 	    for (auto i = 0; i <= EFLAGS; i++) {
-		uint32_t val = getGR(i);
+		auto val = getGR(i);
 		writef("%6s:%08x ", RegNames[i], val);
 		if ((i & 3) == 3)
 		    writefln("");
@@ -184,7 +184,7 @@ class X86State: MachineState
 
 	void pc(ulong pc)
 	{
-	    regs_.r_eip = pc;
+            regs_.r_eip = to!uint(pc);
 	    grdirty_ = true;
 	}
 
@@ -255,7 +255,7 @@ class X86State: MachineState
 
 	void setGR(size_t gregno, ulong val)
 	{
-	    *grAddr(gregno) = val;
+            *grAddr(gregno) = to!uint(val);
 	    grdirty_ = true;
 	}
 
@@ -499,7 +499,7 @@ class X86State: MachineState
 	    float64 f64;
 	    switch (bytes.length) {
 	    case 4:
-		f32.i = readInteger(bytes);
+                f32.i = to!uint(readInteger(bytes));
 		return f32.f;
 	    case 8:
 		f64.i = readInteger(bytes);
@@ -621,7 +621,7 @@ class X86State: MachineState
 	     */
 	    auto newFrame = regs_.r_esp - (argval.length + 8);
 	    newFrame &= ~15;
-	    regs_.r_esp = newFrame + 4;
+	    regs_.r_esp = to!uint(newFrame + 4);
 
 	    /*
 	     * Put arguments on the stack. Possibly we should keep the
@@ -654,7 +654,7 @@ class X86State: MachineState
 	    /*
 	     * Set the thing running at the start of the function.
 	     */
-	    regs_.r_eip = address;
+	    regs_.r_eip = to!uint(address);
 	    grdirty_ = true;
 	    target_.cont(0);
 	    target_.wait;
@@ -815,14 +815,14 @@ class X86State: MachineState
 	}
     }
 
-    Value regAsValue(uint i, Type ty)
+    Value regAsValue(size_t i, Type ty)
     {
 	auto loc = new RegisterLocation(i, grWidth(i));
 	return new Value(loc, ty);
     }
 
 private:
-    uint32_t* grAddr(uint gregno)
+    uint32_t* grAddr(size_t gregno)
     {
 	assert(gregno <= TRAPNO);
 	if (regmap_[gregno] == ~0)
@@ -1368,7 +1368,7 @@ class X86_64State: MachineState
 	    float64 f64;
 	    switch (bytes.length) {
 	    case 4:
-		f32.i = readInteger(bytes);
+                f32.i = to!uint(readInteger(bytes));
 		return f32.f;
 	    case 8:
 		f64.i = readInteger(bytes);
@@ -1770,14 +1770,14 @@ class X86_64State: MachineState
 	}
     }
 
-    Value regAsValue(uint i, Type ty)
+    Value regAsValue(size_t i, Type ty)
     {
 	auto loc = new RegisterLocation(i, grWidth(i));
 	return new Value(loc, ty);
     }
 
 private:
-    uint64_t* grAddr(uint gregno)
+    uint64_t* grAddr(size_t gregno)
     {
 	assert(gregno <= RIP);
 	if (regmap_[gregno] == ~0)
