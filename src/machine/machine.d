@@ -115,7 +115,7 @@ interface MachineState: Scope
     /**
      * Return the number of general registers
      */
-    size_t grCount();
+    uint grCount();
 
     /**
      * Print a representation of the floating point state.

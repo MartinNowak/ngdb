@@ -34,6 +34,7 @@ import debuginfo.language;
 import debuginfo.types;
 import machine.machine;
 static import std.path;
+import std.conv;
 import std.string;
 import std.stdio;
 version(tangobos) import std.compat;
@@ -902,7 +903,7 @@ class DwarfFile: public DebugInfo
 		writefln("finding 0x%x", address);
 	    CompilationUnit cu;
 	    if (findCU(address, cu)) {
-		uint lineOffset = cu.die[DW_AT_stmt_list].ul;
+		auto lineOffset = cu.die[DW_AT_stmt_list].ul;
 		char[] lines = debugSection(".debug_line");
 		char* p = &lines[lineOffset];
 		lastEntry.address = ~0;
@@ -1095,9 +1096,9 @@ private:
 		CIE cie = new CIE;
 		auto ver = parseUByte(p);
 		auto augmentation = parseString(p);
-		cie.codeAlign = parseULEB128(p);
-		cie.dataAlign = parseSLEB128(p);
-		cie.returnAddress = parseULEB128(p);
+		cie.codeAlign = to!uint(parseULEB128(p));
+		cie.dataAlign = to!int(parseSLEB128(p));
+		cie.returnAddress = to!uint(parseULEB128(p));
 		cie.instructionStart = p;
 		cie.instructionEnd = entryStart + len;
 		cies[off] = cie;
@@ -1127,12 +1128,12 @@ private:
 	pNext = p + len;
 
 	uint ver = parseUShort(p);
-	uint abbrevOffset = parseOffset(p, is64);
+	ulong abbrevOffset = parseOffset(p, is64);
 	uint addrlen = parseUByte(p);
 
 	char[] abbrev = debugSection(".debug_abbrev");
 	char* abbrevp = &abbrev[abbrevOffset];
-	char* abbrevTable[int];
+	char*[ulong] abbrevTable;
 	for (;;) {
 	    ulong code = parseULEB128(abbrevp);
 	    if (!code)
@@ -1215,7 +1216,7 @@ private:
 	while (*p) {
 	    char* name = p;
 	    skipString(p);
-	    uint di = parseULEB128(p);
+	    uint di = to!uint(parseULEB128(p));
 	    ulong mt = parseULEB128(p);
 	    ulong fl = parseULEB128(p);
 	    fileNames ~= FileEntry(null, name, di, mt, fl);
@@ -1259,17 +1260,17 @@ private:
 		string filename;
 		if (fe.directoryIndex) {
 		    filename =
-			.toString(includeDirectories[fe.directoryIndex - 1]);
-		    filename = std.path.join(filename, .toString(fe.name));
+			to!string(includeDirectories[fe.directoryIndex - 1]);
+		    filename = std.path.join(filename, to!string(fe.name));
 		} else {
-		    filename = .toString(fe.name);
+		    filename = to!string(fe.name);
 		}
 		fe.fullname = filename;
 	    }
 
 	    LineEntry dle;
 	    dle.address = le.address + offset;
-	    dle.name = .toString(fe.name);
+	    dle.name = to!string(fe.name);
 	    dle.fullname = fe.fullname;
 	    dle.line = le.line;
 	    dle.column = le.column;
@@ -1306,7 +1307,7 @@ private:
 		debug (line)
 		    writefln("%d:extended opcode", op);
 		// Extended opcode
-		uint oplen = parseULEB128(p);
+		uint oplen = to!uint(parseULEB128(p));
 		char* pNext = p + oplen;
 		switch (parseUByte(p)) {
 		case DW_LNE_end_sequence:
@@ -1329,13 +1330,13 @@ private:
 		case DW_LNE_define_file:
 		    char* name = p;
 		    skipString(p);
-		    uint di = parseULEB128(p);
+		    uint di = to!uint(parseULEB128(p));
 		    ulong mt = parseULEB128(p);
 		    ulong fl = parseULEB128(p);
 		    fileNames ~= FileEntry(null, name, di, mt, fl);
 		    debug (line)
 			writefln(" %d:DW_LNE_define_file(%s)",
-				 op, .toString(name));
+				 op, to!string(name));
 		    break;
 		}
 		p = pNext;
@@ -1367,14 +1368,14 @@ private:
 		break;
 
 	    case DW_LNS_set_file:
-		le.file = parseULEB128(p);
+		le.file = to!uint(parseULEB128(p));
 		debug (line)
 		    writefln("%d:DW_LNS_set_file(%s)",
-			     op, .toString(fileNames[le.file].name));
+			     op, to!string(fileNames[le.file].name));
 		break;
 
 	    case DW_LNS_set_column:
-		le.column = parseULEB128(p);
+		le.column = to!uint(parseULEB128(p));
 		debug (line)
 		    writefln("%d:DW_LNS_set_column(%s)", op, le.column);
 		break;
@@ -1421,7 +1422,7 @@ private:
 	    case DW_LNS_set_isa:
 		debug (line)
 		    writefln("%d:DW_LNS_set_isa", op);
-		le.isa = parseULEB128(p);
+		le.isa = to!uint(parseULEB128(p));
 		break;
 
 	    default:
@@ -1538,7 +1539,7 @@ private:
 
     string parseString(ref char* p)
     {
-	string v = std.string.toString(p);
+	string v = to!string(p);
 	skipString(p);
 	return v;
     }
@@ -2114,7 +2115,7 @@ struct Expr
 		loc = new RegisterLocation(regno, length);
 	    } else if (op == DW_OP_regx) {
 		p++;
-		uint regno = dw.parseULEB128(p);
+		size_t regno = to!size_t(dw.parseULEB128(p));
 		loc = new RegisterLocation(regno, length);
 	    } else {
 		ValueStack stack;
@@ -2363,7 +2364,7 @@ class AttributeValue
 	    break;
 
 	case DW_FORM_indirect:
-	    form = dw.parseULEB128(p);
+	    form = to!uint(dw.parseULEB128(p));
 	    goto again;
 	}
     }
@@ -2397,7 +2398,7 @@ class AttributeValue
 
 	case DW_FORM_string:
 	case DW_FORM_strp:
-	    writefln("%s", std.string.toString(str));
+	    writefln("%s", to!string(str));
 	    break;
 
 	case DW_FORM_sdata:
@@ -2451,12 +2452,12 @@ class AttributeValue
 
     string toString()
     {
-	return .toString(str);
+	return to!string(str);
     }
 
     uint ui()
     {
-	return cast(uint) ul;
+	return to!uint(ul);
     }
 
     int form;
@@ -2488,7 +2489,7 @@ class DIE
     DebugItem debugItem_;
 
     this(CompilationUnit cu, DIE parent, char* base, ref char* diep,
-	 uint abbrevCode, char*[int] abbrevTable,
+	 ulong abbrevCode, char*[ulong] abbrevTable,
 	 int addrlen, char[] strtab)
     {
 	cu_ = cu;
@@ -2496,12 +2497,12 @@ class DIE
 
 	auto dw = cu_.parent;
 	char* abbrevp = abbrevTable[abbrevCode];
-	tag_ = dw.parseULEB128(abbrevp);
+	tag_ = to!uint(dw.parseULEB128(abbrevp));
 	auto hasChildren = *abbrevp++ == DW_CHILDREN_yes;
 
 	for (;;) {
-	    uint at = dw.parseULEB128(abbrevp);
-	    uint form = dw.parseULEB128(abbrevp);
+	    uint at = to!uint(dw.parseULEB128(abbrevp));
+            uint form = to!uint(dw.parseULEB128(abbrevp));
 	    if (!at)
 		break;
 	    AttributeValue val = new AttributeValue(dw, form, diep,
@@ -2769,7 +2770,7 @@ class DIE
 
 	case DW_TAG_enumeration_type:
 	{
-	    ulong sz = this[DW_AT_byte_size] ? this[DW_AT_byte_size].ul: 1;
+	    uint sz = this[DW_AT_byte_size] ? this[DW_AT_byte_size].ui : 1;
 	    auto et = new EnumType(lang, name, sz);
 	    foreach (elem; children_) {
 		if (elem.tag != DW_TAG_enumerator)
@@ -2784,7 +2785,7 @@ class DIE
 	case DW_TAG_class_type:
 	case DW_TAG_union_type:
 	{
-	    ulong sz = this[DW_AT_byte_size] ? this[DW_AT_byte_size].ul: 0;
+	    uint sz = this[DW_AT_byte_size] ? this[DW_AT_byte_size].ui : 0;
 	    string kind;
 	    if (tag == DW_TAG_structure_type)
 		kind = "struct";
@@ -2822,12 +2823,12 @@ class DIE
 		    uint lb, ub, count;
 		    lb = ub = 0;
 		    if (elem[DW_AT_lower_bound])
-			lb = elem[DW_AT_lower_bound].ul;
+			lb = elem[DW_AT_lower_bound].ui;
 		    if (elem[DW_AT_upper_bound])
-			ub = elem[DW_AT_upper_bound].ul;
+			ub = elem[DW_AT_upper_bound].ui;
 		    if (elem[DW_AT_count]) {
 			lb = 0;
-			count = elem[DW_AT_upper_bound].ul;
+			count = elem[DW_AT_upper_bound].ui;
 		    } else {
 			count = ub + 1;
 		    }
@@ -3285,7 +3286,7 @@ class FDE
 
 private:
     void execute(char* p, char* pEnd, ulong pc, ref FrameState fs,
-	in FrameState cieFs)
+	FrameState cieFs)
     {
 	uint reg;
 	ulong off;
@@ -3335,23 +3336,23 @@ private:
 		break;
 
 	    case DW_CFA_def_cfa:
-		fs.cfaReg = dw.parseULEB128(p);
-		fs.cfaOffset = dw.parseULEB128(p);
+		fs.cfaReg = to!uint(dw.parseULEB128(p));
+		fs.cfaOffset = to!uint(dw.parseULEB128(p));
 		debug(unwind)
 		    writefln("DW_CFA_def_cfa: cfa=%d, off=%d",
 			     fs.cfaReg, fs.cfaOffset);
 		break;
 
 	    case DW_CFA_def_cfa_sf:
-		fs.cfaReg = dw.parseULEB128(p);
-		fs.cfaOffset = dw.parseSLEB128(p) * cie.dataAlign;
+		fs.cfaReg = to!uint(dw.parseULEB128(p));
+		fs.cfaOffset = to!uint(dw.parseSLEB128(p) * cie.dataAlign);
 		debug(unwind)
 		    writefln("DW_CFA_def_cfa_sf: cfa=%d, off=%d",
 			     fs.cfaReg, fs.cfaOffset);
 		break;
 
 	    case DW_CFA_def_cfa_register:
-		fs.cfaReg = dw.parseULEB128(p);
+		fs.cfaReg = to!uint(dw.parseULEB128(p));
 		debug(unwind)
 		    writefln("DW_CFA_def_cfa_register: cfa=%d, off=%d",
 			     fs.cfaReg, fs.cfaOffset);
@@ -3375,14 +3376,14 @@ private:
 		throw new Exception("no support for CFA expressions");
 
 	    case DW_CFA_undefined:
-		reg = dw.parseULEB128(p);
+		reg = to!uint(dw.parseULEB128(p));
 		fs.regs[reg].rule = RLoc.Rule.undefined;
 		debug(unwind)
 		    writefln("DW_CFA_undefined: reg=%d", reg);
 		break;
 
 	    case DW_CFA_same_value:
-		reg = dw.parseULEB128(p);
+		reg = to!uint(dw.parseULEB128(p));
 		fs.regs[reg].rule = RLoc.Rule.sameValue;
 		debug(unwind)
 		    writefln("DW_CFA_same_value: reg=%d", reg);
@@ -3396,9 +3397,9 @@ private:
 		    writefln("DW_CFA_offset: reg=%d, off=%d",
 			     reg, fs.regs[reg].N);
 		break;
-			
+
 	    case DW_CFA_offset_extended:
-		reg = dw.parseULEB128(p);
+		reg = to!uint(dw.parseULEB128(p));
 		fs.regs[reg].rule = RLoc.Rule.offsetN;
 		fs.regs[reg].N = dw.parseULEB128(p) * cie.dataAlign;
 		debug(unwind)
@@ -3407,7 +3408,7 @@ private:
 		break;
 
 	    case DW_CFA_offset_extended_sf:
-		reg = dw.parseULEB128(p);
+		reg = to!uint(dw.parseULEB128(p));
 		fs.regs[reg].rule = RLoc.Rule.offsetN;
 		fs.regs[reg].N = dw.parseSLEB128(p) * cie.dataAlign;
 		debug(unwind)
@@ -3416,7 +3417,7 @@ private:
 		break;
 
 	    case DW_CFA_val_offset:
-		reg = dw.parseULEB128(p);
+		reg = to!uint(dw.parseULEB128(p));
 		fs.regs[reg].rule = RLoc.Rule.valOffsetN;
 		fs.regs[reg].N = dw.parseULEB128(p) * cie.dataAlign;
 		debug(unwind)
@@ -3425,7 +3426,7 @@ private:
 		break;
 
 	    case DW_CFA_register:
-		reg = dw.parseULEB128(p);
+		reg = to!uint(dw.parseULEB128(p));
 		fs.regs[reg] = fs.regs[dw.parseULEB128(p)];
 		debug(unwind)
 		    writefln("DW_CFA_register: reg=%d", reg);
@@ -3445,7 +3446,7 @@ private:
 		break;
 
 	    case DW_CFA_restore_extended:
-		reg = dw.parseULEB128(p);
+		reg = to!uint(dw.parseULEB128(p));
 		fs.regs[reg] = cieFs.regs[op & 0x3f];
 		debug(unwind)
 		    writefln("DW_CFA_restore_extended: reg=%d", reg);

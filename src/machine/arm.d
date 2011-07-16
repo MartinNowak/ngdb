@@ -178,7 +178,7 @@ class ArmState: MachineState
 	    return 4;
 	}
 
-	size_t grCount()
+	uint grCount()
 	{
 	    return ArmReg.GR_COUNT;
 	}

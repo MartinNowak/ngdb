@@ -274,7 +274,7 @@ class X86State: MachineState
 	    return 4;
 	}
 
-	size_t grCount()
+	uint grCount()
 	{
 	    return EFLAGS + 1;
 	}
@@ -1141,7 +1141,7 @@ class X86_64State: MachineState
 	    return 7;
 	}
 
-	size_t grCount()
+	uint grCount()
 	{
 	    return RIP + 1;
 	}
