@@ -41,7 +41,12 @@ import debuginfo.language;
 import debuginfo.types;
 import machine.machine;
 
+import core.sys.posix.signal;
+import core.vararg;
+
 import std.c.stdlib;
+import std.algorithm;
+import std.array;
 import std.conv;
 import std.ctype;
 static import std.path;
@@ -116,11 +121,10 @@ class CommandTable
     string parse(string cmd, out string args)
     {
 	string name;
-	int i;
 
-	i = find(cmd, '/');
+	auto i = countUntil(cmd, '/');
 	if (i < 0)
-	    i = find(cmd, ' ');
+	    i = countUntil(cmd, ' ');
 
 	if (i >= 0) {
 	    name = strip(cmd[0..i]);
@@ -743,7 +747,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 		    break;
 		}
 	    }
-	    int i = find(line, ' ');
+	    auto i = countUntil(line, ' ');
 	    if (i >= 0) {
 		if (line[0..i] == "if" || line[0..i] == "while")
 		    level++;
@@ -765,7 +769,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	catch {}
 
 	try
-	    sourceFile(.toString(getenv("HOME")) ~ "/.ngdbinit");
+	    sourceFile(to!string(getenv("HOME")) ~ "/.ngdbinit");
 	catch {}
 
 	sigaction_t sa;
@@ -844,7 +848,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	if (!interactive_)
 	    return true;
 
-	string prompt;
+	char[] prompt;
 
 	void putc(dchar c)
 	{
@@ -855,7 +859,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	prompt ~= " (y or n)";
 	string s;
 	do {
-	    s = std.string.tolower(strip(inputline(prompt)));
+	    s = std.string.tolower(strip(inputline(cast(immutable)(prompt))));
 	} while (s.length == 0 || (s[0] != 'y' && s[0] != 'n'));
 	if (s[0] == 'y')
 	    return true;
@@ -874,7 +878,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	std.format.doFormat(&putc, _arguments, _argptr);
 	s = expandtabs(s);
 	while (s.length) {
-	    uint n = s.length;
+	    auto n = s.length;
 	    if (n > 80) n = 80;
 	    writefln("%s", s[0..n]);
 	    s = s[n..$];
@@ -908,7 +912,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 		     out uint count, out uint width, out string f)
     {
 	assert(args[0] == '/');
-	int i = find(args, ' ');
+	auto i = countUntil(args, ' ');
 	string fmt;
 	if (i >= 0) {
 	    fmt = args[1..i];
@@ -965,10 +969,10 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 
     bool parseSourceLine(string s, out SourceFile sf, out uint line)
     {
-	auto pos = find(s, ":");
+	auto pos = countUntil(s, ":");
 	if (pos >= 0) {
 	    try {
-	        line = toUint(s[pos + 1..$]);
+	        line = to!uint(s[pos + 1..$]);
 		sf = findFile(s[0..pos]);
 	    } catch (ConvError ce) {
 	        return false;
@@ -976,7 +980,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	    return true;
 	} else if (currentSourceFile_) {
 	    try {
-	        line = toUint(s);
+	        line = to!uint(s);
 	    } catch (ConvError ce) {
 	        return false;
 	    }
@@ -1114,7 +1118,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 		    s = func.toString(null, state) ~ ": ";
 		}
 
-		s ~= le[0].name ~ ":" ~ .toString(le[0].line);
+		s ~= le[0].name ~ ":" ~ to!string(le[0].line);
 		return s;
 	    }
 	}
@@ -1137,7 +1141,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	if (found) {
 	    string s;
 	    if (addr != bestSym.value)
-		s = bestSym.name ~ "+" ~ .toString(addr - bestSym.value);
+		s = bestSym.name ~ "+" ~ to!string(addr - bestSym.value);
 	    else
 		s = bestSym.name;
 	    if (s.length > 33)
@@ -1655,7 +1659,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	    foreach (mod; modules_)
 		res ~= mod.contents(state);
 	    for (int i = 0; i < valueHistory_.length; i++)
-		res ~= "$" ~ .toString(i);
+		res ~= "$" ~ to!string(i);
 
 	    return uniq(res);
 	}
@@ -1670,8 +1674,8 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	    name = name[1..$];
 	    if (name.length == 0 || isdigit(name[0])) {
 		try {
-		    uint num = name.length > 0
-			? toUint(name) : valueHistory_.length - 1;
+		    size_t num = name.length > 0
+			? to!size_t(name) : valueHistory_.length - 1;
 		    if (num >= valueHistory_.length)
 			return false;
 		    val = valueHistory_[num];
@@ -2205,7 +2209,7 @@ class BreakCommand: Command
 
 	void run(Debugger db, string args)
 	{
-	    if (find(args, ' ') >= 0) {
+	    if (countUntil(args, ' ') >= 0) {
 		db.pagefln("usage: break [<function or line>]");
 		return;
 	    }
@@ -2248,7 +2252,7 @@ class ConditionCommand: Command
 
 	void run(Debugger db, string args)
 	{
-	    int i = find(args, ' ');
+	    auto i = countUntil(args, ' ');
 	    if (i < 0) {
 		db.pagefln("usage: condition <id> [expression]");
 		return;
@@ -2256,7 +2260,7 @@ class ConditionCommand: Command
 	    try {
 		string num = args[0..i];
 		string expr = strip(args[i..$]);
-		db.setBreakpointCondition(toUint(num), expr);
+		db.setBreakpointCondition(to!uint(num), expr);
 	    } catch (ConvError ce) {
 		db.pagefln("Can't parse breakpoint ID");
 	    }
@@ -2284,7 +2288,7 @@ class CommandCommand: Command
 
 	void run(Debugger db, string args)
 	{
-	    int i = find(args, ' ');
+	    auto i = countUntil(args, ' ');
 	    if (i < 0) {
 		db.pagefln("usage: command <id> [command]");
 		return;
@@ -2292,7 +2296,7 @@ class CommandCommand: Command
 	    try {
 		string num = args[0..i];
 		string cmd = strip(args[i..$]);
-		db.setBreakpointCommand(toUint(num), cmd);
+		db.setBreakpointCommand(to!uint(num), cmd);
 	    } catch (ConvError ce) {
 		db.pagefln("Can't parse breakpoint ID");
 	    }
@@ -2320,7 +2324,7 @@ class EnableCommand: Command
 
 	void run(Debugger db, string args)
 	{
-	    if (find(args, ' ') >= 0) {
+	    if (countUntil(args, ' ') >= 0) {
 		db.pagefln("usage: enable [<id>]");
 		return;
 	    }
@@ -2329,7 +2333,7 @@ class EnableCommand: Command
 		    bp.enable;
 	    } else {
 		try {
-		    db.enableBreakpoint(toUint(args));
+		    db.enableBreakpoint(to!uint(args));
 		} catch (ConvError ce) {
 		    db.pagefln("Can't parse breakpoint ID");
 		}
@@ -2358,7 +2362,7 @@ class DisableCommand: Command
 
 	void run(Debugger db, string args)
 	{
-	    if (find(args, ' ') >= 0) {
+	    if (countUntil(args, ' ') >= 0) {
 		db.pagefln("usage: disable [<id>]");
 		return;
 	    }
@@ -2367,7 +2371,7 @@ class DisableCommand: Command
 		    bp.enable;
 	    } else {
 		try {
-		    db.disableBreakpoint(toUint(args));
+		    db.disableBreakpoint(to!uint(args));
 		} catch (ConvError ce) {
 		    db.pagefln("Can't parse breakpoint ID");
 		}
@@ -2401,12 +2405,12 @@ class DeleteCommand: Command
 
 	void run(Debugger db, string args)
 	{
-	    if (args.length == 0 || find(args, ' ') >= 0) {
+	    if (args.length == 0 || countUntil(args, ' ') >= 0) {
 		db.pagefln("usage: delete [<id>]");
 		return;
 	    }
 	    try {
-		db.deleteBreakpoint(toUint(args));
+		db.deleteBreakpoint(to!uint(args));
 	    } catch (ConvError ce) {
 		db.pagefln("Can't parse breakpoint ID");
 	    }
@@ -2471,7 +2475,7 @@ class ThreadCommand: Command
 	    }
 	    uint n = ~0;
 	    try {
-		n = toUint(args);
+		n = to!uint(args);
 	    } catch (ConvError ce) {
 	    }
 	    foreach (t; db.threads_) {
@@ -2706,14 +2710,14 @@ class FrameCommand: Command
 
 	void run(Debugger db, string args)
 	{
-	    if (find(args, ' ') >= 0) {
+	    if (countUntil(args, ' ') >= 0) {
 		db.pagefln("usage: frame [frame index]");
 		return;
 	    }
 	    if (args.length > 0) {
 		uint frameIndex;
 		try {
-		    frameIndex = toUint(args);
+		    frameIndex = to!uint(args);
 		} catch (ConvError ce) {
 		    frameIndex = ~0;
 		}
@@ -3146,7 +3150,7 @@ class DefineCommand: Command
 
 	void run(Debugger db, string args)
 	{
-	    if (args.length == 0 || find(args, ' ') >= 0) {
+	    if (args.length == 0 || countUntil(args, ' ') >= 0) {
 		db.pagefln("usage: define name");
 		return;
 	    }		
@@ -3202,7 +3206,7 @@ class MacroCommand: Command
 	    string[] cmds;
 	    foreach (cmd; cmds_) {
 		foreach (i, arg; arglist)
-		    cmd = replace(cmd, "$arg" ~ std.string.toString(i), arg);
+		    cmd = replace(cmd, "$arg" ~ to!string(i), arg);
 		cmds ~= cmd;
 	    }
 	    depth_++;
@@ -3241,10 +3245,10 @@ class SourceCommand: Command
 
 	void run(Debugger db, string args)
 	{
-	    if (args.length == 0 || find(args, ' ') >= 0) {
+	    if (args.length == 0 || countUntil(args, ' ') >= 0) {
 		db.pagefln("usage: source filename");
 		return;
-	    }		
+	    }
 
 	    try
 		db.sourceFile(args);
@@ -3275,10 +3279,10 @@ class IfCommand: Command
 
 	void run(Debugger db, string args)
 	{
-	    if (args.length == 0 || find(args, ' ') >= 0) {
+	    if (args.length == 0 || countUntil(args, ' ') >= 0) {
 		db.pagefln("usage: if expr");
 		return;
-	    }		
+	    }
 
 	    bool cond = false;
 	    MachineState s;
@@ -3320,10 +3324,10 @@ class WhileCommand: Command
 
 	void run(Debugger db, string args)
 	{
-	    if (args.length == 0 || find(args, ' ') >= 0) {
+	    if (args.length == 0 || countUntil(args, ' ') >= 0) {
 		db.pagefln("usage: while expr");
 		return;
-	    }		
+	    }
 
 	    string endString;
 	    string[] cmds = db.readStatementBody("", endString);

@@ -27,6 +27,7 @@
 module debuginfo.expr;
 
 version(tangobos) import std.compat;
+import std.conv;
 import std.string;
 import std.c.stdlib;
 
@@ -133,7 +134,7 @@ class IntegerConstantExpr: ExprBase
     override {
 	string toString()
 	{
-	    return std.string.toString(num_);
+	    return to!string(num_);
 	}
 	DebugItem eval(Scope sc, MachineState state)
 	{
@@ -175,7 +176,7 @@ class FloatConstantExpr: ExprBase
     override {
 	string toString()
 	{
-	    return std.string.toString(num_);
+	    return to!string(num_);
 	}
 	DebugItem eval(Scope sc, MachineState state)
 	{
@@ -202,7 +203,7 @@ class CharConstantExpr: ExprBase
     override {
 	string toString()
 	{
-	    return std.string.toString(ch_);
+	    return to!string(ch_);
 	}
 	DebugItem eval(Scope sc, MachineState state)
 	{
