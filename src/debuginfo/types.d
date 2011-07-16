@@ -121,12 +121,12 @@ private:
 
 class IntegerType: TypeBase
 {
-    this(Language lang, string name, bool isSigned, uint byteWidth)
+    this(Language lang, string name, bool isSigned, size_t byteWidth)
     {
 	super(lang);
 	name_ = name;
 	isSigned_ = isSigned;
-	byteWidth_ = byteWidth;
+	byteWidth_ = to!uint(byteWidth);
     }
 
     bool isSigned()
@@ -256,7 +256,7 @@ private:
 
 class CharType: IntegerType
 {
-    this(Language lang, string name, bool isSigned, uint byteWidth)
+    this(Language lang, string name, bool isSigned, size_t byteWidth)
     {
 	super(lang, name, isSigned, byteWidth);
     }
@@ -293,11 +293,11 @@ private:
 
 class BooleanType: TypeBase
 {
-    this(Language lang, string name, uint byteWidth)
+    this(Language lang, string name, size_t byteWidth)
     {
 	super(lang);
 	name_ = name;
-	byteWidth_ = byteWidth;
+	byteWidth_ = to!uint(byteWidth);
     }
 
     override
@@ -367,11 +367,11 @@ private:
 
 class FloatType: TypeBase
 {
-    this(Language lang, string name, uint byteWidth)
+    this(Language lang, string name, size_t byteWidth)
     {
 	super(lang);
 	name_ = name;
-	byteWidth_ = byteWidth;
+	byteWidth_ = to!uint(byteWidth);
     }
 
     override
@@ -817,7 +817,7 @@ class EnumType: IntegerType
 	ulong value;
     }
 
-    this(Language lang, string name, uint byteWidth)
+    this(Language lang, string name, size_t byteWidth)
     {
 	super(lang, name, false, byteWidth);
     }

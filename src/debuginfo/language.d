@@ -50,7 +50,7 @@ class Language
     {
 	return voidType_;
     }
-    Type integerType(string name, bool isSigned, uint byteWidth)
+    Type integerType(string name, bool isSigned, size_t byteWidth)
     {
 	scope IntegerType t = new IntegerType(this, name, isSigned, byteWidth);
 	auto p = t in integerTypes_;
@@ -60,7 +60,7 @@ class Language
 	integerTypes_[ty] = ty;
 	return ty;
     }
-    Type charType(string name, bool isSigned, uint byteWidth)
+    Type charType(string name, bool isSigned, size_t byteWidth)
     {
 	scope CharType t = new CharType(this, name, isSigned, byteWidth);
 	auto p = t in charTypes_;
@@ -70,7 +70,7 @@ class Language
 	charTypes_[ty] = ty;
 	return ty;
     }
-    Type booleanType(string name, uint byteWidth)
+    Type booleanType(string name, size_t byteWidth)
     {
 	scope BooleanType t = new BooleanType(this, name, byteWidth);
 	auto p = t in booleanTypes_;
@@ -80,7 +80,7 @@ class Language
 	booleanTypes_[ty] = ty;
 	return ty;
     }
-    Type floatType(string name, uint byteWidth)
+    Type floatType(string name, size_t byteWidth)
     {
 	scope FloatType t = new FloatType(this, name, byteWidth);
 	auto p = t in floatTypes_;
