@@ -104,7 +104,7 @@ enum {
 /*
  * Initialization, cleanup, and resetting
  */
-EditLine	*el_init(char *, FILE *, FILE *, FILE *);
+EditLine	*el_init(const(char) *, FILE *, FILE *, FILE *);
 void		 el_end(EditLine *);
 void		 el_reset(EditLine *);
 
@@ -186,7 +186,7 @@ void *          el_data_get    (EditLine *);
  * User-defined function interface.
  */
 LineInfo	*el_line(EditLine *);
-int		 el_insertstr(EditLine *, char *);
+int		 el_insertstr(EditLine *, const(char) *);
 void		 el_deletestr(EditLine *, int);
 
 

@@ -28,7 +28,7 @@ module cli;
 
 //debug = step;
 
-//version = editline;
+version = editline;
 
 version (editline)
 	import editline;
@@ -645,7 +645,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	    hist_ = history_init();
 	    history(hist_, &ev, H_SETSIZE, 100);
 
-	    el_ = el_init(toStringz("ngdb"), stdin, stdout, stderr);
+	    el_ = el_init(toStringz("ngdb"), std.c.stdio.stdin, std.c.stdio.stdout, std.c.stdio.stderr);
 	    el_set(el_, EL_CLIENTDATA, cast(void*) this);
 	    el_set(el_, EL_EDITOR, toStringz("emacs"));
 	    el_set(el_, EL_SIGNAL, 1);
@@ -711,11 +711,11 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	    }
 	    return "";
 	}
-	
+
 	version (editline) {
 	    int num;
 	    elPrompt_ = prompt;
-	    return .toString(el_gets(el_, &num)).dup;
+	    return to!string(el_gets(el_, &num));
 	} else {
 	    writef("%s ", prompt_);
 	    return chomp(readln());
@@ -826,7 +826,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 		for (int rv = history(hist_, &ev, H_LAST);
 		     rv != -1;
 		     rv = history(hist_, &ev, H_PREV))
-		    writef("%d %s", ev.num, .toString(ev.str));
+		    writef("%d %s", ev.num, to!string(ev.str));
 	    }
 	} else {
 	    try {
@@ -1726,7 +1726,7 @@ private:
 version (editline) {
     string elPrompt_;
 
-    extern(C) static char* _prompt(EditLine *el)
+    extern(C) static const(char)* _prompt(EditLine *el)
     {
 	void* p;
 	el_get(el, EL_CLIENTDATA, &p);
@@ -1753,7 +1753,7 @@ version (editline) {
 	LineInfo* li = el_line(el);
 
 	size_t n = li.cursor - li.buffer;
-	string args = chomp(li.buffer[0..n].dup);
+	string args = chomp(li.buffer[0..n].idup);
 	string[] matches = commands_.complete(this, args);
 
 	if (matches.length == 1) {
