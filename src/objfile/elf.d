@@ -903,7 +903,8 @@ enum {
 import std.stdio;
 import std.string;
 //import std.c.unix.unix;
-import sys.pread;
+import core.sys.posix.fcntl; // open
+import core.sys.posix.unistd; // pread, close
 
 class Elffile: Objfile
 {
