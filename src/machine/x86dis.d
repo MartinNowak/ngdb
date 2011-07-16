@@ -72,7 +72,7 @@ class Disassembler
 		continue;
 	    }
 
-	    switch (readByte(loc)) {
+	    switch (b) {
 	    case 0xf0:
 		ds.lockPrefix_ = true;
 		loc++;
@@ -1528,26 +1528,28 @@ private:
 	string s = extractOpcodes(m);
 	if (flags & (PREFIX66|PREFIXF2|PREFIXF3))
 	    s = s[3..$];
-	char[] opcodes;
+	ubyte[] opcodes;
 	while (s.length > 0) {
 	    if (s[0] == ' ') {
 		s = s[1..$];
 	    } else {
-		opcodes ~= (fromhex(s[0]) << 4) | fromhex(s[1]);
+                ubyte opcode = to!ubyte(fromhex(s[0]) << 4 | fromhex(s[1]));
+		opcodes ~= opcode;
 		s = s[2..$];
 	    }
 	}
 
-	string opcode = a;
+	string opname;
 	string[] operands;
 	auto i = countUntil(a, ' ');
 	if (i > 0) {
-	    opcode = a[0..i];
+	    opname = tolower(a[0..i]);
 	    operands = split(a[i + 1..$], ",");
-	}
-	opcode = tolower(opcode);
+	} else {
+            opname = tolower(a);
+        }
 
-	addInstruction(Instruction(flags, opcodes, opcode, operands));
+	addInstruction(Instruction(flags, opcodes, opname, operands));
     }
 
     /**
@@ -1743,8 +1745,8 @@ class InstructionTable
 struct Instruction
 {
     int flags_;
-    char[] opcodes_;
-    string opcode_;
+    ubyte[] opcodes_;
+    string opname_;
     string[] operands_;
 
     void skipImmediate(DecodeState* ds)
@@ -1754,7 +1756,7 @@ struct Instruction
 
     string display(DecodeState* ds)
     {
-	return ds.displayInstruction(opcode_, ds.displayOperands(operands_));
+	return ds.displayInstruction(opname_, ds.displayOperands(operands_));
     }
 }
 
