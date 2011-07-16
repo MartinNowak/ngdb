@@ -36,6 +36,7 @@ import debuginfo.dwarf;
 import debuginfo.types;
 import machine.machine;
 
+import std.algorithm;
 import std.exception;
 import std.stdint;
 import std.stdio;
@@ -1260,7 +1261,7 @@ class PtraceRun: TargetFactory
 	    debug (ptrace)
 		writefln("PATH=%s", std.string.toString(getenv("PATH")));
 	    execpath = args[0];
-	    if (find(execpath, "/") < 0) {
+	    if (countUntil(execpath, "/") < 0) {
 		foreach (p; path) {
 		    string s = p ~ "/" ~ execpath;
 		    debug (ptrace)

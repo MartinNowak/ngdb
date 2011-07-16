@@ -35,6 +35,7 @@ import debuginfo.types;
 import machine.machine;
 import machine.x86;
 
+import std.algorithm;
 import std.stdint;
 import std.stdio;
 import std.string;
@@ -252,7 +253,7 @@ private string pathSearch(string path, string name)
     string execpath = "";
 
     execpath = name;
-    if (find(execpath, "/") < 0) {
+    if (countUntil(execpath, "/") < 0) {
 	string[] paths = split(path, ":");
 	foreach (p; paths) {
 	    string s = p ~ "/" ~ execpath;
