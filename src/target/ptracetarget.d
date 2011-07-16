@@ -62,7 +62,7 @@ extern (C)
 {
     int errno;
     char* strerror(int);
-    char* realpath(char*, char*);
+    char* realpath(const(char)*, char*);
 }
 
 version (linux) {
@@ -86,7 +86,7 @@ class PtraceException: ErrnoException
 
 class PtraceModule: TargetModule
 {
-    this(char[] filename, ulong start, ulong end)
+    this(string filename, ulong start, ulong end)
     {
 	filename_ = filename;
 	start_ = start;
@@ -190,7 +190,7 @@ class PtraceModule: TargetModule
     }
 
     override {
-	char[] filename()
+	string filename()
 	{
 	    return filename_;
 	}
@@ -902,11 +902,10 @@ private:
 
     string realpath(string filename)
     {
-	char[] buf;
-	buf.length = 1024;
-	char* p = .realpath(toStringz(filename), &buf[0]);
+	char[1024] buf;
+	char* p = .realpath(toStringz(filename), buf.ptr);
 	if (p)
-	    return .toString(p);
+	    return std.conv.to!string(p);
 	return filename;
     }
 

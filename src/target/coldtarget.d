@@ -44,7 +44,7 @@ static import std.file;
 
 class ColdModule: TargetModule
 {
-    this(char[] filename, ulong addr)
+    this(string filename, ulong addr)
     {
 	void setLimits(uint tag, ulong s, ulong e)
 	{
@@ -67,7 +67,7 @@ class ColdModule: TargetModule
     }
 
     override {
-	char[] filename()
+	string filename()
 	{
 	    return filename_;
 	}
