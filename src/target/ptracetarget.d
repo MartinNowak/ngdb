@@ -881,7 +881,7 @@ private:
 	    newThreads.length = ptrace(PT_GETNUMLWPS, pid_, null, 0);
 	    ptrace(PT_GETLWPLIST, pid_,
 		   cast(char*) newThreads.ptr,
-		   newThreads.length * lwpid_t.sizeof);
+		   std.conv.to!int(newThreads.length * lwpid_t.sizeof));
 
 	    foreach (ntid; newThreads) {
 		if (ntid in threads_) {
@@ -1017,8 +1017,8 @@ private:
     version (FreeBSD) {
 	string readMaps()
 	{
-	    string mapfile = "/proc/" ~ std.string.toString(pid_) ~ "/map";
-	    string result;
+            string mapfile = "/proc/" ~ std.conv.to!string(pid_) ~ "/map";
+	    char[] result;
 
 	    auto fd = open(toStringz(mapfile), O_RDONLY);
 	    if (fd < 0) {
@@ -1047,7 +1047,7 @@ private:
 		break;
 	    }
 
-	    return result;
+	    return result.idup;
 	}
     }
     version (linux) {
@@ -1234,7 +1234,7 @@ class PtraceAttach: TargetFactory
 
 	    if (args.length != 1)
 		throw new Exception("too many arguments to target attach");
-	    pid = std.string.atoi(args[0]);
+	    pid = std.conv.to!int(args[0]);
 	    PtraceTarget.ptrace(PT_ATTACH, pid, null, 0);
 	    PtraceTarget.waitpid(pid, &status, 0);
 	    return new PtraceTarget(listener, pid, "", status);
@@ -1242,7 +1242,8 @@ class PtraceAttach: TargetFactory
     }
 }
 
-extern (C) int execve(char*, char**, char**);
+extern (C) int execve(const(char)*, const(char*)*, const(char*)*);
+extern (C) const(char *)* environ;
 
 class PtraceRun: TargetFactory
 {
@@ -1255,11 +1256,11 @@ class PtraceRun: TargetFactory
 
 	Target connect(TargetListener listener, string[] args)
 	{
-	    string[] path = split(std.string.toString(getenv("PATH")), ":");
+	    string[] path = split(std.conv.to!string(getenv("PATH")), ":");
 	    string execpath = "";
 
 	    debug (ptrace)
-		writefln("PATH=%s", std.string.toString(getenv("PATH")));
+		writefln("PATH=%s", std.conv.to!string(getenv("PATH")));
 	    execpath = args[0];
 	    if (countUntil(execpath, "/") < 0) {
 		foreach (p; path) {
@@ -1279,8 +1280,8 @@ class PtraceRun: TargetFactory
 		throw new Exception("Can't find executable");
 	    }
 
-	    char* pathz = std.string.toStringz(execpath);
-	    char*[] argv;
+	    immutable(char)* pathz = std.string.toStringz(execpath);
+	    immutable(char)*[] argv;
 
 	    argv.length = args.length + 1;
 	    foreach (i, arg; args)
@@ -1319,7 +1320,7 @@ class PtraceRun: TargetFactory
 		setenv("LD_BIND_NOW", "yes", 1);
 		execve(pathz, argv.ptr, environ);
 		writefln("execve returned: %s",
-			 std.string.toString(strerror(errno)));
+			 std.conv.to!string(strerror(errno)));
 		exit(1);
 	    }
 
