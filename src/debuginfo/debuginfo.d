@@ -185,7 +185,7 @@ interface Location
 
 class RegisterLocation: Location
 {
-    this(uint regno, size_t length)
+    this(size_t regno, size_t length)
     {
 	regno_ = regno;
 	length_ = length;
@@ -249,7 +249,7 @@ class RegisterLocation: Location
 	}
     }
 
-    uint regno_;
+    size_t regno_;
     size_t length_;
 }
 

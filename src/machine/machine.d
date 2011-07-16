@@ -95,22 +95,22 @@ interface MachineState: Scope
     /**
      * Set a general register by register number.
      */
-    void setGR(uint gregno, ulong val);
+    void setGR(size_t gregno, ulong val);
 
     /**
      * Get a general register by register number.
      */
-    ulong getGR(uint gregno);
+    ulong getGR(size_t gregno);
 
     /**
      * Return the width in bytes of a general register
      */
-    size_t grWidth(int greg);
+    uint grWidth(size_t gregno);
 
     /**
      * Return the stack pointer register index.
      */
-    uint spregno();
+    size_t spregno();
 
     /**
      * Return the number of general registers
@@ -136,13 +136,13 @@ interface MachineState: Scope
      * Read raw register bytes in target byte order. Register index
      * corresponds to dwarf register number.
      */
-    ubyte[] readRegister(uint regno, size_t bytes);
+    ubyte[] readRegister(size_t regno, size_t bytes);
 
     /**
      * Write raw register bytes in target byte order. Register index
      * corresponds to dwarf register number.
      */
-    void writeRegister(uint regno, ubyte[]);
+    void writeRegister(size_t regno, ubyte[]);
 
     /**
      * Return a byte array containing a breakpoint instruction for

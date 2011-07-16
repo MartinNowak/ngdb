@@ -253,23 +253,23 @@ class X86State: MachineState
 	    *cast(reg32*) p = regs_;
 	}
 
-	void setGR(uint gregno, ulong val)
+	void setGR(size_t gregno, ulong val)
 	{
 	    *grAddr(gregno) = val;
 	    grdirty_ = true;
 	}
 
-	ulong getGR(uint gregno)
+	ulong getGR(size_t gregno)
 	{
 	    return *grAddr(gregno);
 	}
 
-	size_t grWidth(int greg)
+	uint grWidth(size_t greg)
 	{
 	    return 4;
 	}
 
-	uint spregno()
+	size_t spregno()
 	{
 	    return 4;
 	}
@@ -390,7 +390,7 @@ class X86State: MachineState
 	    *cast(xmmreg32*) regs = fpregs_;
 	}
 
-	ubyte[] readRegister(uint regno, size_t bytes)
+	ubyte[] readRegister(size_t regno, size_t bytes)
 	{
 	    ubyte[] v;
 	    if (regno <= TRAPNO) {
@@ -427,7 +427,7 @@ class X86State: MachineState
 	    return v;
 	}
 
-	void writeRegister(uint regno, ubyte[] v)
+	void writeRegister(size_t regno, ubyte[] v)
 	{
 	    if (regno < 10) {
 		assert(v.length <= 4);
@@ -1120,23 +1120,23 @@ class X86_64State: MachineState
 	    *cast(reg64*) p = regs_;
 	}
 
-	void setGR(uint gregno, ulong val)
+	void setGR(size_t gregno, ulong val)
 	{
 	    *grAddr(gregno) = val;
 	    grdirty_ = true;
 	}
 
-	ulong getGR(uint gregno)
+	ulong getGR(size_t gregno)
 	{
 	    return *grAddr(gregno);
 	}
 
-	size_t grWidth(int greg)
+	uint grWidth(size_t greg)
 	{
 	    return 8;
 	}
 
-	uint spregno()
+	size_t spregno()
 	{
 	    return 7;
 	}
@@ -1257,7 +1257,7 @@ class X86_64State: MachineState
 	    *cast(xmmreg64*) regs = fpregs_;
 	}
 
-	ubyte[] readRegister(uint regno, size_t bytes)
+	ubyte[] readRegister(size_t regno, size_t bytes)
 	{
 	    ubyte[] v;
 	    if (regno <= RIP) {
@@ -1294,7 +1294,7 @@ class X86_64State: MachineState
 	    return v;
 	}
 
-	void writeRegister(uint regno, ubyte[] v)
+	void writeRegister(size_t regno, ubyte[] v)
 	{
 	    if (regno <= RIP) {
 		assert(v.length <= 8);

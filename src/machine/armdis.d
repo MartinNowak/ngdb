@@ -290,7 +290,7 @@ disasm(ref ulong loc, uint delegate(ulong) readWord, string delegate(ulong) look
 	uint insn;
 	int matchp;
 	int branch;
-	char* f_ptr;
+	immutable(char)* f_ptr;
 	int fmt;
 
 	fmt = 0;
@@ -585,7 +585,7 @@ disasm_print_reglist(uint insn)
 }
 
 static string
-disasm_insn_ldrstr(uint insn, uint loc, string delegate(ulong) lookupAddress)
+disasm_insn_ldrstr(uint insn, ulong loc, string delegate(ulong) lookupAddress)
 {
 	int offset;
 	string res;
@@ -616,7 +616,7 @@ disasm_insn_ldrstr(uint insn, uint loc, string delegate(ulong) lookupAddress)
 }
 
 static string
-disasm_insn_ldrhstrh(uint insn, uint loc, string delegate(ulong) lookupAddress)
+disasm_insn_ldrhstrh(uint insn, ulong loc, string delegate(ulong) lookupAddress)
 {
 	int offset;
 	string res;
@@ -647,7 +647,7 @@ disasm_insn_ldrhstrh(uint insn, uint loc, string delegate(ulong) lookupAddress)
 }
 
 static string
-disasm_insn_ldcstc(uint insn, uint loc)
+disasm_insn_ldcstc(uint insn, ulong loc)
 {
 	string res;
 

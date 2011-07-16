@@ -34,6 +34,7 @@ import target.target;
 private import machine.armdis;
 import sys.ptrace;
 
+import std.conv;
 import std.format;
 import std.stdint;
 import std.stdio;
@@ -85,6 +86,8 @@ private string[] ArmRegNames =
     "cpsr",
 ];
 
+alias uint32_t reg_t;
+
 class ArmState: MachineState
 {
     this(Target target)
@@ -109,7 +112,7 @@ class ArmState: MachineState
 
 	void pc(ulong pc)
 	{
-	    gregs_[ArmReg.PC] = pc;
+            gregs_[ArmReg.PC] = to!reg_t(pc);
 	    grdirty_ = true;
 	}
 
@@ -154,18 +157,18 @@ class ArmState: MachineState
 	{
 	}
 
-	void setGR(uint gregno, ulong val)
+	void setGR(size_t gregno, ulong val)
 	{
-	    gregs_[gregno] = val;
+            gregs_[gregno] = to!reg_t(val);
 	    grdirty_ = true;
 	}
 
-	ulong getGR(uint gregno)
+	ulong getGR(size_t gregno)
 	{
 	    return gregs_[gregno];
 	}
 
-	size_t grWidth(int greg)
+	uint grWidth(size_t greg)
 	{
 	    return 4;
 	}
@@ -200,7 +203,7 @@ class ArmState: MachineState
 	{
 	}
 
-	ubyte[] readRegister(uint regno, size_t bytes)
+	ubyte[] readRegister(size_t regno, size_t bytes)
 	{
 	    if (regno < ArmReg.GR_COUNT) {
 		ubyte[] v;
@@ -214,7 +217,7 @@ class ArmState: MachineState
 	    }
 	}
 
-	void writeRegister(uint regno, ubyte[] v)
+	void writeRegister(size_t regno, ubyte[] v)
 	{
 	    if (regno < ArmReg.GR_COUNT) {
 		assert(v.length <= 4);
@@ -265,7 +268,7 @@ class ArmState: MachineState
 	    float64 f64;
 	    switch (bytes.length) {
 	    case 4:
-		f32.i = readInteger(bytes);
+                f32.i = to!uint(readInteger(bytes));
 		return f32.f;
 	    case 8:
 		f64.i = readInteger(bytes);
@@ -305,7 +308,7 @@ class ArmState: MachineState
 	{
 	    ulong addr = start;
 	    while (start < end) {
-		uint insn = readInteger(readMemory(addr, 4));
+                uint insn = to!uint(readInteger(readMemory(addr, 4)));
 		if (((insn >> 24) & 7) == 5)	// B, BL
 		    break;
 		if (((insn >> 20) & 0xff) == 0x12) // BX
@@ -325,7 +328,7 @@ class ArmState: MachineState
 	{
 	    ulong addr = start;
 	    while (start < end) {
-		uint insn = readInteger(readMemory(addr, 4));
+                uint insn = to!uint(readInteger(readMemory(addr, 4)));
 		if (((insn >> 24) & 7) == 5)	// B, BL
 		    break;
 		addr += 4;
@@ -338,8 +341,7 @@ class ArmState: MachineState
 	{
 	    uint readWord(ulong address)
 	    {
-		ubyte[] t = readMemory(address, 4);
-		uint v = readInteger(t);
+		uint v = to!uint(readInteger(readMemory(address, 4)));
 		return v;
 	    }
 	    return machine.armdis.disasm(address,
@@ -377,7 +379,7 @@ class ArmState: MachineState
 	}
     }
 
-    Value regAsValue(uint i)
+    Value regAsValue(size_t i)
     {
 	auto loc = new RegisterLocation(i, grWidth(i));
 	auto ty = CLikeLanguage.instance.integerType(
@@ -395,7 +397,7 @@ private:
 	double f;
     }
     Target	target_;
-    uint32_t	gregs_[ArmReg.GR_COUNT];
+    reg_t	gregs_[ArmReg.GR_COUNT];
     bool	grdirty_;
     uint32_t	tp_;
 }
