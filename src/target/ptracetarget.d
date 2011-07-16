@@ -35,6 +35,7 @@ import debuginfo.debuginfo;
 import debuginfo.dwarf;
 import debuginfo.types;
 import machine.machine;
+import sys.environ;
 
 import std.algorithm;
 import std.exception;
@@ -61,7 +62,6 @@ import sys.wait;
 
 extern (C)
 {
-    int errno;
     char* strerror(int);
     char* realpath(const(char)*, char*);
 }
@@ -1246,7 +1246,6 @@ class PtraceAttach: TargetFactory
 }
 
 extern (C) int execve(const(char)*, const(char*)*, const(char*)*);
-extern (C) const(char *)* environ;
 
 class PtraceRun: TargetFactory
 {
