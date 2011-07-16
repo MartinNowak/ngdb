@@ -39,10 +39,6 @@ import std.stdint;
 import std.stdio;
 import std.string;
 import std.c.stdlib;
-version (DigitalMars)
-import std.c.posix.posix;
-else
-import std.c.unix.unix;
 
 static import std.file;
 

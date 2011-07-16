@@ -28,7 +28,7 @@ module cli;
 
 //debug = step;
 
-version = editline;
+//version = editline;
 
 version (editline)
 	import editline;
@@ -41,10 +41,6 @@ import debuginfo.language;
 import debuginfo.types;
 import machine.machine;
 
-version (DigitalMars)
-import std.c.posix.posix;
-else
-import std.c.unix.unix;
 import std.c.stdlib;
 import std.conv;
 import std.ctype;

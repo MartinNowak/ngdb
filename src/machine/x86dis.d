@@ -3,8 +3,6 @@ module machine.x86dis;
 import std.string;
 import std.stdio;
 import std.conv : octal;
-version (LDC)
-    import std.compat;
 
 private enum
 {

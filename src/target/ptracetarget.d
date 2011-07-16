@@ -40,15 +40,17 @@ import std.stdint;
 import std.stdio;
 import std.string;
 import std.c.stdlib;
-version (DigitalMars) {
-    import std.c.posix.posix;
-    const int ESRCH = 3;
-} else
-    import std.c.unix.unix;
+
+import core.stdc.errno;
+import core.sys.posix.sys.types;
+import core.sys.posix.sys.wait;
+import core.sys.posix.fcntl;
+import core.sys.posix.signal;
+import core.sys.posix.unistd;
+import core.stdc.errno;
 
 version (FreeBSD) {
 	version = use_PT_IO;
-	const int EFBIG = 27;
 }
 
 static import std.file;

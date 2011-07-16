@@ -31,13 +31,8 @@
  */
 
 module sys.ptrace;
-version (DigitalMars)
-import std.c.posix.posix;
-else
-import std.c.unix.unix;
 import std.stdint;
-
-alias int32_t lwpid_t;
+import core.sys.posix.signal;
 
 enum {
 	PT_TRACE_ME	= 0,	/* child declares it's being traced */

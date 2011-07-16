@@ -29,12 +29,10 @@
  *	@(#)wait.h	8.2 (Berkeley) 7/10/94
  * $FreeBSD: src/sys/sys/wait.h,v 1.22 2005/11/10 05:00:20 davidxu Exp $
  */
+module sys.wait;
 
 import std.conv : octal;
-version (GDC)
-import std.c.unix.unix;
-else
-import std.c.posix.posix;
+import core.sys.posix.sys.wait;
 
 /*
  * This file holds definitions relevant to the wait4 system call and the
@@ -46,16 +44,7 @@ import std.c.posix.posix;
  * values.
  */
 const int WCOREFLAG	= octal!200;
-
-int _WSTATUS(int x)	{ return x & octal!177; }
 const int _WSTOPPED	= octal!177;		/* _WSTATUS if process is stopped */
-int WIFSTOPPED(int x)	{ return _WSTATUS(x) == _WSTOPPED; }
-int WSTOPSIG(int x)	{ return x >> 8; }
-int WIFSIGNALED(int x)	{ return _WSTATUS(x) != _WSTOPPED && _WSTATUS(x) != 0; }
-int WTERMSIG(int x)	{ return _WSTATUS(x); }
-int WIFEXITED(int x)	{ return _WSTATUS(x) == 0; }
-int WEXITSTATUS(int x)	{ return x >> 8; }
-int WIFCONTINUED(int x)	{ return x == 0x13; }	/* 0x13 == SIGCONT */
 int WCOREDUMP(int x)	{ return x & WCOREFLAG; }
 
 int W_EXITCODE(int ret, int sig) { return (ret << 8) | sig; }

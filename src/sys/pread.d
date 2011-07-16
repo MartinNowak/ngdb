@@ -23,10 +23,7 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-version (GDC)
-import std.c.unix.unix;
-else
-import std.c.posix.posix;
+module sys.pread;
+import core.sys.posix.sys.types;
 
 extern(C) ssize_t pread(int, void *, size_t, off_t);
