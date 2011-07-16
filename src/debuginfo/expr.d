@@ -567,7 +567,7 @@ class AssignExpr: ExprBase
 	    if (!left.loc.isLval(state))
 		throw new EvalException("Not an l-value in assignment");
 	    Value right = right_.eval(sc, state).toValue(state);
-	    if (left.type != right.type) {
+	    if (left.type !is right.type) {
 		if (!left.type.coerce(state, right))
 		    throw new EvalException("Incompatible types in assignment");
 	    }

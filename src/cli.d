@@ -1495,9 +1495,9 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 
     void currentThread(TargetThread t)
     {
-	if (t != currentThread_) {
+	if (t !is currentThread_) {
 	    foreach (i, tt; threads_) {
-		if (t == tt) {
+		if (t is tt) {
 		    pagefln("Switched to thread %d", i + 1);
 		}
 	    }
@@ -1591,7 +1591,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	void onThreadCreate(Target target, TargetThread thread)
 	{
 	    foreach (t; threads_)
-		if (t == thread)
+		if (t is thread)
 		    return;
 	    threads_ ~= thread;
 	    if (!currentThread_)
@@ -1601,7 +1601,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	{
 	    TargetThread[] newThreads;
 	    foreach (t; threads_)
-		if (t != thread)
+		if (t !is thread)
 		    newThreads ~= t;
 	    threads_ = newThreads;
 	}
@@ -2547,7 +2547,7 @@ class InfoThreadCommand: Command
 	{
 	    foreach (i, t; db.threads_) {
 		db.pagefln("%s %-2d: %s",
-			   t == db.currentThread ? "*" : " ",
+			   t is db.currentThread ? "*" : " ",
 			   t.id,
 			   db.describeAddress(t.state.pc, t.state));
 	    }
