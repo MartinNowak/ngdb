@@ -30,6 +30,7 @@
  * $FreeBSD: src/sys/sys/wait.h,v 1.22 2005/11/10 05:00:20 davidxu Exp $
  */
 
+import std.conv : octal;
 version (GDC)
 import std.c.unix.unix;
 else
@@ -44,10 +45,10 @@ import std.c.posix.posix;
  * Macros to test the exit status returned by wait and extract the relevant
  * values.
  */
-const int WCOREFLAG	= 0200;
+const int WCOREFLAG	= octal!200;
 
-int _WSTATUS(int x)	{ return x & 0177; }
-const int _WSTOPPED	= 0177;		/* _WSTATUS if process is stopped */
+int _WSTATUS(int x)	{ return x & octal!177; }
+const int _WSTOPPED	= octal!177;		/* _WSTATUS if process is stopped */
 int WIFSTOPPED(int x)	{ return _WSTATUS(x) == _WSTOPPED; }
 int WSTOPSIG(int x)	{ return x >> 8; }
 int WIFSIGNALED(int x)	{ return _WSTATUS(x) != _WSTOPPED && _WSTATUS(x) != 0; }

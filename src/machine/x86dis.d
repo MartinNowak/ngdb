@@ -2,6 +2,7 @@ module machine.x86dis;
 
 import std.string;
 import std.stdio;
+import std.conv : octal;
 version (LDC)
     import std.compat;
 
@@ -34,9 +35,9 @@ private enum
     PREFIX66	= 1<<9,		// mandatory 66 prefix
     PREFIXF2	= 1<<10,	// mandatory F2 prefix
     PREFIXF3	= 1<<11,	// mandatory F3 prefix
-    MODRMMASK	= 077 << 12,	// mask for matching modrm rm and reg fields
+    MODRMMASK	= octal!77 << 12,	// mask for matching modrm rm and reg fields
     MODRMMASKSHIFT = 12,	// mask for matching modrm rm and reg fields
-    MODRMMATCH	= 077 << 18,	// value for matching modrm rm and reg fields
+    MODRMMATCH	= octal!77 << 18,	// value for matching modrm rm and reg fields
     MODRMMATCHSHIFT = 18,	// value for matching modrm rm and reg fields
     FLOW	= 1<<24		// instruction is a branch, call or ret
 }
@@ -1602,7 +1603,7 @@ private:
 		 * Match a modrm byte with mod!=3 and reg==s[2].
 		 */
 		flags |= (MODRM | MEMONLY);
-		flags |= 070 << MODRMMASKSHIFT;
+		flags |= octal!70 << MODRMMASKSHIFT;
 		flags |= (s[2] - '0') << (MODRMMATCHSHIFT + 3);
 		s = s[3..$];
 	    } else if (s.length >= 3 && s[0..2] == "/r" && isoctal(s[2])) {
@@ -1611,7 +1612,7 @@ private:
 		 * also octal, additionally check rm==s[3].
 		 */
 		flags |= (MODRM | REGONLY);
-		flags |= 070 << MODRMMASKSHIFT;
+		flags |= octal!70 << MODRMMASKSHIFT;
 		flags |= (s[2] - '0') << (MODRMMATCHSHIFT + 3);
 		if (s.length >= 4 && isoctal(s[3])) {
 		    flags |= 007 << MODRMMASKSHIFT;
@@ -1625,7 +1626,7 @@ private:
 		 * Match a modrm byte with reg==s[2].
 		 */
 		flags |= MODRM;
-		flags |= 070 << MODRMMASKSHIFT;
+		flags |= octal!70 << MODRMMASKSHIFT;
 		flags |= (s[1] - '0') << (MODRMMATCHSHIFT + 3);
 		s = s[2..$];
 	    } else if (startsWith("/r", s)) {
