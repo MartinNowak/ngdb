@@ -1,5 +1,6 @@
 module machine.x86dis;
 
+import std.algorithm;
 import std.string;
 import std.stdio;
 import std.conv : to, octal;
@@ -1539,7 +1540,7 @@ private:
 
 	string opcode = a;
 	string[] operands;
-	int i = find(a, ' ');
+	auto i = countUntil(a, ' ');
 	if (i > 0) {
 	    opcode = a[0..i];
 	    operands = split(a[i + 1..$], ",");
@@ -2207,6 +2208,7 @@ struct DecodeState
 		return std.string.format("[%s%s]",
 					 regName(REGISTER, mode, baseReg_), s);
 	    }
+            assert(0);
 	}
 
 	if (mod == 3) {
@@ -2639,7 +2641,7 @@ struct DecodeState
     }
     string displayInstruction(string opcode, Operand[] operands)
     {
-	if (find(opcode, '/') >= 0) {
+	if (countUntil(opcode, '/') >= 0) {
 	    string[] ops = split(opcode, "/");
 	    if (size_ >= 1 && size_ <= ops.length)
 		opcode = ops[size_ - 1];
