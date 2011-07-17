@@ -47,7 +47,6 @@ class EvalException: Exception
 interface Expr
 {
     Language language();
-    string toString();
     DebugItem eval(Scope sc, MachineState state);
 }
 
@@ -61,7 +60,7 @@ class ExprBase: Expr
     {
 	return lang_;
     }
-    abstract string toString();
+    abstract override string toString();
     abstract DebugItem eval(Scope sc, MachineState state);
     Language lang_;
 }
@@ -140,7 +139,7 @@ class IntegerConstantExpr: ExprBase
 	{
 	    ubyte val[4];
 	    long n = num_;
-	    
+
 	    Type ty;
 	    if (isSigned_) {
 		state.writeInteger(num_, val);
@@ -250,8 +249,7 @@ class UnaryExpr: ExprBase
 	super(lang);
 	expr_ = e;
     }
-    abstract string toString();
-    abstract DebugItem eval(Scope sc, MachineState state);
+
 private:
     Expr expr_;
 }
@@ -571,7 +569,7 @@ class AssignExpr: ExprBase
 		if (!left.type.coerce(state, right))
 		    throw new EvalException("Incompatible types in assignment");
 	    }
-		
+
 	    ubyte[] v = right.loc.readValue(state);
 	    left.loc.writeValue(state, v);
 	    return left;
@@ -590,8 +588,7 @@ class BinaryExpr: ExprBase
 	left_ = l;
 	right_ = r;
     }
-    abstract string toString();
-    abstract DebugItem eval(Scope sc, MachineState state);
+
 private:
     Expr left_;
     Expr right_;
@@ -628,12 +625,12 @@ template IntegerBinaryExpr(string op, string name)
 			       name,
 			       right.type.toString));
 		ulong rval = state.readInteger(right.loc.readValue(state));
-		
+
 		static if (op == "/" || op == "%") {
 		    if (!rval)
 			throw new EvalException("Divide or remainder with zero");
 		}
-		
+
 		mixin("lval = lval " ~ op ~ "rval;");
 		ubyte[] v;
 		Type ty;
@@ -722,13 +719,13 @@ template NumericBinaryExpr(string op, string name)
 		} else {
 		    ulong lval = state.readInteger(left.loc.readValue(state));
 		    ulong rval = state.readInteger(right.loc.readValue(state));
-		
+
 		    static if (op == "/" || op == "%") {
 			if (!rval)
 			    throw new EvalException(
 				"Divide or remainder with zero");
 		    }
-		
+
 		    mixin("lval = lval " ~ op ~ "rval;");
 		    ubyte[] v;
 		    Type ty;
@@ -1183,7 +1180,7 @@ class CallExpr: ExprBase
 	    }
 
 	    Type[] argTypes = fTy.argumentTypes;
-	    
+
 	    if (argTypes.length != args_.length)
 		throw new EvalException(
 		    format("%d arguments expected for function call",
@@ -1198,7 +1195,7 @@ class CallExpr: ExprBase
 		else
 		    throw new EvalException("Can't convert argument values");
 	    }
-		
+
 	    return state.call(func.loc.address(state), fTy.returnType, args);
 	}
     }

@@ -38,7 +38,6 @@ import machine.machine;
 interface Type: DebugItem
 {
     Language language();
-    string toString();
     bool coerce(MachineState, ref Value);
     string valueToString(string, MachineState, Location);
     size_t byteWidth();
@@ -69,47 +68,49 @@ class TypeBase: Type
     {
 	throw new EvalException(format("%s is not a value", toString));
     }
-    abstract string toString();
-    bool coerce(MachineState, ref Value val)
+    abstract override string toString();
+    override bool coerce(MachineState, ref Value val)
     {
 	return false;
     }
     abstract string valueToString(string, MachineState, Location);
     abstract size_t byteWidth();
-    Type underlyingType()
-    {
-	return this;
-    }
-    Type pointerType(uint width)
-    {
-	if (width in ptrTypes_)
-	    return ptrTypes_[width];
-	return (ptrTypes_[width] = new PointerType(lang_, this, width));
-    }
-    Type referenceType(uint width)
-    {
-	if (width in refTypes_)
-	    return refTypes_[width];
-	return (refTypes_[width] = new ReferenceType(lang_, this, width));
-    }
-    Type modifierType(string modifier)
-    {
-	if (modifier in modifierTypes_)
-	    return modifierTypes_[modifier];
-	return (modifierTypes_[modifier] =
-		new ModifierType(lang_, modifier, this));
-    }
-    bool isCharType()
-    {
-	return false;
-    }
-    bool isIntegerType()
-    {
-	return false;
-    }
-    bool isNumericType()
-    {
-	return false;
+    override {
+        Type underlyingType()
+        {
+            return this;
+        }
+        Type pointerType(uint width)
+        {
+            if (width in ptrTypes_)
+                return ptrTypes_[width];
+            return (ptrTypes_[width] = new PointerType(lang_, this, width));
+        }
+        Type referenceType(uint width)
+        {
+            if (width in refTypes_)
+                return refTypes_[width];
+            return (refTypes_[width] = new ReferenceType(lang_, this, width));
+        }
+        Type modifierType(string modifier)
+        {
+            if (modifier in modifierTypes_)
+                return modifierTypes_[modifier];
+            return (modifierTypes_[modifier] =
+                    new ModifierType(lang_, modifier, this));
+        }
+        bool isCharType()
+        {
+            return false;
+        }
+        bool isIntegerType()
+        {
+            return false;
+        }
+        bool isNumericType()
+        {
+            return false;
+        }
     }
 
 private:
@@ -276,7 +277,7 @@ class CharType: IntegerType
 		ulong val = state.readInteger(loc.readValue(state));
 		return super.valueToString(fmt, state, loc)
 		    ~ lang_.renderCharConstant(to!dchar(val));
-	    }		
+	    }
 	}
 
 	bool isCharType()
@@ -1193,7 +1194,7 @@ private:
 	    loc = new MemoryLocation(aaAptr + i * pw,
 				     pw);
 	    auto aaAp = state.readInteger(loc.readValue(state));
-	    
+
 	    void visitNode(ulong p)
 	    {
 		if (!p)
