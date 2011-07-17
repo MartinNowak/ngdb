@@ -49,6 +49,7 @@ import std.algorithm;
 import std.array;
 import std.ascii;
 import std.conv;
+import std.datetime;
 static import std.path;
 import std.string;
 import std.stdio;
@@ -479,11 +480,10 @@ private class SourceFile
 
     string opIndex(uint lineno)
     {
-	long ftc, fta, ftm;
 	if (lines_.length == 0 && !error_) {
 	    try {
 		string file = cast(string) std.file.read(filename);
-		std.file.getTimes(filename_, ftc, fta, lastModifiedTime_);
+                lastModifiedTime_ = timeLastModified(filename_);
 		lines_ = splitLines(file);
 	    } catch {
 		writefln("Can't open file %s", filename);
@@ -492,7 +492,7 @@ private class SourceFile
 	}
 	if (lineno < 1 || lineno > lines_.length)
 	    return null;
-	std.file.getTimes(filename_, ftc, fta, ftm);
+        auto ftm = timeLastModified(filename_);
 	if (ftm != lastModifiedTime_) {
 	    lines_ = null;
 	    return opIndex(lineno);
@@ -506,7 +506,7 @@ private class SourceFile
     }
 
     string filename_;
-    long lastModifiedTime_;
+    SysTime lastModifiedTime_;
     string[] lines_;
     bool error_;
 }
