@@ -475,7 +475,6 @@ private class SourceFile
     this(string filename)
     {
 	filename_ = filename;
-	long ftc, fta;
     }
 
     string opIndex(uint lineno)

@@ -34,6 +34,8 @@ import debuginfo.language;
 import debuginfo.types;
 import machine.machine;
 static import std.path;
+import std.algorithm;
+import std.array;
 import std.conv;
 import std.string;
 import std.stdio;
@@ -958,8 +960,10 @@ class DwarfFile: public DebugInfo
 	    while (p < pEnd)
 		parseLineTable(p, &processEntry);
 
-	    return fileset.keys;
+            auto dg = &disambiguateRelativeFile;
+	    return array(map!(dg)(fileset.keys));
 	}
+
 	bool findLineByFunction(string func, out LineEntry[] res)
 	{
 	    foreach (ns; pubnames_) {
@@ -1071,6 +1075,42 @@ private:
 	    debugSections_[name] = obj_.readSection(name);
 	    return debugSections_[name];
 	}
+    }
+
+    // GCC and dmd don't output includeDirectories so fe.fullname is a
+    // relative path, try to find absolute path in compilation units
+    string disambiguateRelativeFile(string path) {
+        if (std.path.isabs(path))
+            return path;
+
+        string[] cumatches;
+        foreach(cu; compilationUnits_.byValue) {
+            if (cu.sourceName != path)
+                continue;
+            auto npath = std.path.join(cu.compDir, cu.sourceName);
+            if (!canFind(cumatches, npath))
+                cumatches ~= npath;
+        }
+
+        if (cumatches.empty) {
+            std.stdio.stderr.writefln("warning: can't find absolute path for %s", path);
+            return path;
+        } else if (cumatches.length == 1) {
+            return cumatches[0];
+        } else {
+            string match;
+            foreach(m; cumatches) {
+                if (!(std.file.exists(m) && std.file.isFile(m)))
+                    continue;
+                match = m;
+                break;
+            }
+            if (match.empty)
+                match = cumatches[0];
+            std.stdio.stderr.writefln("warning: ambiguous source file, took %s, but could be any of %s",
+                                      match, cumatches);
+            return match;
+        }
     }
 
     void parseDebugFrame()
@@ -1257,15 +1297,13 @@ private:
 	{
 	    FileEntry* fe = &fileNames[le.file - 1];
 	    if (fe.fullname == null) {
-		string filename;
 		if (fe.directoryIndex) {
-		    filename =
+		    auto dir =
 			to!string(includeDirectories[fe.directoryIndex - 1]);
-		    filename = std.path.join(filename, to!string(fe.name));
+		    fe.fullname = std.path.join(dir, to!string(fe.name));
 		} else {
-		    filename = to!string(fe.name);
+		    fe.fullname = disambiguateRelativeFile(to!string(fe.name));
 		}
-		fe.fullname = filename;
 	    }
 
 	    LineEntry dle;
@@ -3030,6 +3068,20 @@ class CompilationUnit: Scope
 	    }
 	}
 	return lang_;
+    }
+
+    string sourceName() {
+        loadDIE;
+        if (auto name = die[DW_AT_name])
+            return name.toString();
+        return null;
+    }
+
+    string compDir() {
+        loadDIE;
+        if (auto dir = die[DW_AT_comp_dir])
+            return dir.toString();
+        return null;
     }
 
     bool contains(ulong pc)
