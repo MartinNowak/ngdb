@@ -182,11 +182,15 @@ class ColdModule: TargetModule
 	return;
     }
 
-    int opEquals(ColdModule mod)
+    override equals_t opEquals(Object o)
     {
-	return filename_ == mod.filename_
-	    && start_ == mod.start_
-	    && end_ == mod.end_;
+        if (auto mod = cast(ColdModule)o)
+        {
+            return filename_ == mod.filename_
+                && start_ == mod.start_
+                && end_ == mod.end_;
+        }
+        return false;
     }
 
     ubyte[] readMemory(ulong targetAddress, size_t bytes)

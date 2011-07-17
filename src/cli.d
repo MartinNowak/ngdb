@@ -973,14 +973,14 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	    try {
 	        line = to!uint(s[pos + 1..$]);
 		sf = findFile(s[0..pos]);
-	    } catch (ConvError ce) {
+	    } catch (ConvException ce) {
 	        return false;
 	    }
 	    return true;
 	} else if (currentSourceFile_) {
 	    try {
 	        line = to!uint(s);
-	    } catch (ConvError ce) {
+	    } catch (ConvException ce) {
 	        return false;
 	    }
 	    sf = currentSourceFile_;
@@ -1679,7 +1679,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 			return false;
 		    val = valueHistory_[num];
 		    return true;
-		} catch (ConvError ce) {
+		} catch (ConvException ce) {
 		    return false;
 		}
 	    } else if (isalpha(name[0]) || name[0] == '_') {
@@ -2260,7 +2260,7 @@ class ConditionCommand: Command
 		string num = args[0..i];
 		string expr = strip(args[i..$]);
 		db.setBreakpointCondition(to!uint(num), expr);
-	    } catch (ConvError ce) {
+	    } catch (ConvException ce) {
 		db.pagefln("Can't parse breakpoint ID");
 	    }
 	}
@@ -2296,7 +2296,7 @@ class CommandCommand: Command
 		string num = args[0..i];
 		string cmd = strip(args[i..$]);
 		db.setBreakpointCommand(to!uint(num), cmd);
-	    } catch (ConvError ce) {
+	    } catch (ConvException ce) {
 		db.pagefln("Can't parse breakpoint ID");
 	    }
 	}
@@ -2333,7 +2333,7 @@ class EnableCommand: Command
 	    } else {
 		try {
 		    db.enableBreakpoint(to!uint(args));
-		} catch (ConvError ce) {
+		} catch (ConvException ce) {
 		    db.pagefln("Can't parse breakpoint ID");
 		}
 	    }
@@ -2371,7 +2371,7 @@ class DisableCommand: Command
 	    } else {
 		try {
 		    db.disableBreakpoint(to!uint(args));
-		} catch (ConvError ce) {
+		} catch (ConvException ce) {
 		    db.pagefln("Can't parse breakpoint ID");
 		}
 	    }
@@ -2410,7 +2410,7 @@ class DeleteCommand: Command
 	    }
 	    try {
 		db.deleteBreakpoint(to!uint(args));
-	    } catch (ConvError ce) {
+	    } catch (ConvException ce) {
 		db.pagefln("Can't parse breakpoint ID");
 	    }
 	}
@@ -2475,7 +2475,7 @@ class ThreadCommand: Command
 	    uint n = ~0;
 	    try {
 		n = to!uint(args);
-	    } catch (ConvError ce) {
+	    } catch (ConvException ce) {
 	    }
 	    foreach (t; db.threads_) {
 		if (t.id == n) {
@@ -2717,7 +2717,7 @@ class FrameCommand: Command
 		uint frameIndex;
 		try {
 		    frameIndex = to!uint(args);
-		} catch (ConvError ce) {
+		} catch (ConvException ce) {
 		    frameIndex = ~0;
 		}
 		Frame f = db.getFrame(frameIndex);

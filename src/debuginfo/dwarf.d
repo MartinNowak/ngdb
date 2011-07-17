@@ -982,7 +982,7 @@ class DwarfFile: public DebugInfo
 		    continue;
 		}
 	    }
-				       
+
 	    return res.length > 0;
 	}
 
@@ -1010,7 +1010,7 @@ class DwarfFile: public DebugInfo
 				    return true;
 				}
 			    }
-			    
+
 			    /*
 			     * We got nothing from the unwinder -
 			     * return the register value as a memory
@@ -1338,6 +1338,9 @@ private:
 			writefln(" %d:DW_LNE_define_file(%s)",
 				 op, to!string(name));
 		    break;
+
+                default:
+                    assert(0);
 		}
 		p = pNext;
 		break;
@@ -1801,19 +1804,19 @@ struct Expr
 	    case DW_OP_addr:
 		stack.push(offset + dw.parseAddress(p));
 		break;
-		
+
 	    case DW_OP_const1u:
 		stack.push(dw.parseUByte(p));
 		break;
-		
+
 	    case DW_OP_const1s:
 		stack.push(dw.parseSByte(p));
 		break;
-		
+
 	    case DW_OP_const2u:
 		stack.push(dw.parseUShort(p));
 		break;
-		
+
 	    case DW_OP_const2s:
 		stack.push(dw.parseSShort(p));
 		break;
@@ -1821,7 +1824,7 @@ struct Expr
 	    case DW_OP_const4u:
 		stack.push(dw.parseUInt(p));
 		break;
-		
+
 	    case DW_OP_const4s:
 		stack.push(dw.parseSInt(p));
 		break;
@@ -1829,7 +1832,7 @@ struct Expr
 	    case DW_OP_const8u:
 		stack.push(dw.parseULong(p));
 		break;
-		
+
 	    case DW_OP_const8s:
 		stack.push(dw.parseSLong(p));
 		break;
@@ -1872,7 +1875,7 @@ struct Expr
 	    case DW_OP_pick:
 		stack.push(stack[*p++]);
 		break;
-		
+
 	    case DW_OP_over:
 		stack.push(stack[1]);
 		break;
@@ -2186,7 +2189,7 @@ struct Expr
 			break;
 		    }
 
-		defaut:
+		default:
 		    throw new Exception("Expected DW_OP_piece or DW_OP_bit_piece");
 		}
 	    }
@@ -2313,7 +2316,7 @@ class AttributeValue
 	case DW_FORM_block4:
 	    b.length = dw.parseUInt(p);
 	    goto readBlock;
-	    
+
 	case DW_FORM_ref1:
 	case DW_FORM_data1:
 	    ul = dw.parseUByte(p);
@@ -2366,6 +2369,9 @@ class AttributeValue
 	case DW_FORM_indirect:
 	    form = to!uint(dw.parseULEB128(p));
 	    goto again;
+
+        default:
+            assert(0);
 	}
     }
 
@@ -2737,6 +2743,9 @@ class DIE
 			 this[DW_AT_encoding].ul);
 		debugItem_ = lang.integerType(name, false, sz);
 		break;
+
+            default:
+                assert(0);
 	    }
 	    break;
 
@@ -3271,7 +3280,7 @@ class FDE
 		off = rl.N;
 		newState.setGR(i, cfa + off);
 		break;
-		    
+
 	    case RLoc.Rule.registerR:
 		newState.setGR(i, state.getGR(rl.R));
 		break;
@@ -3279,6 +3288,9 @@ class FDE
 	    case RLoc.Rule.expressionE:
 	    case RLoc.Rule.valExpressionE:
 		throw new Exception("no support for frame state stacks");
+
+            default:
+                assert(0);
 	    }
 	}
 	return newState;

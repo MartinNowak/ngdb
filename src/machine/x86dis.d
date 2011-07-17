@@ -1887,6 +1887,9 @@ struct DecodeState
 		disp_ = nextWord;
 		havedisp_ = true;
 		break;
+
+            default:
+                break;
 	    }
 	} else {
 	    /*
@@ -1944,6 +1947,9 @@ struct DecodeState
 		if (mode_ == 64 && disp_ & 0x80000000)
 		    disp_ |= 0xffffffff00000000L;
 		break;
+
+            default:
+                break;
 	    }
 	}
     }
@@ -1997,8 +2003,9 @@ struct DecodeState
 	case LONG:
 	    return 32;
 	case QWORD:
+            return 64;
 	default:
-	    return 64;
+            assert(0, std.conv.to!string(size));
 	}
     }
     string regName(int rt, int size, int regno)
@@ -2020,6 +2027,8 @@ struct DecodeState
 	    return mmxNames[regno];
 	case XMMREG:
 	    return xmmNames[regno];
+        default:
+            assert(0);
 	}
     }
     ulong fetchImmediate(int size)
@@ -2632,6 +2641,8 @@ struct DecodeState
 		else if (addressSizePrefix_) operands ~= displayIndirect(REGISTER, WORD, 0, 7);
 		else operands ~= displayIndirect(REGISTER, LONG, 0, 7);
 		continue;
+            default:
+                assert(0);
 	    }
 
 	mess:

@@ -2115,6 +2115,8 @@ class DLanguage: CLikeLanguage
 	    lex.consume;
 	    tr = functionParameters(tr, lex);
 	    return new pointerTransform(tr, null);
+        default:
+            assert(0);
 	}
     }
     typeTransform functionParameters(typeTransform tr, Lexer lex)

@@ -353,6 +353,9 @@ class X86State: MachineState
 		    break;
 		case 3:
 		    writefln("");
+                    break;
+                default:
+                    assert(0);
 		}
 	    }
 	    writefln("");
@@ -1220,6 +1223,9 @@ class X86_64State: MachineState
 		    break;
 		case 3:
 		    writefln("");
+                    break;
+                default:
+                    assert(0);
 		}
 	    }
 	    writefln("");
