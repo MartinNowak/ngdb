@@ -135,7 +135,8 @@ class ArmState: MachineState
 	    grdirty_ = false;
 	    version (FreeBSD)
 		return [PtraceCommand(PT_GETREGS, cast(ubyte*) gregs_.ptr)];
-	    return null;
+            else
+                return null;
 	}
 
 	PtraceCommand[] ptraceWriteCommands()

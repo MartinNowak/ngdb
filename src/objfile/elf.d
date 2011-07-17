@@ -925,12 +925,12 @@ class Elffile: Objfile
 		debug (elf)
 		    writefln("Elf32 format file %s", file);
 		return new Elffile32(fd, base);
-		break;
+
 	    case ELFCLASS64:
 		debug (elf)
 		    writefln("Elf64 format file %s", file);
 		return new Elffile64(fd, base);
-		break;
+
 	    default:
 		return null;
 	    }

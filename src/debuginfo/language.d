@@ -1164,7 +1164,6 @@ class CLikeLanguage: Language
 	} else {
 	    throw unexpected(tok);
 	}
-	return null;
     }
     Type enumSpecifier(Lexer lex)
     {
@@ -1969,7 +1968,7 @@ class DLanguage: CLikeLanguage
 	    return voidType;
 	case ".":
 	    lex.consume;
-	    // fall through
+	    goto case;
 	case "identifier":
 	    auto ids = join(identifierList(lex), ".");
 	    Type ty;

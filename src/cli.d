@@ -1785,8 +1785,6 @@ version (editline) {
 	    }
 	    return CC_ERROR;
 	}
-
-	return CC_ERROR;
     }
     History* hist_;
     EditLine* el_;

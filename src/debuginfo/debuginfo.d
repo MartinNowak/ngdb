@@ -225,7 +225,6 @@ class RegisterLocation: Location
 	ulong address(MachineState)
 	{
 	    assert(false);
-	    return 0;
 	}
 
 	bool isLval(MachineState)
@@ -458,7 +457,6 @@ class CompositeLocation: Location
 	ulong address(MachineState)
 	{
 	    assert(false);
-	    return 0;
 	}
 
 	bool isLval(MachineState)
@@ -529,7 +527,6 @@ class NoLocation: Location
 	ulong address(MachineState)
 	{
 	    assert(false);
-	    return 0;
 	}
 
 	bool isLval(MachineState)
@@ -584,7 +581,6 @@ class FirstFieldLocation: Location
 	ubyte[] readValue(MachineState state)
 	{
 	    assert(false);
-	    return null;
 	}
 
 	void writeValue(MachineState state, ubyte[] value)
@@ -600,7 +596,6 @@ class FirstFieldLocation: Location
 	ulong address(MachineState)
 	{
 	    assert(false);
-	    return 0;
 	}
 
 	bool isLval(MachineState)
@@ -676,7 +671,6 @@ class ConstantLocation: Location
 	ulong address(MachineState)
 	{
 	    assert(false);
-	    return 0;
 	}
 
 	bool isLval(MachineState)
@@ -749,7 +743,6 @@ class SubrangeLocation: Location
 	ulong address(MachineState)
 	{
 	    assert(false);
-	    return 0;
 	}
 
 	bool isLval(MachineState)
@@ -770,7 +763,6 @@ class SubrangeLocation: Location
 	Location dup()
 	{
 	    return new SubrangeLocation(base_, start_, length_);
-	    return this;
 	}
     }
 
@@ -820,7 +812,6 @@ class UserLocation: Location
 	ulong address(MachineState)
 	{
 	    assert(false);
-	    return 0;
 	}
 
 	bool isLval(MachineState)

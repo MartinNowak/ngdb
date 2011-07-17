@@ -523,7 +523,7 @@ class X86State: MachineState
 		    return sign * ldexp(cast(real) frac / cast(real) ~0UL,
 					cast(int) exp - 16382);
 		}
-		break;
+
 	    default:
 		assert(false);
 	    }
@@ -609,7 +609,7 @@ class X86State: MachineState
 			static ubyte[4] zeros;
 			val ~= zeros[0..4-val.length];
 		    }
-		    argval ~= val; 
+		    argval ~= val;
 		} else {
 		    auto val = arg.loc.readValue(this);
 		    argval ~= val;
@@ -801,7 +801,7 @@ class X86State: MachineState
 		val = regAsValue(29 + reg[2] - '0', mmType_);
 		return true;
 	    }
-		
+
 	    return false;
 	}
 	bool lookupStruct(string reg, out Type)
@@ -1395,7 +1395,7 @@ class X86_64State: MachineState
 		    return sign * ldexp(cast(real) frac / cast(real) ~0UL,
 					cast(int) exp - 16382);
 		}
-		break;
+
 	    default:
 		assert(false);
 	    }
@@ -1759,7 +1759,7 @@ class X86_64State: MachineState
 		val = regAsValue(41 + reg[2] - '0', mmType_);
 		return true;
 	    }
-		
+
 	    return false;
 	}
 	bool lookupStruct(string reg, out Type)
@@ -1834,7 +1834,7 @@ private:
 		    cl = MEMORY;
 		return classes;
 	    }
-		    
+
 	    for (auto i = 0; i < cTy.length; i++) {
 		auto f = cTy[i].value;
 		Location loc = new MemoryLocation(0, 0);
@@ -2130,7 +2130,7 @@ version (FreeBSD) {
     }
 }
 version (linux) {
-/* this struct defines the way the registers are stored on the 
+/* this struct defines the way the registers are stored on the
    stack during a system call. */
 
     struct reg32 {

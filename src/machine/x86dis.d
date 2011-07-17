@@ -8,7 +8,7 @@ import std.conv : to, octal;
 private enum
 {
     REGISTER	= 0,		// General register
-    FLOATREG	= 1,		// 387 floating point register 
+    FLOATREG	= 1,		// 387 floating point register
     MMXREG	= 2,		// MMX register
     XMMREG	= 3		// SSE registrer
 }
@@ -394,7 +394,7 @@ private:
 	ins(VV|P, "23 /r",		"AND Gv,Ev");
 	ins(VV|B, "24",			"AND AL,Ib");
 	ins(VV|P, "25",			"AND rAX,Iz");
-	// prefix SEG=ES 
+	// prefix SEG=ES
 	ins(V_|N, "27",			"DAA");
 
 	ins(VV|B, "28 /r",		"SUB Eb,Gb");
@@ -403,7 +403,7 @@ private:
 	ins(VV|P, "2B /r",		"SUB Gv,Ev");
 	ins(VV|B, "2C",			"SUB AL,Ib");
 	ins(VV|P, "2D",			"SUB rAX,Iz");
-	// prefix SEG=CS 
+	// prefix SEG=CS
 	ins(V_|N, "2F",			"DAS");
 
 	ins(VV|B, "30 /r",		"XOR Eb,Gb");
@@ -412,7 +412,7 @@ private:
 	ins(VV|P, "33 /r",		"XOR Gv,Ev");
 	ins(VV|B, "34",			"XOR AL,Ib");
 	ins(VV|P, "35",			"XOR rAX,Iz");
-	// prefix SEG=SS 
+	// prefix SEG=SS
 	ins(V_|N, "37",			"AAA");
 
 	ins(VV|B, "38 /r",		"CMP Eb,Gb");
@@ -421,7 +421,7 @@ private:
 	ins(VV|P, "3B /r",		"CMP Gv,Ev");
 	ins(VV|B, "3C",			"CMP AL,Ib");
 	ins(VV|P, "3D",			"CMP rAX,Iz");
-	// prefix SEG=DS 
+	// prefix SEG=DS
 	ins(V_|N, "3F",			"AAS");
 
 	ins(V_|P, "40",			"INC eAX");
@@ -2337,7 +2337,7 @@ struct DecodeState
 	    case "w":
 		size = WORD;
 		break;
-	    case "z":	    
+	    case "z":
 		size = operandSizePrefix_ ? WORD : LONG;
 		break;
 	    default:
@@ -2562,7 +2562,7 @@ struct DecodeState
 	    case "w":
 		size = WORD;
 		break;
-	    case "z":	    
+	    case "z":
 		size = operandSizePrefix_ ? WORD : LONG;
 		break;
 	    default:
@@ -2646,8 +2646,7 @@ struct DecodeState
 	    }
 
 	mess:
-	    assert(false);
-	    break;
+	    assert(0);
 	}
 
 	return operands;

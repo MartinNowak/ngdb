@@ -224,7 +224,6 @@ class IntegerType: TypeBase
 		default:
 		    return format(fmt, val);
 		}
-		return format(fmt, val);
 	    }
 	}
 
