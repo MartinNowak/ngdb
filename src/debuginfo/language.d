@@ -27,9 +27,9 @@
 module debuginfo.language;
 
 version(tangobos) import std.compat;
+import std.ascii;
 import std.string;
 import std.conv;
-import std.ctype;
 import std.stdio;
 import std.c.stdlib;
 
@@ -210,7 +210,7 @@ class CLikeLanguage: Language
 		'\v': "\\v"];
             if (auto sp = ch in specials) {
                 return std.string.format("'%s'", *sp);
-            } else if (isprint(ch)) {
+            } else if (isPrintable(ch)) {
                 return std.string.format("'%s'", ch);
             } else
                 return "";
@@ -264,7 +264,7 @@ class CLikeLanguage: Language
 		auto bloc = loc.subrange(off++, 1, state);
 		c = cast(char) state.readInteger(bloc.readValue(state));
 		if (c || !zt) {
-		    if (isprint(c)) {
+		    if (isPrintable(c)) {
 			sv ~= c;
 		    } else {
 			if (c in specials)
@@ -1614,7 +1614,7 @@ class DLanguage: CLikeLanguage
     {
 	/*
 	 * In D, cast expression are just folded into UnaryExpression
-	 */ 
+	 */
 	return unaryExpr(lex);
     }
     Expr unaryExpr(Lexer lex)
@@ -2387,18 +2387,18 @@ class Lexer
 	    if (next_ == source_.length)
 		return new EOFToken(this, next_, next_);
 
-	    if (isspace(c))
+	    if (isWhite(c))
 		tokStart++;
 
 	    c = nextChar;
-	} while (isspace(c));
-	    
-	if (isalpha(c) || c == '_' || c == '$') {
+	} while (isWhite(c));
+
+	if (isAlpha(c) || c == '_' || c == '$') {
 	    for (;;) {
 		if (next_ == source_.length)
 		    break;
 		c = nextChar;
-		if (!isalnum(c) && c != '_') {
+		if (!isAlphaNum(c) && c != '_') {
 		    next_--;
 		    break;
 		}
@@ -2413,7 +2413,7 @@ class Lexer
 	    return new IdentifierToken(this, tokStart, next_);
 	}
 
-	if (isdigit(c)) {
+	if (isDigit(c)) {
 	    /*
 	     * numeric:
 	     *		<integer> <integersuffix>?
@@ -2460,13 +2460,13 @@ class Lexer
 		    if (atEOF)
 			return new ErrorToken(this, tokStart, next_);
 		    c = nextChar;
-		    if (!isxdigit(c))
+		    if (!isHexDigit(c))
 			return new ErrorToken(this, tokStart, next_);
 		    for (;;) {
 			if (atEOF)
 			    break;
 			c = nextChar;
-			if (!isxdigit(c)) {
+			if (!isHexDigit(c)) {
 			    next_--;
 			    break;
 			}
@@ -2490,7 +2490,7 @@ class Lexer
 		    if (atEOF)
 			break;
 		    c = nextChar;
-		    if (!isdigit(c)) {
+		    if (!isDigit(c)) {
 			next_--;
 			break;
 		    }
@@ -2515,7 +2515,7 @@ class Lexer
 				if (atEOF)
 				    break;
 				c = nextChar;
-				if (!isdigit(c)) {
+				if (!isDigit(c)) {
 				    next_--;
 				    break;
 				}
@@ -2536,18 +2536,18 @@ class Lexer
 					    this, tokStart, next_);
 				    c = nextChar;
 				}
-				if (!isdigit(c))
+				if (!isDigit(c))
 				    return new ErrorToken(
 					this, tokStart, next_);
 				for (;;) {
 				    if (atEOF)
 					break;
 				    c = nextChar;
-				    if (!isdigit(c)) {
+				    if (!isDigit(c)) {
 					next_--;
 					break;
 				    }
-				}				
+				}
 			    }
 			}
 			if (!atEOF) {
@@ -2628,13 +2628,13 @@ class Lexer
 		if (atEOF)
 		    return false;
 		c = nextChar;
-		if (!isxdigit(c))
+		if (!isHexDigit(c))
 		    return false;
 		n = fromhex(c);
 		if (atEOF)
 		    return false;
 		c = nextChar;
-		if (!isxdigit(c))
+		if (!isHexDigit(c))
 		    return false;
 		n = n * 16 + fromhex(c);
 		c = cast(char) n;
@@ -2883,7 +2883,7 @@ class CLikeLexer: Lexer
 	    "?",
 	    ",",
 	    ":",
-	    "=", 
+	    "=",
 	    "==",
 	    "*",
 	    "*=",
@@ -3010,7 +3010,7 @@ class DLexer: Lexer
 	    ",",
 	    ":",
 	    "$",
-	    "=", 
+	    "=",
 	    "==",
 	    "*",
 	    "*=",

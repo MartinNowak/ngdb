@@ -47,8 +47,8 @@ import core.vararg;
 import std.c.stdlib;
 import std.algorithm;
 import std.array;
+import std.ascii;
 import std.conv;
-import std.ctype;
 static import std.path;
 import std.string;
 import std.stdio;
@@ -922,9 +922,9 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	}
 	if (fmt.length == 0)
 	    return false;
-	if (isdigit(fmt[0])) {
+	if (isDigit(fmt[0])) {
 	    count = 0;
-	    while (fmt.length > 0 && isdigit(fmt[0])) {
+	    while (fmt.length > 0 && isDigit(fmt[0])) {
 		count = count * 10 + (fmt[0] - '0');
 		fmt = fmt[1..$];
 	    }
@@ -1671,7 +1671,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	    if (name.length == 0 || name[0] != '$')
 		return false;
 	    name = name[1..$];
-	    if (name.length == 0 || isdigit(name[0])) {
+	    if (name.length == 0 || isDigit(name[0])) {
 		try {
 		    size_t num = name.length > 0
 			? to!size_t(name) : valueHistory_.length - 1;
@@ -1682,7 +1682,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 		} catch (ConvException ce) {
 		    return false;
 		}
-	    } else if (isalpha(name[0]) || name[0] == '_') {
+	    } else if (isAlpha(name[0]) || name[0] == '_') {
 		auto vp = name in userVars_;
 		if (vp) {
 		    val = *vp;
