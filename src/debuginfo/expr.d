@@ -44,10 +44,11 @@ class EvalException: Exception
     }
 }
 
-interface Expr
+abstract class Expr
 {
-    Language language();
-    DebugItem eval(Scope sc, MachineState state);
+    abstract Language language();
+    abstract override string toString();
+    abstract DebugItem eval(Scope sc, MachineState state);
 }
 
 class ExprBase: Expr
@@ -56,12 +57,10 @@ class ExprBase: Expr
     {
 	lang_ = lang;
     }
-    Language language()
+    override Language language()
     {
 	return lang_;
     }
-    abstract override string toString();
-    abstract DebugItem eval(Scope sc, MachineState state);
     Language lang_;
 }
 
