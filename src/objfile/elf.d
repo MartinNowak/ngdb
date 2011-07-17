@@ -1074,7 +1074,7 @@ class ElfFileBase(alias ElfMod) : Elffile
 		    continue;
 		writefln("Section %d type %d, name %s, off %d, size %d",
 			 i, read(sh.sh_type),
-			 std.string.toString(&shStrings_[sh.sh_name]),
+			 to!string(&shStrings_[sh.sh_name]),
 			 read(sh.sh_offset), read(sh.sh_size));
 	    }
 
