@@ -942,7 +942,7 @@ private:
 	    return std.c.stdlib.strtoull(toStringz(s), null, 0);
 	}
 
-	string[] lines = splitlines(maps);
+	string[] lines = splitLines(maps);
 	version (FreeBSD) {
 	    foreach (line; lines) {
 		string[] words = split(line);

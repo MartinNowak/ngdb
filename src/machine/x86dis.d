@@ -1543,10 +1543,10 @@ private:
 	string[] operands;
 	auto i = countUntil(a, ' ');
 	if (i > 0) {
-	    opname = tolower(a[0..i]);
+	    opname = toLower(a[0..i]);
 	    operands = split(a[i + 1..$], ",");
 	} else {
-            opname = tolower(a);
+            opname = toLower(a);
         }
 
 	addInstruction(Instruction(flags, opcodes, opname, operands));

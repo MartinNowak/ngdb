@@ -484,7 +484,7 @@ private class SourceFile
 	    try {
 		string file = cast(string) std.file.read(filename);
 		std.file.getTimes(filename_, ftc, fta, lastModifiedTime_);
-		lines_ = splitlines(file);
+		lines_ = splitLines(file);
 	    } catch {
 		writefln("Can't open file %s", filename);
 		error_ = true;
@@ -677,7 +677,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
     void sourceFile(string filename)
     {
 	string file = cast(string) std.file.read(filename);
-	executeMacro(splitlines(file));
+	executeMacro(splitLines(file));
     }
 
     void executeMacro(string[] lines)
@@ -858,7 +858,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	prompt ~= " (y or n)";
 	string s;
 	do {
-	    s = std.string.tolower(strip(inputline(cast(immutable)(prompt))));
+	    s = std.string.toLower(strip(inputline(cast(immutable)(prompt))));
 	} while (s.length == 0 || (s[0] != 'y' && s[0] != 'n'));
 	if (s[0] == 'y')
 	    return true;
@@ -875,7 +875,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	}
 
 	std.format.doFormat(&putc, _arguments, _argptr);
-	s = expandtabs(s);
+	s = detab(s);
 	while (s.length) {
 	    auto n = s.length;
 	    if (n > 80) n = 80;
@@ -1092,7 +1092,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	    string a = "  ";
 	    if (sf == stoppedSourceFile_ && line == stoppedSourceLine_)
 		a = "=>";
-	    writefln("%s%4d%s%s", a, line, bpmark, expandtabs(s));
+	    writefln("%s%4d%s%s", a, line, bpmark, detab(s));
 	}
     }
 
