@@ -633,10 +633,11 @@ private string[] uniq(string[] list)
  */
 class Debugger: TargetListener, TargetBreakpointListener, Scope
 {
-    this(string prog, string core)
+    this(string prog, string core, uint annotate)
     {
 	prog_ = prog;
 	core_ = core;
+        annotate_ = annotate;
 	prompt_ = "(ngdb)";
 
 	version (editline) {
@@ -1798,8 +1799,9 @@ version (editline) {
     static CommandTable infoCommands_;
 
     bool interactive_ = true;
-    string[] sourceLines_;
     bool quit_ = false;
+    uint annotate_;
+    string[] sourceLines_;
     string prog_;
     string core_;
     string prompt_;
