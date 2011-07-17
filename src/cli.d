@@ -836,6 +836,11 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	}
     }
 
+    void executeMICommand(string cmd)
+    {
+        assert(0, "mi commands unimplemented");
+    }
+
     Command lookupCommand(string cmd)
     {
 	string msg;
@@ -1346,7 +1351,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	}
 
 	target_.step(t);
-	
+
 	if (findDebugInfo(s, di)) {
 	    Location frameLoc;
 	    di.findFrameBase(s, frameLoc);
@@ -1971,7 +1976,7 @@ class KillCommand: Command
 		db.pagefln("Program is not running");
 		return;
 	    }
-	    
+
 	    db.target_.cont(SIGKILL);
 	    db.target_.wait;
 	}
@@ -3150,7 +3155,7 @@ class DefineCommand: Command
 	    if (args.length == 0 || countUntil(args, ' ') >= 0) {
 		db.pagefln("usage: define name");
 		return;
-	    }		
+	    }
 
 	    Command c = db.lookupCommand(args);
 	    if (c) {
@@ -3339,6 +3344,46 @@ class WhileCommand: Command
 		    break;
 		db.executeMacro(cmds);
 	    }
+	}
+    }
+}
+
+class InterpreterCommand: Command
+{
+    static this()
+    {
+	Debugger.registerCommand(new InterpreterCommand);
+    }
+
+    override {
+	string name()
+	{
+	    return "interpreter";
+	}
+
+	string description()
+	{
+	    return "choose interpreter";
+	}
+
+	void run(Debugger db, string args)
+	{
+            auto i = countUntil(args, ' ');
+	    if (i < 0 || i + 1 == args.length) {
+		db.pagefln("usage: interpreter <name> cmd");
+		return;
+	    }
+
+            switch (args[0 .. i]) {
+            case "console":
+                db.executeCommand(args[i + 1 .. $]);
+                break;
+            case "mi":
+                db.executeMICommand(args[i + 1 .. $]);
+                break;
+            default:
+                assert(0, "unknown interpreter " ~ args[0]);
+            }
 	}
     }
 }
