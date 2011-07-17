@@ -1609,270 +1609,271 @@ class DLanguage: CLikeLanguage
 		throw unexpected(tok);
 	    return e;
 	}
-    }
-    Expr castExpr(Lexer lex)
-    {
-	/*
-	 * In D, cast expression are just folded into UnaryExpression
-	 */
-	return unaryExpr(lex);
-    }
-    Expr unaryExpr(Lexer lex)
-    {
-	/*
-	 * UnaryExpression:
-	 *	PostfixExpression
-	 *	& UnaryExpression
-	 *	++ UnaryExpression
-	 *	-- UnaryExpression
-	 *	* UnaryExpression
-	 *	- UnaryExpression
-	 *	+ UnaryExpression
-	 *	! UnaryExpression
-	 *	~ UnaryExpression
-	 *	cast ( TypeName ) UnaryExpression
-	 */
-	auto tok = lex.nextToken;
-	if (tok.id == "cast") {
-	    lex.consume;
-	    tok = lex.nextToken;
-	    if (tok.id != "(")
-		throw unexpected(tok);
-	    lex.consume;
-	    auto ty = typeName(lex);
-	    if (!ty)
-		return unaryExpr(lex);
-	    tok = lex.nextToken;
-	    if (tok.id != ")")
-		throw unexpected(tok);
-	    lex.consume;
-	    auto e = castExpr(lex);
-	    return new CastExpr(this, ty, e);
-	} else if (tok.id == "++" || tok.id == "--") {
-	    lex.consume;
-	    auto e = unaryExpr(lex);
-	    auto one = new IntegerConstantExpr(this, "1");
-	    Expr e2;
-	    if (tok.id == "++")
-		e2 = new AddExpr(this, e, one);
-	    else
-		e2 = new SubtractExpr(this, e, one);
-	    return new AssignExpr(this, e, e2);
-	}
-	if (tok.id == "&"
-	    || tok.id == "*" || tok.id == "-" || tok.id == "+"
-	    || tok.id == "!" || tok.id == "~") {
-	    lex.consume;
-	    auto e = castExpr(lex);
-	    if (tok.id == "&")
-		return new AddressOfExpr(this, e);
-	    if (tok.id == "*")
-		return new DereferenceExpr(this, e);
-	    if (tok.id == "-")
-		return new NegateExpr(this, e);
-	    if (tok.id == "+")
-		return e;
-	    if (tok.id == "!")
-		return new LogicalNegateExpr(this, e);
-	    if (tok.id == "~")
-		return new ComplementExpr(this, e);
-	    assert(false);
-	}
-	return postfixExpr(lex);
-    }
-    Expr postfixExpr(Lexer lex)
-    {
-	/*
-	 * PostfixExpression:
-	 *	PrimaryExpression
-	 *	PostfixExpression . Identifier
-	 *	PostfixExpression ++
-	 *	PostfixExpression --
-	 *	PostfixExpression ( )
-	 *	PostfixExpression ( ArgumentList )
-	 *	PostfixExpression [ AssignExpression ]
-	 *	PostfixExpression [ AssignExpression .. AssignExpression ]
-	 *
-	 * eliminating left recursion
-	 *
-	 * PostfixExpression:
-	 *	PrimaryExpression PostfixExpression2
-	 *
-	 * PostfixExpression2:
-	 *	. Identifier PostfixExpression2
-	 *	-> Identifier PostfixExpression2
-	 *	++ PostfixExpression2
-	 *	-- PostfixExpression2
-	 *	( ) PostfixExpression2
-	 *	( ArgumentList ) PostfixExpression2
-	 *	[ AssignExpression ] PostfixExpression2
-	 *	empty
-	 */
-	auto e = primaryExpr(lex);
-	for (auto tok = lex.nextToken; ; tok = lex.nextToken) {
-	    if (tok.id == ".") {
-		lex.consume;
-		tok = lex.nextToken;
-		if (tok.id != "identifier")
-		    throw unexpected(tok);
-		lex.consume;
-		auto idtok = cast(IdentifierToken) tok;
-		switch (idtok.value) {
-		case "ptr":
-		    e = new PtrExpr(this, e);
-		    break;
-		case "length":
-		    e = new LengthExpr(this, e);
-		    break;
-		case "sizeof":
-		    e = new SizeofExpr(this, e);
-		    break;
-		default:
-		    e = new DMemberExpr(this, e, idtok.value);
-		}
-	    } else if (tok.id == "++" || tok.id == "--") {
-		lex.consume;
-		auto one = new IntegerConstantExpr(this, "1");
-		if (tok.id == "++")
-		    e = new AddExpr(this, e, one);
-		else
-		    e = new SubtractExpr(this, e, one);
-		e = new PostIncrementExpr(this, tok.id, e);
-	    } else if (tok.id == "[") {
-		lex.consume;
-		auto e2 = assignExpr(lex);
-		tok = lex.nextToken;
-		if (tok.id == "..") {
-		    lex.consume;
-		    auto e3 = assignExpr(lex);
-		    e = new SliceExpr(this, e, e2, e3);
-		} else {
-		    e = new IndexExpr(this, e, e2);
-		}
-		tok = lex.nextToken;
-		if (tok.id != "]")
-		    throw unexpected(tok);
-		lex.consume;
-	    } else {
-		return e;
-	    }
-	    /*
-	     * XXX Handle function call
-	     */
-	}
-    }
-    Expr primaryExpr(Lexer lex)
-    {
-	/*
-	 * PrimaryExpression:
-	 *	Identifier
-	 *	Number
-	 *	( Expression )
-	 */
-	auto tok = lex.nextToken;
-	if (tok.id == "identifier") {
-	    lex.consume;
-	    return new VariableExpr(this, tok.value);
-	}
-	if (tok.id == "this") {
-	    lex.consume;
-	    return new VariableExpr(this, "this");
-	}
-	if (tok.id == "int literal") {
-	    lex.consume;
-	    return new IntegerConstantExpr(this, tok.value);
-	}
-	if (tok.id == "float literal") {
-	    lex.consume;
-	    return new FloatConstantExpr(this, tok.value);
-	}
-	if (tok.id == "char literal") {
-	    lex.consume;
-	    return new CharConstantExpr(this,
-					(cast(CharToken) tok).ch,
-					charType("char", false, 1));
-	}
-	if (tok.id == "string literal") {
-	    lex.consume;
-	    auto cTy = charType("char", false, 1);
-	    auto aTy = new ArrayType(this, cTy);
-	    auto s = tok.value;
-	    aTy.addDim(0, s.length);
-	    return new StringConstantExpr(this, s, aTy);
-	}
-	auto ty = typeName(lex);
-	if (ty) {
-	    tok = lex.nextToken;
-	    if (tok.id != ".")
-		throw unexpected(tok);
-	    lex.consume;
-	    tok = lex.nextToken;
-	    if (tok.id != "identifier")
-		throw unexpected(tok);
-	    lex.consume;
-	    if (tok.value != "sizeof")
-		throw unexpected(tok);
-	    return new SizeofTypeExpr(this, ty);
-	}
-	if (tok.id == "(") {
-	    lex.consume;
-	    Expr e = expr(lex);
-	    tok = lex.nextToken;
-	    if (tok.id != ")")
-		throw unexpected(tok);
-	    lex.consume;
-	    return e;
-	}
-	throw unexpected(tok);
-    }
-    Type typeName(Lexer lex)
-    {
-	/*
-	 * Type:
-	 *	BasicType
-	 *	BasicType Declarator2
-	 *
-	 * Declarator2:
-	 *	BasicType2 Declarator2
-	 *	( Declarator2 )
-	 *	( Declarator2 ) DeclaratorSuffixes
-	 *
-	 * BasicType2:
-	 *	*
-	 *	[ ]
-	 *	[ Expression ]
-	 *	[ Expression .. Expression ]
-	 *	[ Type ]
-	 *	delegate Parameters
-	 *	function Parameters
-	 *
-	 * DeclaratorSuffixes:
-	 *	DeclaratorSuffix
-	 *	DeclaratorSuffix DeclaratorSuffixes
-	 *
-	 * DeclaratorSuffix
-	 *	[ ]
-	 *	[ Expression ]
-	 *	[ Type ]
-	 *	TemplateParameterList_opt Parameters
-	 */
-	Type ty = basicType(lex);
-	if (ty) {
-	    auto tok = lex.nextToken;
-	    switch (tok.id) {
-	    case "*":
-	    case "[":
-	    case "delegate":
-	    case "function":
-	    case "(":
-		auto tr = new nullTransform(ty);
+        Expr castExpr(Lexer lex)
+        {
+            /*
+             * In D, cast expression are just folded into UnaryExpression
+             */
+            return unaryExpr(lex);
+        }
+        Expr unaryExpr(Lexer lex)
+        {
+            /*
+             * UnaryExpression:
+             *	PostfixExpression
+             *	& UnaryExpression
+             *	++ UnaryExpression
+             *	-- UnaryExpression
+             *	* UnaryExpression
+             *	- UnaryExpression
+             *	+ UnaryExpression
+             *	! UnaryExpression
+             *	~ UnaryExpression
+             *	cast ( TypeName ) UnaryExpression
+             */
+            auto tok = lex.nextToken;
+            if (tok.id == "cast") {
+                lex.consume;
+                tok = lex.nextToken;
+                if (tok.id != "(")
+                    throw unexpected(tok);
+                lex.consume;
+                auto ty = typeName(lex);
+                if (!ty)
+                    return unaryExpr(lex);
+                tok = lex.nextToken;
+                if (tok.id != ")")
+                    throw unexpected(tok);
+                lex.consume;
+                auto e = castExpr(lex);
+                return new CastExpr(this, ty, e);
+            } else if (tok.id == "++" || tok.id == "--") {
+                lex.consume;
+                auto e = unaryExpr(lex);
+                auto one = new IntegerConstantExpr(this, "1");
+                Expr e2;
+                if (tok.id == "++")
+                    e2 = new AddExpr(this, e, one);
+                else
+                    e2 = new SubtractExpr(this, e, one);
+                return new AssignExpr(this, e, e2);
+            }
+            if (tok.id == "&"
+                || tok.id == "*" || tok.id == "-" || tok.id == "+"
+                || tok.id == "!" || tok.id == "~") {
+                lex.consume;
+                auto e = castExpr(lex);
+                if (tok.id == "&")
+                    return new AddressOfExpr(this, e);
+                if (tok.id == "*")
+                    return new DereferenceExpr(this, e);
+                if (tok.id == "-")
+                    return new NegateExpr(this, e);
+                if (tok.id == "+")
+                    return e;
+                if (tok.id == "!")
+                    return new LogicalNegateExpr(this, e);
+                if (tok.id == "~")
+                    return new ComplementExpr(this, e);
+                assert(false);
+            }
+            return postfixExpr(lex);
+        }
+        Expr postfixExpr(Lexer lex)
+        {
+            /*
+             * PostfixExpression:
+             *	PrimaryExpression
+             *	PostfixExpression . Identifier
+             *	PostfixExpression ++
+             *	PostfixExpression --
+             *	PostfixExpression ( )
+             *	PostfixExpression ( ArgumentList )
+             *	PostfixExpression [ AssignExpression ]
+             *	PostfixExpression [ AssignExpression .. AssignExpression ]
+             *
+             * eliminating left recursion
+             *
+             * PostfixExpression:
+             *	PrimaryExpression PostfixExpression2
+             *
+             * PostfixExpression2:
+             *	. Identifier PostfixExpression2
+             *	-> Identifier PostfixExpression2
+             *	++ PostfixExpression2
+             *	-- PostfixExpression2
+             *	( ) PostfixExpression2
+             *	( ArgumentList ) PostfixExpression2
+             *	[ AssignExpression ] PostfixExpression2
+             *	empty
+             */
+            auto e = primaryExpr(lex);
+            for (auto tok = lex.nextToken; ; tok = lex.nextToken) {
+                if (tok.id == ".") {
+                    lex.consume;
+                    tok = lex.nextToken;
+                    if (tok.id != "identifier")
+                        throw unexpected(tok);
+                    lex.consume;
+                    auto idtok = cast(IdentifierToken) tok;
+                    switch (idtok.value) {
+                    case "ptr":
+                        e = new PtrExpr(this, e);
+                        break;
+                    case "length":
+                        e = new LengthExpr(this, e);
+                        break;
+                    case "sizeof":
+                        e = new SizeofExpr(this, e);
+                        break;
+                    default:
+                        e = new DMemberExpr(this, e, idtok.value);
+                    }
+                } else if (tok.id == "++" || tok.id == "--") {
+                    lex.consume;
+                    auto one = new IntegerConstantExpr(this, "1");
+                    if (tok.id == "++")
+                        e = new AddExpr(this, e, one);
+                    else
+                        e = new SubtractExpr(this, e, one);
+                    e = new PostIncrementExpr(this, tok.id, e);
+                } else if (tok.id == "[") {
+                    lex.consume;
+                    auto e2 = assignExpr(lex);
+                    tok = lex.nextToken;
+                    if (tok.id == "..") {
+                        lex.consume;
+                        auto e3 = assignExpr(lex);
+                        e = new SliceExpr(this, e, e2, e3);
+                    } else {
+                        e = new IndexExpr(this, e, e2);
+                    }
+                    tok = lex.nextToken;
+                    if (tok.id != "]")
+                        throw unexpected(tok);
+                    lex.consume;
+                } else {
+                    return e;
+                }
+                /*
+                 * XXX Handle function call
+                 */
+            }
+        }
+        Expr primaryExpr(Lexer lex)
+        {
+            /*
+             * PrimaryExpression:
+             *	Identifier
+             *	Number
+             *	( Expression )
+             */
+            auto tok = lex.nextToken;
+            if (tok.id == "identifier") {
+                lex.consume;
+                return new VariableExpr(this, tok.value);
+            }
+            if (tok.id == "this") {
+                lex.consume;
+                return new VariableExpr(this, "this");
+            }
+            if (tok.id == "int literal") {
+                lex.consume;
+                return new IntegerConstantExpr(this, tok.value);
+            }
+            if (tok.id == "float literal") {
+                lex.consume;
+                return new FloatConstantExpr(this, tok.value);
+            }
+            if (tok.id == "char literal") {
+                lex.consume;
+                return new CharConstantExpr(this,
+                                            (cast(CharToken) tok).ch,
+                                            charType("char", false, 1));
+            }
+            if (tok.id == "string literal") {
+                lex.consume;
+                auto cTy = charType("char", false, 1);
+                auto aTy = new ArrayType(this, cTy);
+                auto s = tok.value;
+                aTy.addDim(0, s.length);
+                return new StringConstantExpr(this, s, aTy);
+            }
+            auto ty = typeName(lex);
+            if (ty) {
+                tok = lex.nextToken;
+                if (tok.id != ".")
+                    throw unexpected(tok);
+                lex.consume;
+                tok = lex.nextToken;
+                if (tok.id != "identifier")
+                    throw unexpected(tok);
+                lex.consume;
+                if (tok.value != "sizeof")
+                    throw unexpected(tok);
+                return new SizeofTypeExpr(this, ty);
+            }
+            if (tok.id == "(") {
+                lex.consume;
+                Expr e = expr(lex);
+                tok = lex.nextToken;
+                if (tok.id != ")")
+                    throw unexpected(tok);
+                lex.consume;
+                return e;
+            }
+            throw unexpected(tok);
+        }
+        Type typeName(Lexer lex)
+        {
+            /*
+             * Type:
+             *	BasicType
+             *	BasicType Declarator2
+             *
+             * Declarator2:
+             *	BasicType2 Declarator2
+             *	( Declarator2 )
+             *	( Declarator2 ) DeclaratorSuffixes
+             *
+             * BasicType2:
+             *	*
+             *	[ ]
+             *	[ Expression ]
+             *	[ Expression .. Expression ]
+             *	[ Type ]
+             *	delegate Parameters
+             *	function Parameters
+             *
+             * DeclaratorSuffixes:
+             *	DeclaratorSuffix
+             *	DeclaratorSuffix DeclaratorSuffixes
+             *
+             * DeclaratorSuffix
+             *	[ ]
+             *	[ Expression ]
+             *	[ Type ]
+             *	TemplateParameterList_opt Parameters
+             */
+            Type ty = basicType(lex);
+            if (ty) {
+                auto tok = lex.nextToken;
+                switch (tok.id) {
+                case "*":
+                case "[":
+                case "delegate":
+                case "function":
+                case "(":
+                    auto tr = new nullTransform(ty);
 		ty = declarator2(tr, lex).transform;
 		break;
-	    default:
-	    }
-	}
-	return ty;
-    }
+                default:
+                }
+            }
+            return ty;
+        }
+    } // override
+
     Type basicType(Lexer lex)
     {
 	/*
@@ -2119,68 +2120,68 @@ class DLanguage: CLikeLanguage
             assert(0);
 	}
     }
-    typeTransform functionParameters(typeTransform tr, Lexer lex)
+    override typeTransform functionParameters(typeTransform tr, Lexer lex)
     {
-	/*
-	 * Parameters:
-	 *	( ParameterList )
-	 *	( )
-	 *
-	 * ParameterList:
-	 *	Parameter
-	 *	Parameter , ParameterList
-	 *	Parameter ...
-	 *	...
-	 *
-	 * Parameter:
-	 *	Type
-	 *	InOut Type
-	 */
-	auto tok = lex.nextToken;
-	Type[] argTypes;
-	bool isVarargs;
+        /*
+         * Parameters:
+         *	( ParameterList )
+         *	( )
+         *
+         * ParameterList:
+         *	Parameter
+         *	Parameter , ParameterList
+         *	Parameter ...
+         *	...
+         *
+         * Parameter:
+         *	Type
+         *	InOut Type
+         */
+        auto tok = lex.nextToken;
+        Type[] argTypes;
+        bool isVarargs;
 
-	if (tok.id != "(")
-	    throw unexpected(tok);
-	lex.consume;
-	tok = lex.nextToken;
-	if (tok.id == "...") {
-	    lex.consume;
-	    tok = lex.nextToken;
-	    if (tok.id != ")")
-		throw unexpected(tok);
-	    lex.consume;
-	    return new functionTransform(this, tr, true, null);
-	}
-	while (tok.id != ")") {
-	    if (tok.id == "in"
-		|| tok.id == "out"
-		|| tok.id == "ref"
-		|| tok.id == "lazy") {
-		lex.consume;
-	    }
-	    argTypes ~= typeName(lex);
-	    tok = lex.nextToken;
-	    if (tok.id == "...") {
-		lex.consume;
-		isVarargs = true;
-		tok = lex.nextToken;
-	    }
-	    if (tok.id == ",") {
-		lex.consume;
-		tok = lex.nextToken;
-		if (tok.id == ")")
-		    throw unexpected(tok);
-		continue;
-	    } else if (tok.id != ")") {
-		throw unexpected(tok);
-	    }
-	}
-	tok = lex.nextToken;
-	if (tok.id != ")")
-	    throw unexpected(tok);
-	lex.consume;
-	return new functionTransform(this, tr, isVarargs, argTypes);
+        if (tok.id != "(")
+            throw unexpected(tok);
+        lex.consume;
+        tok = lex.nextToken;
+        if (tok.id == "...") {
+            lex.consume;
+            tok = lex.nextToken;
+            if (tok.id != ")")
+                throw unexpected(tok);
+            lex.consume;
+            return new functionTransform(this, tr, true, null);
+        }
+        while (tok.id != ")") {
+            if (tok.id == "in"
+                || tok.id == "out"
+                || tok.id == "ref"
+                || tok.id == "lazy") {
+                lex.consume;
+            }
+            argTypes ~= typeName(lex);
+            tok = lex.nextToken;
+            if (tok.id == "...") {
+                lex.consume;
+                isVarargs = true;
+                tok = lex.nextToken;
+            }
+            if (tok.id == ",") {
+                lex.consume;
+                tok = lex.nextToken;
+                if (tok.id == ")")
+                    throw unexpected(tok);
+                continue;
+            } else if (tok.id != ")") {
+                throw unexpected(tok);
+            }
+        }
+        tok = lex.nextToken;
+        if (tok.id != ")")
+            throw unexpected(tok);
+        lex.consume;
+        return new functionTransform(this, tr, isVarargs, argTypes);
     }
     string[] identifierList(Lexer lex)
     {
@@ -2257,7 +2258,7 @@ class EOFToken: Token
     {
 	super(parent, start, end);
     }
-    string id()
+    override string id()
     {
 	return "EOF";
     }
@@ -2269,7 +2270,7 @@ class ErrorToken: Token
     {
 	super(parent, start, end);
     }
-    string id()
+    override string id()
     {
 	return "error";
     }
@@ -2281,7 +2282,7 @@ class IdentifierToken: Token
     {
 	super(parent, start, end);
     }
-    string id()
+    override string id()
     {
 	return "identifier";
     }
@@ -2293,7 +2294,7 @@ class IntegerToken: Token
     {
 	super(parent, start, end);
     }
-    string id()
+    override string id()
     {
 	return "int literal";
     }
@@ -2305,7 +2306,7 @@ class FloatToken: Token
     {
 	super(parent, start, end);
     }
-    string id()
+    override string id()
     {
 	return "float literal";
     }
@@ -2318,7 +2319,7 @@ class CharToken: Token
 	super(parent, start, end);
 	ch_ = ch;
     }
-    string id()
+    override string id()
     {
 	return "char literal";
     }
@@ -2336,11 +2337,11 @@ class StringToken: Token
 	super(parent, start, end);
 	s_ = s;
     }
-    string id()
+    override string id()
     {
 	return "string literal";
     }
-    string value()
+    override string value()
     {
 	return s_;
     }
