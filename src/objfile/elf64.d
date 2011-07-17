@@ -80,6 +80,7 @@ alias Sxword Ssize;
  * ELF header.
  */
 struct Ehdr {
+    enum is64 = true;
     Ident	e_ident;	// File identification.
     Half	e_type;		// File type.
     Half	e_machine;	// Machine architecture.

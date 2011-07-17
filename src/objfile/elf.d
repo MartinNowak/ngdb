@@ -58,6 +58,8 @@ import std.c.string;
 
 import endian;
 import target.target;
+import objfile.elf32;
+import objfile.elf64;
 import objfile.objfile;
 import machine.machine;
 import machine.x86;
@@ -1015,13 +1017,13 @@ private:
     Endian endian_;
 }
 
-template ElfFileBase()
+class ElfFileBase(alias ElfMod) : Elffile
 {
     this(int fd, ulong base)
     {
 	fd_ = fd;
 
-	Ehdr eh;
+	ElfMod.Ehdr eh;
 	if (pread(fd, &eh, eh.sizeof, 0) != eh.sizeof)
 	    throw new Exception("Can't read Elf header");
 
@@ -1109,6 +1111,11 @@ template ElfFileBase()
 	    .close(fd_);
 	    fd_ = -1;
 	}
+    }
+
+    override bool is64()
+    {
+	return ElfMod.Ehdr.is64;
     }
 
     override bool isExecutable()
@@ -1231,7 +1238,7 @@ template ElfFileBase()
 		    != notes.length)
 		    throw new Exception("Can't read from file");
 
-		size_t roundup(size_t n, size_t sz = Size.sizeof)
+		size_t roundup(size_t n, size_t sz = ElfMod.Size.sizeof)
 		{
 		    return (n + sz - 1) & ~(sz - 1);
 		}
@@ -1280,9 +1287,9 @@ template ElfFileBase()
 
 	ubyte* p = &dyn[0], end = p + dyn.length;
 	while (p < end) {
-	    Dyn* d = cast(Dyn*) p;
+	    ElfMod.Dyn* d = cast(ElfMod.Dyn*) p;
 	    dg(to!uint(read(d.d_tag)), to!ulong(read(d.d_val)));
-	    p += Dyn.sizeof;
+	    p += ElfMod.Dyn.sizeof;
 	}
     }
 
@@ -1338,8 +1345,8 @@ template ElfFileBase()
     {
 	if (!r_debug_)
 	    return 0;
-	ubyte[] t = target.readMemory(r_debug_, r_debug.sizeof);
-	r_debug* p = cast(r_debug*) &t[0];
+	ubyte[] t = target.readMemory(r_debug_, ElfMod.r_debug.sizeof);
+	ElfMod.r_debug* p = cast(ElfMod.r_debug*) &t[0];
 	return read(p.r_brk);
     }
 
@@ -1347,8 +1354,8 @@ template ElfFileBase()
     {
 	if (!r_debug_)
 	    return RT_CONSISTENT;
-	ubyte[] t = target.readMemory(r_debug_, r_debug.sizeof);
-	r_debug* p = cast(r_debug*) &t[0];
+	ubyte[] t = target.readMemory(r_debug_, ElfMod.r_debug.sizeof);
+	ElfMod.r_debug* p = cast(ElfMod.r_debug*) &t[0];
 	return read(p.r_state);
     }
 
@@ -1372,12 +1379,12 @@ template ElfFileBase()
 	    return s;
 	}
 
-	ubyte[] t = target.readMemory(r_debug_, r_debug.sizeof);
-	r_debug* p = cast(r_debug*) &t[0];
+	ubyte[] t = target.readMemory(r_debug_, ElfMod.r_debug.sizeof);
+	ElfMod.r_debug* p = cast(ElfMod.r_debug*) &t[0];
 	ulong lp = read(p.r_map);
 	while (lp) {
-	    t = target.readMemory(lp, link_map.sizeof);
-	    link_map *lm = cast(link_map*) &t[0];
+	    t = target.readMemory(lp, ElfMod.link_map.sizeof);
+	    ElfMod.link_map *lm = cast(ElfMod.link_map*) &t[0];
 	    dg(readString(target, read(lm.l_name)), lp, read(lm.l_addr));
 	    lp = read(lm.l_next);
 	}
@@ -1417,7 +1424,7 @@ template ElfFileBase()
 private:
     char[] readSection(size_t si)
     {
-	Shdr *sh = &sections_[si];
+	ElfMod.Shdr *sh = &sections_[si];
 	char[] s;
 
 	s.length = read(sh.sh_size);
@@ -1429,11 +1436,11 @@ private:
 
     Symbol[] readSymbols(size_t si)
     {
-	Shdr* sh = &sections_[si];
-	if (read(sh.sh_entsize) != Sym.sizeof)
+	ElfMod.Shdr* sh = &sections_[si];
+	if (read(sh.sh_entsize) != ElfMod.Sym.sizeof)
 	    throw new Exception("Symbol section has unsupported entry size");
 
-	Sym[] syms;
+	ElfMod.Sym[] syms;
 	syms.length = read(sh.sh_size) / read(sh.sh_entsize);
 	if (pread(fd_, &syms[0], sh.sh_size, sh.sh_offset) != sh.sh_size)
 	    throw new Exception("Can't read section");
@@ -1488,29 +1495,12 @@ private:
     ulong	r_debug_ = 0;
     ulong	pltStart_ = 0;
     ulong	pltEnd_ = 0;
-    Phdr[]	ph_;
-    Shdr[]	sections_;
+    ElfMod.Phdr[]	ph_;
+    ElfMod.Shdr[]	sections_;
     char[]	shStrings_;
     Symbol[]	symtab_;
     Symbol[]	dynsym_;
 }
 
-class Elffile32: Elffile
-{
-    import objfile.elf32;
-    mixin ElfFileBase;
-    override bool is64()
-    {
-	return false;
-    }
-}
-
-class Elffile64: Elffile
-{
-    import objfile.elf64;
-    mixin ElfFileBase;
-    override bool is64()
-    {
-	return true;
-    }
-}
+alias ElfFileBase!(objfile.elf32) Elffile32;
+alias ElfFileBase!(objfile.elf64) Elffile64;
