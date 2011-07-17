@@ -250,23 +250,17 @@ struct prstatus32
 
 private string pathSearch(string path, string name)
 {
-    string execpath = "";
-
-    execpath = name;
-    if (countUntil(execpath, "/") < 0) {
+    if (countUntil(name, "/") < 0) {
 	string[] paths = split(path, ":");
 	foreach (p; paths) {
-	    string s = p ~ "/" ~ execpath;
+	    string s = p ~ "/" ~ name;
 	    if (std.file.exists(s) && std.file.isfile(s)) {
-		execpath = s;
-		break;
+		return s;
 	    }
 	}
-    } else {
-	if (!std.file.exists(execpath) || !std.file.isfile(execpath))
-	    execpath = "";
-    }
-    return execpath;
+    } else if (std.file.exists(name) && std.file.isfile(name))
+	return name;
+    return null;
 }
 
 class ColdTarget: Target
@@ -327,22 +321,29 @@ class ColdTarget: Target
 		modules_ ~= mod;
 		listener_.onModuleAdd(this, mod);
 	    }
-	    while (i < modules_.length) {
-		void neededLib(string name)
-		{
-		    name = pathSearch("/lib:/usr/lib", name);
-		    foreach (mod; modules_)
-			if (mod.filename == name)
-			    return;
-		    auto mod = new ColdModule(name, addr);
-		    addr = (mod.end + 0xfff) & ~0xfff; // XXX pagesize
-		    modules_ ~= mod;
-		    listener_.onModuleAdd(this, mod);
-		}
+
+            while (i < modules_.length) {
+                void neededLib(string name)
+                {
+                    // TODO: need to resolve search path
+                    if (auto path = pathSearch("/lib:/usr/lib:/usr/local/lib", name))
+                    {
+                        foreach (mod; modules_)
+                            if (mod.filename == path)
+                                return;
+                        auto mod = new ColdModule(path, addr);
+                        assert(mod.obj_);
+                        addr = (mod.end + 0xfff) & ~0xfff; // XXX pagesize
+                        modules_ ~= mod;
+                        listener_.onModuleAdd(this, mod);
+                    } else {
+                        assert(0, std.string.format("can't load shared library %s", name));
+                    }
+                }
 
 		modules_[i].enumerateNeededLibraries(this, &neededLib);
-		i++;
-	    }
+                i++;
+            }
 
 	    threads_ ~= new ColdThread(this, null);
 	    listener_.onThreadCreate(this, threads_[0]);
