@@ -93,9 +93,10 @@ class LittleEndian: Endian
     ulong read(ulong v)
     {
 	ubyte* p = cast(ubyte*) &v;
+        ulong res;
 	for (int i = 0; i < 8; i++)
-	    v |= (cast(ulong) p[i]) << 8*i;
-	return v;
+	    res |= (cast(ulong) p[i]) << 8*i;
+	return res;
     }
     void write(ulong val, ubyte[] bytes)
     {
@@ -159,9 +160,10 @@ class BigEndian: Endian
     ulong read(ulong v)
     {
 	ubyte* p = cast(ubyte*) &v;
+        ulong res;
 	for (int i = 0; i < 8; i++)
-	    v = (v << 8) | p[i];
-	return v;
+	    res = (res << 8) | p[i];
+	return res;
     }
     void write(ulong val, ubyte[] bytes)
     {
