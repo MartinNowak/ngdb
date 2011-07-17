@@ -54,7 +54,6 @@ import std.string;
 import std.stdio;
 import std.file;
 import std.c.stdio;
-import std.cstream;
 
 extern (C) char* readline(char*);
 extern (C) void add_history(char*);
@@ -886,7 +885,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 		pageline_++;
 		if (pageline_ >= pagemaxline_) {
 		    writef("--Press return to continue or type 'q' to quit--");
-		    auto t = din.readLine;
+		    auto t = readln();
 		    if (t.length > 0 && (t[0] == 'q' || t[0] == 'Q'))
 			throw new PagerQuit;
 		    pageline_ = 0;
