@@ -551,7 +551,8 @@ private class Frame
 	sc.addScope(state_);
 	scope_ = sc;
     }
-    string toString()
+
+    override string toString()
     {
 	return format("#%-2d %s", index_,
 		      db_.describeAddress(state_.pc, state_));

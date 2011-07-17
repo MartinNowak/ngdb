@@ -2456,7 +2456,7 @@ class AttributeValue
 	}
     }
 
-    string toString()
+    override string toString()
     {
 	return to!string(str);
     }

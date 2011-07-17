@@ -992,23 +992,7 @@ class Elffile: Objfile
 	return endian_.read(cast(ulong) v);
     }
 
-    abstract bool is64();
-
-    abstract Symbol* lookupSymbol(ulong addr);
-
-    abstract Symbol* lookupSymbol(string name);
-
-    abstract ulong offset();
-
-    abstract uint tlsindex();
-
     abstract void tlsindex(uint);
-
-    abstract bool hasSection(string name);
-
-    abstract char[] readSection(string name);
-
-    abstract string interpreter();
 
     abstract void enumerateProgramHeaders(void delegate(uint, ulong, ulong) dg);
 
@@ -1024,9 +1008,6 @@ class Elffile: Objfile
 
     abstract void enumerateLinkMap(Target target,
 				   void delegate(string, ulong, ulong) dg);
-
-    abstract void enumerateNeededLibraries(Target target,
-					   void delegate(string) dg);
 
     abstract bool inPLT(ulong pc);
 
@@ -1130,12 +1111,12 @@ template ElfFileBase()
 	}
     }
 
-    bool isExecutable()
+    override bool isExecutable()
     {
 	return type_ == ET_EXEC;
     }
 
-    MachineState getState(Target target)
+    override MachineState getState(Target target)
     {
 	switch (machine_) {
 	case EM_386:
@@ -1149,7 +1130,7 @@ template ElfFileBase()
 	}
     }
 
-    Symbol* lookupSymbol(ulong addr)
+    override Symbol* lookupSymbol(ulong addr)
     {
 	Symbol *sp;
 	sp = _lookupSymbol(addr, symtab_);
@@ -1161,7 +1142,7 @@ template ElfFileBase()
 	return null;
     }
 
-    Symbol* lookupSymbol(string name)
+    override Symbol* lookupSymbol(string name)
     {
 	Symbol *sp;
 	sp = _lookupSymbol(name, symtab_);
@@ -1174,27 +1155,27 @@ template ElfFileBase()
 	return null;
     }
 
-    ulong entry()
+    override ulong entry()
     {
 	return entry_;
     }
 
-    ulong offset()
+    override ulong offset()
     {
 	return offset_;
     }
 
-    uint tlsindex()
+    override uint tlsindex()
     {
 	return tlsindex_;
     }
 
-    void tlsindex(uint i)
+    override void tlsindex(uint i)
     {
 	tlsindex_ = i;
     }
 
-    sizediff_t lookupSection(string name)
+    final sizediff_t lookupSection(string name)
     {
 	foreach (i, ref sh; sections_) {
 	    if (to!string(&shStrings_[sh.sh_name]) == name)
@@ -1203,12 +1184,12 @@ template ElfFileBase()
 	return -1;
     }
 
-    bool hasSection(string name)
+    override bool hasSection(string name)
     {
 	return (lookupSection(name) >= 0);
     }
 
-    char[] readSection(string name)
+    override char[] readSection(string name)
     {
 	auto i = lookupSection(name);
 	if (i < 0)
@@ -1216,7 +1197,7 @@ template ElfFileBase()
 	return readSection(i);
     }
 
-    string interpreter()
+    override string interpreter()
     {
 	foreach (ph; ph_)
 	    if (ph.p_type == PT_INTERP) {
@@ -1233,14 +1214,14 @@ template ElfFileBase()
 	return null;
     }
 
-    void enumerateProgramHeaders(void delegate(uint, ulong, ulong) dg)
+    override void enumerateProgramHeaders(void delegate(uint, ulong, ulong) dg)
     {
 	foreach (ph; ph_)
 	    dg(read(ph.p_type), read(ph.p_vaddr) + offset_,
 	       read(ph.p_vaddr) + read(ph.p_memsz) + offset_);
     }
 
-    void enumerateNotes(void delegate(uint, string, ubyte*) dg)
+    override void enumerateNotes(void delegate(uint, string, ubyte*) dg)
     {
 	foreach (ph; ph_) {
 	    if (read(ph.p_type) == PT_NOTE) {
@@ -1271,7 +1252,7 @@ template ElfFileBase()
 	}
     }
 
-    void enumerateDynamic(Target target, void delegate(uint, ulong) dg)
+    final void enumerateDynamic(Target target, void delegate(uint, ulong) dg)
     {
 	ulong s, e;
 	bool found = false;
@@ -1284,7 +1265,7 @@ template ElfFileBase()
 		found = true;
 	    }
 	}
-	    
+
 	enumerateProgramHeaders(&getDynamic);
 	if (!found)
 	    return;
@@ -1305,7 +1286,7 @@ template ElfFileBase()
 	}
     }
 
-    ubyte[] readProgram(ulong addr, size_t len)
+    override ubyte[] readProgram(ulong addr, size_t len)
     {
 	ubyte[] res;
 	res.length = len;
@@ -1338,7 +1319,7 @@ template ElfFileBase()
 	return res;
     }
 
-    void digestDynamic(Target target)
+    override void digestDynamic(Target target)
     {
 	void dg(uint tag, ulong val)
 	{
@@ -1353,7 +1334,7 @@ template ElfFileBase()
 		writefln("r_debug @ %#x", r_debug_);
     }
 
-    ulong findSharedLibraryBreakpoint(Target target)
+    override ulong findSharedLibraryBreakpoint(Target target)
     {
 	if (!r_debug_)
 	    return 0;
@@ -1362,7 +1343,7 @@ template ElfFileBase()
 	return read(p.r_brk);
     }
 
-    uint sharedLibraryState(Target target)
+    override uint sharedLibraryState(Target target)
     {
 	if (!r_debug_)
 	    return RT_CONSISTENT;
@@ -1371,7 +1352,7 @@ template ElfFileBase()
 	return read(p.r_state);
     }
 
-    void enumerateLinkMap(Target target,
+    override void enumerateLinkMap(Target target,
 			  void delegate(string, ulong, ulong) dg)
     {
 	if (!r_debug_)
@@ -1402,7 +1383,7 @@ template ElfFileBase()
 	}
     }
 
-    void enumerateNeededLibraries(Target target, void delegate(string) dg)
+    override void enumerateNeededLibraries(Target target, void delegate(string) dg)
     {
 	ulong strtabAddr, strtabSize;
 	string strtab;
@@ -1428,7 +1409,7 @@ template ElfFileBase()
 	enumerateDynamic(target, &findNeeded);
     }
 
-    bool inPLT(ulong pc)
+    override bool inPLT(ulong pc)
     {
 	return pc >= pltStart_ && pc < pltEnd_;
     }
@@ -1518,7 +1499,7 @@ class Elffile32: Elffile
 {
     import objfile.elf32;
     mixin ElfFileBase;
-    bool is64()
+    override bool is64()
     {
 	return false;
     }
@@ -1528,7 +1509,7 @@ class Elffile64: Elffile
 {
     import objfile.elf64;
     mixin ElfFileBase;
-    bool is64()
+    override bool is64()
     {
 	return true;
     }
