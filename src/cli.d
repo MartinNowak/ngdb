@@ -53,6 +53,7 @@ import std.datetime;
 static import std.path;
 import std.string;
 import std.stdio;
+import std.traits;
 import std.file;
 import std.c.stdio;
 
@@ -799,25 +800,175 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	}
     }
 
-    void executeCommand(string[] cmd)
+    // not ctfe able
+    // immutable string[string] cmdAbbrevs = buildAbbrevs!Cmd;
+    static Cmd[string] cmdAbbrevs;
+    static InfoCmd[string] infoCmdAbbrevs;
+
+    static this() {
+        cmdAbbrevs = buildAbbrevs!Cmd();
+        infoCmdAbbrevs = buildAbbrevs!InfoCmd();
+    }
+
+    static T[string] buildAbbrevs(T)() {
+        string[] list;
+        foreach(e; EnumMembers!T)
+            list ~= e;
+        return cast(T[string])std.string.abbrev(list);
+    }
+
+    void executeCommand(string[] args)
     {
-	if (cmd.front[0] == '#')
+        // ignore comments (sourced files)
+	if (args.front[0] == '#')
 	    return;
-	else if (cmd.front == "history") {
-	    version (editline) {
-		HistEvent ev;
-		for (int rv = history(hist_, &ev, H_LAST);
-		     rv != -1;
-		     rv = history(hist_, &ev, H_PREV))
-		    writef("%d %s", ev.num, to!string(ev.str));
-	    }
-	} else {
-	    try {
-		commands_.run(this, cmd, "");
-	    } catch (TargetException te) {
-		writefln("%s", te.msg);
-	    }
-	}
+        if (auto cmd = args.front in cmdAbbrevs) {
+            args.popFront;
+            final switch (cast(string)*cmd) {
+            case Cmd.Quit:
+                quit_ = true;
+                break;
+            case Cmd.Help:
+                writeln(getCmdHelp(args));
+                break;
+
+            case Cmd.History:
+                version (editline) {
+                    HistEvent ev;
+                    for (int rv = history(hist_, &ev, H_LAST);
+                         rv != -1;
+                         rv = history(hist_, &ev, H_PREV))
+                        writef("%d %s", ev.num, to!string(ev.str));
+                }
+                break;
+            case Cmd.Info: assert(0, *cmd);
+            case Cmd.Set: assert(0, *cmd);
+            case Cmd.Run: assert(0, *cmd);
+            case Cmd.Kill: assert(0, *cmd);
+            case Cmd.Step: assert(0, *cmd);
+            case Cmd.Next: assert(0, *cmd);
+            case Cmd.Stepi: assert(0, *cmd);
+            case Cmd.Nexti: assert(0, *cmd);
+            case Cmd.Continue: assert(0, *cmd);
+            case Cmd.Finish: assert(0, *cmd);
+            case Cmd.Break: assert(0, *cmd);
+            case Cmd.Condition: assert(0, *cmd);
+            case Cmd.Command: assert(0, *cmd);
+            case Cmd.Enable: assert(0, *cmd);
+            case Cmd.Disable: assert(0, *cmd);
+            case Cmd.Delete: assert(0, *cmd);
+            case Cmd.Thread: assert(0, *cmd);
+            case Cmd.Up: assert(0, *cmd);
+            case Cmd.Down: assert(0, *cmd);
+            case Cmd.Frame: assert(0, *cmd);
+            case Cmd.Print: assert(0, *cmd);
+            case Cmd.List: assert(0, *cmd);
+            }
+        }
+    }
+
+    string getCmdHelp(string[] args) {
+        if (args.empty) {
+            auto result = "help [COMMAND]: Print help about command.\nCOMMAND can be of:\n";
+            foreach(e; EnumMembers!Cmd) {
+                result ~= (e ~ "\n");
+            }
+            return result;
+        }
+
+        if (auto cmd = args.front in cmdAbbrevs) {
+            args.popFront;
+            final switch (cast(string)*cmd) {
+            case Cmd.Quit:
+                return "quit: Exit the debugger";
+            case Cmd.Help:
+                return "help [CMD]: Print help about command.";
+            case Cmd.History:
+                return "history: Show recent commands.";
+            case Cmd.Info:
+                return getInfoHelp(args);
+            case Cmd.Set:
+                return "info VAR EXPR: Set value.";
+            case Cmd.Run:
+                return "run [ARGS]: Run program with arguments.";
+            case Cmd.Kill:
+                return "kill: Kill debugged program.";
+            case Cmd.Step:
+                return "step: Step.";
+            case Cmd.Next:
+                return "next: Step, skip function calls.";
+            case Cmd.Stepi:
+                return "stepi: Step instruction.";
+            case Cmd.Nexti:
+                return "nexti: Step instruction, skip function calls.";
+            case Cmd.Continue:
+                return "continue: Continue debugged program.";
+            case Cmd.Finish:
+                return "finish: Continue to calling stack frame.";
+            case Cmd.Break:
+                return "break <Line | Func | File:Line | File:Func>: Set breakpoint.";
+            case Cmd.Condition:
+                return "condition <id> <expr>: Break only if condition evaluates to true.";
+            case Cmd.Command:
+                return "command <id> <expr>: Execute command on breakpoint.";
+            case Cmd.Enable:
+                return "enable [id]: Enable breakpoint id or all.";
+            case Cmd.Disable:
+                return "disable [id]: Disable breakpoint id or all.";
+            case Cmd.Delete:
+                return "delete <id>: Delete breakpoint id.";
+            case Cmd.Thread:
+                return "thread <id>: Switch to thread id.";
+            case Cmd.Up:
+                return "up: Select next outer stack frame.";
+            case Cmd.Down:
+                return "down: Select next inner stack frame.";
+            case Cmd.Frame:
+                return "frame [idx]: Select frame index or current.";
+            case Cmd.Print:
+                return "print <expr>: Evaluate and print expression.";
+            case Cmd.List:
+                return "list [ - | Line | Func | File:Line | File:Func | *Addr ]: List source code.";
+            }
+        }
+        return std.string.format("Undefined command %s.", args.front);
+    }
+
+    string getInfoHelp(string[] args) {
+        if (args.empty) {
+            auto result = "info [SUBCOMMAND]: Print information.\nSUBCOMMAND can be of:";
+            foreach(e; EnumMembers!InfoCmd) {
+                result ~= ("\n" ~ e);
+            }
+            return result;
+        }
+
+        if (auto cmd = args.front in infoCmdAbbrevs) {
+            args.popFront;
+            final switch(cast(string)*cmd) {
+            case InfoCmd.Source:
+                return "info source: Information about current source file.";
+            case InfoCmd.Sources:
+                return "info sources: Information about source files of program.";
+            case InfoCmd.Breakpoints:
+                return "info breakpoints: Information about breakpoints.";
+            case InfoCmd.Threads:
+                return "info threads: Information about threads.";
+            case InfoCmd.Locals:
+                return "info locals: Information about local variables.";
+            case InfoCmd.Modules:
+                return "info modules: Information about modules.";
+            case InfoCmd.Registers:
+                return "info registers: Information about general purpose registers.";
+            case InfoCmd.Float:
+                return "info float: Information about floating point registers.";
+            case InfoCmd.Frame:
+                return "info frame [ADDR]: Information about current frame or frame at ADDR.";
+            case InfoCmd.Stack:
+                return "info stack [COUNT]: Backtrace of stack or innermost COUNT frames.";
+            }
+        }
+        return std.string.format("Undefined command info %s.", args.front);
     }
 
     void executeMICommand(string[] cmd)
@@ -1830,6 +1981,47 @@ version (editline) {
     Value[] valueHistory_;
     Value[string] userVars_;
     bool stopped_;
+}
+
+enum Cmd : string {
+    Quit = "quit",
+    Help = "help",
+    History = "history",
+    Info = "info",
+    Set = "set",
+    Run = "run",
+    Kill = "kill",
+    Step = "step",
+    Next = "next",
+    Stepi = "stepi",
+    Nexti = "nexti",
+    Continue = "continue",
+    Finish = "finish",
+    Break = "break",
+    Condition = "condition",
+    Command = "command",
+    Enable = "enable",
+    Disable = "disable",
+    Delete = "delete",
+    Thread = "thread",
+    Up = "up",
+    Down = "down",
+    Frame = "frame",
+    Print = "print",
+    List = "list",
+}
+
+enum InfoCmd : string {
+    Source = "source",
+    Sources = "sources",
+    Breakpoints = "breakpoints",
+    Threads = "threads",
+    Locals = "locals",
+    Modules = "modules",
+    Registers = "registers",
+    Float = "float",
+    Frame = "frame",
+    Stack = "stack",
 }
 
 class QuitCommand: Command
