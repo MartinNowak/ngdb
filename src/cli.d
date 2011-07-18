@@ -611,7 +611,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	prog_ = prog;
 	core_ = core;
         annotate_ = annotate;
-	prompt_ = "(ngdb)";
+	prompt = "(ngdb)";
 
 	version (editline) {
 	    HistEvent ev;
@@ -671,7 +671,10 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 
     void prompt(string s)
     {
-	prompt_ = s;
+        if (annotate_)
+            prompt_ = "\n\032\032pre-prompt\n" ~ s ~ "\n\032\032prompt\n";
+        else
+            prompt_ = s;
     }
 
     string inputline(string prompt)
@@ -688,11 +691,14 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	version (editline) {
 	    int num;
 	    elPrompt_ = prompt;
-	    return to!string(el_gets(el_, &num));
+	    auto result = to!string(el_gets(el_, &num));
 	} else {
 	    writef("%s ", prompt_);
-	    return chomp(readln());
+	    auto result = chomp(readln());
 	}
+        if (annotate_)
+            writeln("\n\032\032post-prompt");
+        return result;
     }
 
     /**
