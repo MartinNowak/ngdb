@@ -1023,7 +1023,12 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                     else
                         currentSourceLine_ = 1;
                 } else  {
-                    assert(0, "unimplemented");
+                    auto tok = split(join(args, " "), ",");
+                    assert(tok.length == 1, "range list unimplemented");
+                    if (!parseSourceSpec(tok.front, currentSourceFile_, currentSourceLine_)) {
+                        std.stdio.stderr.writeln("Can't find %s", tok);
+                        return;
+                    }
                 }
 
                 if (currentSourceFile_ is null) {
@@ -1499,10 +1504,38 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	return true;
     }
 
-    bool parseSourceLine(string s, out SourceFile sf, out uint line)
+    /*
+     * finds source file and line from (File | File:Line | Func | File:Func)
+     */
+    bool parseSourceSpec(string s, out SourceFile sf, out uint line)
     {
-        // TODO: need implementation
-        assert(0, "unimplemented parseSourceLine");
+        auto scoped = split(s, ":");
+        SourceFile file;
+        if (scoped.length == 2) {
+            file = findFile(strip(scoped.front));
+            scoped.popFront;
+        }
+        if (file is null)
+            file = currentSourceFile_;
+
+        if (scoped.length != 1 || file is null)
+            return false;
+
+        auto spec = strip(scoped.front);
+        if (spec.empty)
+            return false;
+
+        if (isDigit(spec.front)) {
+            uint no;
+            if (collectException!ConvException(to!uint(spec), no))
+                return false;
+            sf = file;
+            line = no;
+            return true;
+        } else {
+            // TODO: implement function name lookup
+            return false;
+        }
     }
 
     bool setCurrentFrame()
@@ -1913,7 +1946,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	uint line;
 	if (bploc) {
 	    string file;
-	    if (!parseSourceLine(bploc, sf, line))
+	    if (!parseSourceSpec(bploc, sf, line))
 		func = bploc;
 	} else {
 	    sf = currentSourceFile_;
