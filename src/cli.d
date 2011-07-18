@@ -1042,6 +1042,23 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                 foreach(ln; start .. end)
                     displaySourceLine(currentSourceFile_, ln);
                 break;
+
+            case Cmd.Interpreter:
+                if (args.length < 2) {
+                    std.stdio.stderr.writeln(getCmdHelp([Cmd.Interpreter]));
+                    return;
+                }
+                switch (args.front) {
+                case "mi":
+                    args.popFront;
+                    return executeMICommand(args);
+                case "console":
+                    args.popFront;
+                    return executeCommand(args);
+                default:
+                    std.stdio.stderr.writefln("Unknown interpreter %s.", args.front);
+                }
+                break;
             }
         } else {
             std.stdio.stderr.writeln(getCmdHelp(args));
@@ -1301,6 +1318,8 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                 return "print <expr>: Evaluate and print expression.";
             case Cmd.List:
                 return "list [ - | Line | Func | File:Line | File:Func | *Addr ]: List source code.";
+            case Cmd.Interpreter:
+                return "interpreter <name> <command>: Execute a command with interpreter.";
             }
         }
         return std.string.format("Undefined command %s.", args.front);
@@ -2332,6 +2351,7 @@ enum Cmd : string {
     Frame = "frame",
     Print = "print",
     List = "list",
+    Interpreter = "interpreter",
 }
 
 enum InfoCmd : string {
