@@ -819,7 +819,8 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 
     void executeMICommand(string[] cmd)
     {
-        assert(0, "mi commands unimplemented");
+        writefln("^error,msg=\"Undefined MI command: %s\"", cmd.front);
+        //        assert(0, "mi commands unimplemented");
     }
 
     Command lookupCommand(string cmd)
