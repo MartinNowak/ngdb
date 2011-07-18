@@ -62,7 +62,7 @@ extern (C) char* readline(char*);
 extern (C) void add_history(char*);
 extern (C) void free(void*);
 
-private class Breakpoint: TargetBreakpointListener
+private class Breakpoint
 {
     this(Debugger db, SourceFile sf, uint line)
     {
@@ -75,33 +75,6 @@ private class Breakpoint: TargetBreakpointListener
     {
 	db_ = db;
 	func_ = func;
-    }
-
-    override bool onBreakpoint(Target, TargetThread t, ulong addr)
-    {
-        assert(canFind(addresses_, addr));
-	db_.currentThread = t;
-	if (condition_) {
-	    db_.setCurrentFrame;
-	    auto f = db_.currentFrame_;
-	    auto sc = f.scope_;
-	    auto s = t.state;
-	    try {
-		auto v = expr_.eval(sc, s).toValue(s);
-		if (v.type.isIntegerType)
-		    if (!s.readInteger(v.loc.readValue(s)))
-			return false;
-	    } catch (EvalException ex) {
-		db_.pagefln("Error evaluating breakpoint condition: %s", ex.msg);
-		return true;
-	    }
-	}
-	writefln("Stopped at breakpoint %d", id);
-	if (command_) {
-	    db_.stopped();
-	    db_.executeCommand(command);
-	}
-	return true;
     }
 
     string[] condition()
@@ -187,7 +160,8 @@ private class Breakpoint: TargetBreakpointListener
 			continue;
 		    func = f;
 		}
-		db_.target_.setBreakpoint(le.address, this);
+		db_.target_.setBreakpoint(le.address, db_);
+                db_.breakpointMap_[le.address] = this;
 		addresses_ ~= le.address;
 	    }
 	}
@@ -207,7 +181,7 @@ private class Breakpoint: TargetBreakpointListener
     {
 	if (enabled_) {
             foreach(addr; addresses_)
-		db_.target_.clearBreakpoint(addr, this);
+		db_.target_.clearBreakpoint(addr, db_);
 	    enabled_ = false;
 	}
     }
@@ -215,8 +189,8 @@ private class Breakpoint: TargetBreakpointListener
     void enable()
     {
 	if (!enabled_) {
-            foreach(addr; addresses_)
-		db_.target_.setBreakpoint(addr, this);
+	    foreach (addr; addresses_)
+		db_.target_.setBreakpoint(addr, db_);
 	    enabled_ = true;
 	}
     }
@@ -896,8 +870,11 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                     auto pred = (Breakpoint bp) { return bp.id != bid; };
                     auto drop = partition!(pred, SwapStrategy.stable)(breakpoints_);
                     breakpoints_.length -= drop.length;
-                    foreach (bp; drop)
+                    foreach (bp; drop) {
                         bp.disable;
+                        foreach(addr; bp.addresses_)
+                            breakpointMap_.remove(addr);
+                    }
                 }
                 break;
 
@@ -1719,16 +1696,18 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
     {
 	debug (step)
 	    writefln("step breakpoint at %#x", pc);
+        steppc_ = pc;
 	if (target_)
-	    target_.setBreakpoint(pc, this);
+	    target_.setBreakpoint(steppc_, this);
     }
 
     void clearStepBreakpoints()
     {
 	debug (step)
 	    writefln("clearing step breakpoints");
+        steppc_ = 0;
 	if (target_)
-	    target_.clearAllBreakpoints(this);
+	    target_.clearBreakpoint(steppc_, this);
     }
 
     void stepProgram(bool stepOverCalls)
@@ -2136,12 +2115,43 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	}
 	bool onBreakpoint(Target, TargetThread t, ulong addr)
 	{
-	    /*
-	     * We use this as listener for the step breakpoints.
-	     */
-	    currentThread = t;
-	    return true;
-	}
+            if (steppc_ != 0) // suppress spurious notice while single stepping
+                return true;
+
+            currentThread = t;
+            Breakpoint bp;
+            if (auto p = addr in breakpointMap_) {
+                bp = *p;
+            } else {
+                std.stdio.stderr.writefln("Stop from unknowk breakpoint at %#x", addr);
+                return true;
+            }
+
+            if (bp.condition_) {
+                setCurrentFrame;
+                auto f = currentFrame_;
+                auto sc = f.scope_;
+                auto s = t.state;
+                try {
+                    auto v = bp.expr_.eval(sc, s).toValue(s);
+                    if (v.type.isIntegerType)
+                        if (!s.readInteger(v.loc.readValue(s)))
+                            return false;
+                } catch (EvalException ex) {
+                    std.stdio.stderr.writeln("Error evaluating breakpoint condition: %s", ex.msg);
+                    return true;
+                }
+            }
+            if (annotate_)
+                writefln("\n\032\032breakpoint %d", bp.id);
+            writefln("Stopped at breakpoint %d", bp.id);
+            if (bp.command_) {
+                stopped();
+                executeCommand(bp.command);
+            }
+            return true;
+        }
+
 	void onSignal(Target, TargetThread t, int sig, string sigName)
 	{
 	    currentThread = t;
@@ -2300,7 +2310,9 @@ version (editline) {
 
     bool interactive_ = true;
     bool quit_ = false;
+    bool stopped_;
     uint annotate_;
+    ulong steppc_;
     string[] sourceLines_;
     string prog_;
     string core_;
@@ -2313,7 +2325,11 @@ version (editline) {
     TargetThread currentThread_;
     Frame topFrame_;
     Frame currentFrame_;
+
+    Breakpoint[ulong] breakpointMap_;
+    // TODO: consider synthesizing this member from breakpointMap_
     Breakpoint[] breakpoints_;
+
     SourceFile[string] sourceFiles_;
     SourceFile[string] sourceFilesBasename_;
     SourceFile stoppedSourceFile_;
@@ -2323,7 +2339,6 @@ version (editline) {
     uint nextBPID_;
     Value[] valueHistory_;
     Value[string] userVars_;
-    bool stopped_;
 }
 
 enum Cmd : string {
