@@ -1526,7 +1526,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
     /*
      * finds source file and line from (File | File:Line | Func | File:Func)
      */
-    bool parseSourceSpec(string s, out SourceFile sf, out uint line)
+    bool parseSourceSpec(string s, ref SourceFile sf, ref uint line)
     {
         auto scoped = split(s, ":");
         SourceFile file;
