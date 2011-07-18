@@ -280,6 +280,61 @@ private class Breakpoint
     ulong[] addresses_;
 }
 
+
+private struct PendingBreakpoint {
+    this(string func, string file=null) {
+        func_ = func;
+        file_ = file;
+    }
+
+    this(uint line, string file=null) {
+        line_ = line;
+        file_ = file;
+    }
+
+    @property string file() const {
+        return file_;
+    }
+
+    @property string func() const {
+        return func_.ptr is null ? null : func_;
+    }
+
+    @property uint line() const {
+        return func_.ptr is null ? line_ : 0;
+    }
+
+private:
+    // can be discriminated by func_.ptr being null
+    union {
+        string func_;
+        uint line_;
+    }
+    string file_;
+}
+
+unittest {
+    auto pb = PendingBreakpoint("_Dmain");
+    assert(pb.file is null);
+    assert(pb.func == "_Dmain");
+    assert(pb.line == 0);
+
+    pb = PendingBreakpoint("_Dmain", "foo.d");
+    assert(pb.file == "foo.d");
+    assert(pb.func == "_Dmain");
+    assert(pb.line == 0);
+
+    pb = PendingBreakpoint(12);
+    assert(pb.file is null);
+    assert(pb.func is null);
+    assert(pb.line == 12);
+
+    pb = PendingBreakpoint(12, "foo.d");
+    assert(pb.file == "foo.d");
+    assert(pb.func is null);
+    assert(pb.line == 12);
+}
+
 private class SourceFile
 {
     this(string filename)
