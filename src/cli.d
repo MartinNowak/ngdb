@@ -682,7 +682,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 
     static bool tryFrontArgToUint(string[] from, out uint id) {
         if (collectException!ConvException(to!uint(from.front), id)) {
-            std.stdio.stderr.writeln("Can't convert %s to an ID", from.front);
+            std.stdio.stderr.writefln("Can't convert %s to an ID", from.front);
             return false;
         }
         from.popFront;
@@ -817,7 +817,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                 if (rTy) {
                     MachineState s = currentThread.state;
                     Value val = s.returnValue(rTy);
-                    writeln("Value returned is %s", val.toString(null, s));
+                    writefln("Value returned is %s", val.toString(null, s));
                 }
                 stopped();
                 break;
@@ -915,7 +915,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                         return;
                     }
                 }
-                std.stdio.stderr.writeln("Invalid thread %d.", tid);
+                std.stdio.stderr.writefln("Invalid thread %d.", tid);
                 break;
 
             case Cmd.Up:
@@ -950,7 +950,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                         return;
                     f = getFrame(fidx);
                     if (f is null) {
-                        std.stdio.stderr.writeln("Invalid frame number %d", fidx);
+                        std.stdio.stderr.writefln("Invalid frame number %d", fidx);
                         return;
                     }
                 }
@@ -1026,7 +1026,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                     auto tok = split(join(args, " "), ",");
                     assert(tok.length == 1, "range list unimplemented");
                     if (!parseSourceSpec(tok.front, currentSourceFile_, currentSourceLine_)) {
-                        std.stdio.stderr.writeln("Can't find %s", tok);
+                        std.stdio.stderr.writefln("Can't find %s", tok);
                         return;
                     }
                 }
