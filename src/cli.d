@@ -1152,7 +1152,34 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                 }
                 break;
 
-            case Cmd.List: assert(0, *cmd);
+            case Cmd.List:
+                // TODO: need to keep state of listing
+                if (args.empty) {
+                    if (currentSourceFile_ is null && sourceFiles_.length) {
+                        // TODO: select a better source file, avoid ugly side effect
+                        currentSourceFile_ = sourceFiles_.values.front;
+                        currentSourceLine_ = 1;
+                    }
+                } else if (args.front == "-" && currentSourceFile_ !is null) {
+                    if (currentSourceLine_ > 20)
+                        currentSourceLine_ -= 20;
+                    else
+                        currentSourceLine_ = 1;
+                } else  {
+                    assert(0, "unimplemented");
+                }
+
+                if (currentSourceFile_ is null) {
+                    std.stdio.stderr.writeln("No source file.");
+                    return;
+                }
+
+                uint start = currentSourceLine_;
+                start = (start > 5) ? start - 5 : 1;
+                uint end = start + 10;
+                foreach(ln; start .. end)
+                    displaySourceLine(currentSourceFile_, ln);
+                break;
             }
         } else {
             std.stdio.stderr.writeln(getCmdHelp(args));
@@ -1623,25 +1650,8 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 
     bool parseSourceLine(string s, out SourceFile sf, out uint line)
     {
-	auto pos = countUntil(s, ":");
-	if (pos >= 0) {
-	    try {
-	        line = to!uint(s[pos + 1..$]);
-		sf = findFile(s[0..pos]);
-	    } catch (ConvException ce) {
-	        return false;
-	    }
-	    return true;
-	} else if (currentSourceFile_) {
-	    try {
-	        line = to!uint(s);
-	    } catch (ConvException ce) {
-	        return false;
-	    }
-	    sf = currentSourceFile_;
-	    return true;
-	}
-	return false;
+        // TODO: need implementation
+        assert(0, "unimplemented parseSourceLine");
     }
 
     bool setCurrentFrame()
@@ -1715,13 +1725,15 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	DebugInfo di;
 	LineEntry[] le;
 
-	if (findDebugInfo(s, di)) {
-	    if (di.findLineByAddress(s.pc, le)) {
-		SourceFile sf = findFile(le[0].fullname);
-		displaySourceLine(sf, le[0].line);
-		setCurrentSourceLine(sf, le[0].line);
-	    }
-	}
+	if (!findDebugInfo(s, di))
+            return;
+        if (!di.findLineByAddress(s.pc, le))
+            return;
+        if (auto sf = findFile(le[0].fullname)) {
+            displaySourceLine(sf, le[0].line);
+            currentSourceFile_ = sf;
+            currentSourceLine_ = le[0].line;
+        }
     }
 
     void displaySourceLine(SourceFile sf, uint line)
@@ -1752,13 +1764,6 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                 writefln("%d\t%s", line, s);
             }
 	}
-    }
-
-    void setCurrentSourceLine(SourceFile sf, int line)
-    {
-	currentSourceFile_ = sf;
-	currentSourceLine_ = line;
-	commands_.onSourceLine(this, sf, line);
     }
 
     string describeAddress(ulong pc, MachineState state)
@@ -2588,87 +2593,6 @@ private:
     uint count_ = 1;
     uint width_ = 4;
     string fmt_ = "x";
-}
-
-class ListCommand: Command
-{
-    static this()
-    {
-	Debugger.registerCommand(new ListCommand);
-    }
-
-    override {
-	string name()
-	{
-	    return "list";
-	}
-
-	string description()
-	{
-	    return "list source file contents";
-	}
-
-	void run(Debugger db, string[] args)
-	{
-	    uint line = 0;
-	    SourceFile sf = null;
-	    if (args.length > 1) {
-		db.pagefln("usage: list [- | <file:line>]");
-		return;
-	    }
-	    if (args.length == 0) {
-                if (sourceFile_ !is null) {
-                    sf = sourceFile_;
-                    line = sourceLine_;
-                } else if (db.sourceFiles_.length) {
-                    sf = sourceFile_ = db.sourceFiles_.values.front;
-                    line = sourceLine_ = 1;
-                }
-	    } else if (args.front == "-") {
-		sf = sourceFile_;
-		line = sourceLine_;
-		if (line > 20)
-		    line -= 20;
-		else
-		    line = 1;
-	    } else  {
-		if (!db.parseSourceLine(args.front, sf, line)) {
-		    line = 0;
-		    sf = db.findFile(args.front);
-		}
-	    }
-	    if (sf) {
-		if (line == 0) {
-		    if (sf == sourceFile_)
-			line = sourceLine_;
-		    else
-			line = 1;
-		}
-            } else {
-		db.pagefln("no source file");
-		return;
-	    }
-	    uint sl, el;
-	    if (line > 5)
-		sl = line - 5;
-	    else
-		sl = 1;
-	    el = sl + 10;
-	    for (uint ln = sl; ln < el; ln++)
-		db.displaySourceLine(sf, ln);
-	    db.setCurrentSourceLine(sf, line);
-	    sourceFile_ = sf;
-	    sourceLine_ = el + 5;
-	}
-	void onSourceLine(Debugger db, SourceFile sf, uint line)
-	{
-	    sourceFile_ = sf;
-	    sourceLine_ = line;
-	}
-    }
-
-    SourceFile sourceFile_;
-    uint sourceLine_;
 }
 
 class DefineCommand: Command
