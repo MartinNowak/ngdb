@@ -854,7 +854,11 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                 break;
 
             case Cmd.Set:
-                executeSetCommand(args);
+                try {
+                    executeSetCommand(args);
+                } catch (TargetException te) {
+                    std.stdio.stderr.writeln(te.msg);
+                }
                 break;
 
             case Cmd.Run:
@@ -872,7 +876,11 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                 PtraceRun pt = new PtraceRun;
                 if (!args.empty || runArgs_.empty)
                     runArgs_  = prog_ ~ args;
-                pt.connect(this, runArgs_);
+                try {
+                    pt.connect(this, runArgs_);
+                } catch (TargetException te) {
+                    std.stdio.stderr.writeln(te.msg);
+                }
                 if (target_ !is null)
                     stopped();
                 break;
@@ -907,8 +915,12 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                 }
 
                 started();
-                target_.cont();
-                target_.wait();
+                try {
+                    target_.cont();
+                    target_.wait();
+                } catch (TargetException te) {
+                    std.stdio.stderr.writeln(te.msg);
+                }
                 stopped();
                 break;
 
@@ -927,8 +939,12 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 
                 Type rTy = fromFrame.func_.returnType;
                 setStepBreakpoint(toFrame.state_.pc);
-                target_.cont();
-                target_.wait();
+                try {
+                    target_.cont();
+                    target_.wait();
+                } catch (TargetException te) {
+                    std.stdio.stderr.writeln(te.msg);
+                }
                 clearStepBreakpoints();
                 if (!currentThread)
                     return;
@@ -960,6 +976,8 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
             case Cmd.Print: assert(0, *cmd);
             case Cmd.List: assert(0, *cmd);
             }
+        } else {
+            std.stdio.stderr.writeln(getCmdHelp(args));
         }
     }
 
