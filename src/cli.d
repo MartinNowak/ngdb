@@ -62,149 +62,6 @@ extern (C) char* readline(char*);
 extern (C) void add_history(char*);
 extern (C) void free(void*);
 
-/**
- * A CLI command
- */
-class Command
-{
-    /**
-     * Return the command name.
-     */
-    abstract string name();
-
-    /**
-     * Return the command short name, if any.
-     */
-    string shortName()
-    {
-	return null;
-    }
-
-    /**
-     * Return the command description.
-     */
-    abstract string description();
-
-    /**
-     * Execute the command
-     */
-    abstract void run(Debugger db, string[] args);
-
-    /**
-     * Called when an action which sets the current source file and
-     * line happens.
-     */
-    void onSourceLine(Debugger db, SourceFile sf, uint line)
-    {
-    }
-
-    /**
-     * Called for command line completion.
-     */
-    string[] complete(Debugger db, string args)
-    {
-	return null;
-    }
-
-    /**
-     * Return true if this is a builtin command
-     */
-    bool builtin()
-    {
-	return true;
-    }
-}
-
-class CommandTable
-{
-    void run(Debugger db, string[] cmd, string prefix)
-    {
-	string message;
-	Command c = lookup(cmd.front, message);
-	if (c)
-	    c.run(db, cmd[1 .. $]);
-	else
-	    writefln("Command %s%s is %s", prefix, cmd.front, message);
-    }
-
-    void add(Command c)
-    {
-	if (c.name in list_) {
-	    auto s = list_[c.name].shortName;
-	    list_.remove(c.name);
-	    if (s)
-		shortNames_.remove(s);
-	}
-	list_[c.name] = c;
-	auto s = c.shortName;
-	if (s)
-	    shortNames_[s] = c.name;
-    }
-
-    Command lookup(string name, out string message)
-    {
-	if (name in shortNames_)
-	    name = shortNames_[name];
-	auto cp = (name in list_);
-	if (cp) {
-	    return *cp;
-	} else {
-	    /*
-	     * Try to match a prefix of some command. If nothing
-	     * matches or the given prefix is ambiguous, throw an
-	     * exception.
-	     */
-	    Command[] matches;
-
-	    foreach (c; list_) {
-		string s = c.name;
-		if (s.length > name.length)
-		    if (s[0..name.length] == name)
-			matches ~= c;
-	    }
-	    if (matches.length == 0) {
-		message = "unrecognised";
-		return null;
-	    }
-	    if (matches.length > 1) {
-		message = "ambiguous";
-		return null;
-	    }
-	    return matches[0];
-	}
-    }
-
-    string[] complete(Debugger db, string args)
-    {
-        auto i = countUntil(args, ' ');
-	if (i < 0) {
-	    string[] matches;
-	    foreach (c; list_) {
-		string s = c.name;
-                if (args.startsWith(s))
-                    matches ~= s[args.length .. $];
-	    }
-	    return matches;
-	}
-
-	string message;
-	Command c = lookup(args[0 .. i], message);
-	if (c)
-	    return c.complete(db, args[i + 1 .. $]);
-	else
-	    return null;
-    }
-
-    void onSourceLine(Debugger db, SourceFile sf, uint line)
-    {
-	foreach (c; list_)
-	    c.onSourceLine(db, sf, line);
-    }
-
-    Command[string] list_;
-    string[string] shortNames_;
-}
-
 private class Breakpoint: TargetBreakpointListener
 {
     this(Debugger db, SourceFile sf, uint line)
@@ -1509,12 +1366,6 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
         //        assert(0, "mi commands unimplemented");
     }
 
-    Command lookupCommand(string cmd)
-    {
-	string msg;
-	return commands_.lookup(cmd, msg);
-    }
-
     bool yesOrNo(...)
     {
 	if (!interactive_)
@@ -1709,7 +1560,6 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 		currentSourceFile_ = stoppedSourceFile_ = sf;
 		currentSourceLine_ = stoppedSourceLine_ = le[0].line;
 		displaySourceLine(sf, currentSourceLine_);
-		commands_.onSourceLine(this, sf, le[0].line);
 	    }
 	} else {
 	    currentFrame_ = topFrame_ =
@@ -2136,13 +1986,6 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	return false;
     }
 
-    static void registerCommand(Command c)
-    {
-	if (!commands_)
-	    commands_ = new CommandTable;
-	commands_.add(c);
-    }
-
     Language currentLanguage()
     {
 	auto f = currentFrame_;
@@ -2361,47 +2204,46 @@ version (editline) {
 
     char complete(EditLine *el, int ch)
     {
-	LineInfo* li = el_line(el);
-
-	size_t n = li.cursor - li.buffer;
-	string args = chomp(li.buffer[0..n].idup);
-	string[] matches = commands_.complete(this, args);
-
-	if (matches.length == 1) {
-	    string s = matches[0] ~ " ";
-	    if (el_insertstr(el, toStringz(s)) == -1)
-		return CC_ERROR;
-	    return CC_REFRESH;
-	} else {
-	    /*
-	     * Find the longest common prefix of all the matches
-	     * and try to insert from that. If we can't insert any
-	     * more, display the match list.
-	     */
-	    if (matches.length == 0)
-		return CC_ERROR;
-	    int i;
-	    string m0 = matches[0];
-	    gotPrefix: for (i = 0; i < m0.length; i++) {
-		foreach (m; matches[1..$]) {
-		    if (i >= m.length || m[i] != m0[i])
-			break gotPrefix;
-		}
-	    }
-	    if (i > 0) {
-		string s = m0[0..i];
-		if (el_insertstr(el, toStringz(s)) == -1)
-		    return CC_ERROR;
-		return CC_REFRESH;
-	    }
-	    return CC_ERROR;
-	}
+        return CC_ERROR;
+//	LineInfo* li = el_line(el);
+//
+//	size_t n = li.cursor - li.buffer;
+//	string args = chomp(li.buffer[0..n].idup);
+//	string[] matches = commands_.complete(this, args);
+//
+//	if (matches.length == 1) {
+//	    string s = matches[0] ~ " ";
+//	    if (el_insertstr(el, toStringz(s)) == -1)
+//		return CC_ERROR;
+//	    return CC_REFRESH;
+//	} else {
+//	    /*
+//	     * Find the longest common prefix of all the matches
+//	     * and try to insert from that. If we can't insert any
+//	     * more, display the match list.
+//	     */
+//	    if (matches.length == 0)
+//		return CC_ERROR;
+//	    int i;
+//	    string m0 = matches[0];
+//	    gotPrefix: for (i = 0; i < m0.length; i++) {
+//		foreach (m; matches[1..$]) {
+//		    if (i >= m.length || m[i] != m0[i])
+//			break gotPrefix;
+//		}
+//	    }
+//	    if (i > 0) {
+//		string s = m0[0..i];
+//		if (el_insertstr(el, toStringz(s)) == -1)
+//		    return CC_ERROR;
+//		return CC_REFRESH;
+//	    }
+//	    return CC_ERROR;
+//	}
     }
     History* hist_;
     EditLine* el_;
 }
-
-    static CommandTable commands_;
 
     bool interactive_ = true;
     bool quit_ = false;
@@ -2477,116 +2319,110 @@ enum SetCmd : string {
     Width = "width",
 }
 
-class ExamineCommand: Command
+class ExamineCommand
 {
-    static this()
+    string name()
     {
-	Debugger.registerCommand(new ExamineCommand);
+        return "examine";
     }
 
-    override {
-	string name()
-	{
-	    return "examine";
-	}
-
-	string shortName()
-	{
-	    return "x";
-	}
-
-	string description()
-	{
-	    return "Examine memory";
-	}
-
-	void run(Debugger db, string[] args)
-	{
-	    MachineState s;
-	    DebugInfo di;
-
-	    if (!db.target_) {
-		db.pagefln("Target is not running");
-		return;
-	    }
-	    auto f = db.currentFrame_;
-	    if (f)
-		s = f.state_;
-	    else if (db.currentThread)
-		s = db.currentThread.state;
-
-	    if (args.length > 0 && args.front[0] == '/') {
-		if (!db.parseFormat(args.front, count_, width_, fmt_))
-		    return;
-	    }
-
-	    ulong addr;
-	    if (args.length == 0) {
-		if (!lastAddrValid_) {
-		    db.pagefln("No previous address to examine");
-		    return;
-		}
-		addr = lastAddr_;
-	    } else {
-		string expr = join(args, " ");
-		Scope sc;
-		Language lang;
-		if (f) {
-		    sc = f.scope_;
-		    lang = f.lang_;
-		} else {
-		    sc = db;
-		    lang = CLikeLanguage.instance;
-		}
-
-		try {
-		    auto e = lang.parseExpr(expr, sc);
-		    auto v = e.eval(sc, s).toValue(s);
-		    auto pTy = cast(PointerType) v.type;
-		    auto fTy = cast(FunctionType) v.type;
-		    if (pTy || v.type.isIntegerType)
-			addr = s.readInteger(v.loc.readValue(s));
-		    else if (fTy)
-			addr = v.loc.address(s);
-		    else
-			throw new EvalException("Not an address");
-		} catch (EvalException ex) {
-		    db.pagefln("%s", ex.msg);
-		    return;
-		}
-	    }
-
-	    uint count = count_;
-	    if (fmt_ == "i") {
-		while (count > 0) {
-		    string addrString = db.lookupAddress(addr);
-		    db.pagefln("%-31s %s", addrString,
-			       s.disassemble(addr, &db.lookupAddress));
-		    count--;
-		}
-	    } else {
-		string line = format("%#-15x ", addr);
-		while (count > 0) {
-		    ubyte[] mem = db.target_.readMemory(addr, width_);
-		    addr += width_;
-		    ulong val = s.readInteger(mem);
-		    if (width_ < 8)
-			val &= (1UL << width_ * 8) - 1;
-		    string fmt = format("%%0%d%s ", 2*width_, fmt_);
-		    string vs = format(fmt, val);
-		    if (line.length + vs.length > 79) {
-			db.pagefln("%s", line);
-			line = format("%#-15x ", addr);
-		    }
-		    line ~= vs;
-		    count--;
-		}
-		db.pagefln("%s", line);
-	    }
-	    lastAddrValid_ = true;
-	    lastAddr_ = addr;
-	}
+    string shortName()
+    {
+        return "x";
     }
+
+    string description()
+    {
+        return "Examine memory";
+    }
+
+    void run(Debugger db, string[] args)
+    {
+        MachineState s;
+        DebugInfo di;
+
+        if (!db.target_) {
+            db.pagefln("Target is not running");
+            return;
+        }
+        auto f = db.currentFrame_;
+        if (f)
+            s = f.state_;
+        else if (db.currentThread)
+            s = db.currentThread.state;
+
+        if (args.length > 0 && args.front[0] == '/') {
+            if (!db.parseFormat(args.front, count_, width_, fmt_))
+                return;
+        }
+
+        ulong addr;
+        if (args.length == 0) {
+            if (!lastAddrValid_) {
+                db.pagefln("No previous address to examine");
+                return;
+            }
+            addr = lastAddr_;
+        } else {
+            string expr = join(args, " ");
+            Scope sc;
+            Language lang;
+            if (f) {
+                sc = f.scope_;
+                lang = f.lang_;
+            } else {
+                sc = db;
+                lang = CLikeLanguage.instance;
+            }
+
+            try {
+                auto e = lang.parseExpr(expr, sc);
+                auto v = e.eval(sc, s).toValue(s);
+                auto pTy = cast(PointerType) v.type;
+                auto fTy = cast(FunctionType) v.type;
+                if (pTy || v.type.isIntegerType)
+                    addr = s.readInteger(v.loc.readValue(s));
+                else if (fTy)
+                    addr = v.loc.address(s);
+                else
+                    throw new EvalException("Not an address");
+            } catch (EvalException ex) {
+                db.pagefln("%s", ex.msg);
+                return;
+            }
+        }
+
+        uint count = count_;
+        if (fmt_ == "i") {
+            while (count > 0) {
+                string addrString = db.lookupAddress(addr);
+                db.pagefln("%-31s %s", addrString,
+                           s.disassemble(addr, &db.lookupAddress));
+                count--;
+            }
+        } else {
+            string line = format("%#-15x ", addr);
+            while (count > 0) {
+                ubyte[] mem = db.target_.readMemory(addr, width_);
+                addr += width_;
+                ulong val = s.readInteger(mem);
+                if (width_ < 8)
+                    val &= (1UL << width_ * 8) - 1;
+                string fmt = format("%%0%d%s ", 2*width_, fmt_);
+                string vs = format(fmt, val);
+                if (line.length + vs.length > 79) {
+                    db.pagefln("%s", line);
+                    line = format("%#-15x ", addr);
+                }
+                line ~= vs;
+                count--;
+            }
+            db.pagefln("%s", line);
+        }
+        lastAddrValid_ = true;
+        lastAddr_ = addr;
+    }
+
 private:
     bool lastAddrValid_;
     ulong lastAddr_;
@@ -2595,53 +2431,46 @@ private:
     string fmt_ = "x";
 }
 
-class DefineCommand: Command
+class DefineCommand
 {
-    static this()
+    string name()
     {
-	Debugger.registerCommand(new DefineCommand);
+        return "define";
     }
 
-    override {
-	string name()
-	{
-	    return "define";
-	}
+    string description()
+    {
+        return "define a macro";
+    }
 
-	string description()
-	{
-	    return "define a macro";
-	}
+    void run(Debugger db, string[] args)
+    {
+        if (args.length != 1) {
+            db.pagefln("usage: define name");
+            return;
+        }
 
-	void run(Debugger db, string[] args)
-	{
-	    if (args.length != 1) {
-		db.pagefln("usage: define name");
-		return;
-	    }
+//        Command c = db.lookupCommand(args.front);
+//        if (c) {
+//            if (c.builtin) {
+//                db.pagefln("Can't redefine built-in command \"%s\"",
+//                           args.front);
+//                return;
+//            }
+//            if (!db.yesOrNo("Redefine command \"%s\"?", args.front))
+//                return;
+//        }
 
-	    Command c = db.lookupCommand(args.front);
-	    if (c) {
-		if (c.builtin) {
-		    db.pagefln("Can't redefine built-in command \"%s\"",
-			       args.front);
-		    return;
-		}
-		if (!db.yesOrNo("Redefine command \"%s\"?", args.front))
-		    return;
-	    }
-
-	    if (db.interactive)
-		db.pagefln("Enter commands for \"%s\", finish with \"end\"",
-			   args.front);
-	    string line, junk;
-	    string[] cmds = db.readStatementBody(null, junk);
-	    Debugger.registerCommand(new MacroCommand(args.front, cmds));
-	}
+        if (db.interactive)
+            db.pagefln("Enter commands for \"%s\", finish with \"end\"",
+                       args.front);
+        string line, junk;
+        string[] cmds = db.readStatementBody(null, junk);
+        //        Debugger.registerCommand(new MacroCommand(args.front, cmds));
     }
 }
 
-class MacroCommand: Command
+class MacroCommand
 {
     this(string name, string[] cmds)
     {
@@ -2649,203 +2478,174 @@ class MacroCommand: Command
 	cmds_ = cmds;
     }
 
-    override {
-	string name()
-	{
-	    return name_;
-	}
-
-	string description()
-	{
-	    return name_;
-	}
-
-	void run(Debugger db, string[] args)
-	{
-	    if (depth_ > 1000) {
-		db.pagefln("Recursion too deep");
-		depth_ = 0;
-		throw new PagerQuit;
-	    }
-	    string[] cmds;
-	    foreach (cmd; cmds_) {
-		foreach (i, arg; args)
-		    cmd = replace(cmd, "$arg" ~ to!string(i), arg);
-		cmds ~= cmd;
-	    }
-	    depth_++;
-	    db.executeMacro(cmds);
-	    depth_--;
-	}
-
-	bool builtin()
-	{
-	    return false;
-	}
+    string name()
+    {
+        return name_;
     }
+
+    string description()
+    {
+        return name_;
+    }
+
+    void run(Debugger db, string[] args)
+    {
+        if (depth_ > 1000) {
+            db.pagefln("Recursion too deep");
+            depth_ = 0;
+            throw new PagerQuit;
+        }
+        string[] cmds;
+        foreach (cmd; cmds_) {
+            foreach (i, arg; args)
+                cmd = replace(cmd, "$arg" ~ to!string(i), arg);
+            cmds ~= cmd;
+        }
+        depth_++;
+        db.executeMacro(cmds);
+        depth_--;
+    }
+
+    bool builtin()
+    {
+        return false;
+    }
+
 private:
     string name_;
     string[] cmds_;
     static uint depth_ = 0;
 }
 
-class SourceCommand: Command
+class SourceCommand
 {
-    static this()
+    string name()
     {
-	Debugger.registerCommand(new SourceCommand);
+        return "source";
     }
 
-    override {
-	string name()
-	{
-	    return "source";
-	}
+    string description()
+    {
+        return "Read commands from a file";
+    }
 
-	string description()
-	{
-	    return "Read commands from a file";
-	}
+    void run(Debugger db, string[] args)
+    {
+        if (args.length != 1) {
+            db.pagefln("usage: source filename");
+            return;
+        }
 
-	void run(Debugger db, string[] args)
-	{
-	    if (args.length != 1) {
-		db.pagefln("usage: source filename");
-		return;
-	    }
-
-	    try
-		db.sourceFile(args.front);
-	    catch {
-		writefln("Can't open file %s", args);
-	    }
-	}
+        try
+            db.sourceFile(args.front);
+        catch {
+            writefln("Can't open file %s", args);
+        }
     }
 }
 
-class IfCommand: Command
+class IfCommand
 {
-    static this()
+    string name()
     {
-	Debugger.registerCommand(new IfCommand);
+        return "if";
     }
 
-    override {
-	string name()
-	{
-	    return "if";
-	}
+    string description()
+    {
+        return "Conditionally execute commands";
+    }
 
-	string description()
-	{
-	    return "Conditionally execute commands";
-	}
+    void run(Debugger db, string[] args)
+    {
+        if (args.length != 1) {
+            db.pagefln("usage: if expr");
+            return;
+        }
 
-	void run(Debugger db, string[] args)
-	{
-	    if (args.length != 1) {
-		db.pagefln("usage: if expr");
-		return;
-	    }
+        bool cond = false;
+        MachineState s;
+        auto v = db.evaluateExpr(args.front, s);
+        if (v.type.isIntegerType)
+            cond = s.readInteger(v.loc.readValue(s)) != 0;
 
-	    bool cond = false;
-	    MachineState s;
-	    auto v = db.evaluateExpr(args.front, s);
-	    if (v.type.isIntegerType)
-		cond = s.readInteger(v.loc.readValue(s)) != 0;
+        string endString;
+        string[] ifCmds = db.readStatementBody("else", endString);
+        string[] elseCmds;
+        if (endString == "else")
+            elseCmds = db.readStatementBody("", endString);
 
-	    string endString;
-	    string[] ifCmds = db.readStatementBody("else", endString);
-	    string[] elseCmds;
-	    if (endString == "else")
-		elseCmds = db.readStatementBody("", endString);
-
-	    if (cond)
-		db.executeMacro(ifCmds);
-	    else
-		db.executeMacro(elseCmds);
-	}
+        if (cond)
+            db.executeMacro(ifCmds);
+        else
+            db.executeMacro(elseCmds);
     }
 }
 
-class WhileCommand: Command
+class WhileCommand
 {
-    static this()
+    string name()
     {
-	Debugger.registerCommand(new WhileCommand);
+        return "while";
     }
 
-    override {
-	string name()
-	{
-	    return "while";
-	}
-
-	string description()
-	{
-	    return "Conditionally execute commands";
-	}
-
-	void run(Debugger db, string[] args)
-	{
-	    if (args.length != 1) {
-		db.pagefln("usage: while expr");
-		return;
-	    }
-
-	    string endString;
-	    string[] cmds = db.readStatementBody("", endString);
-
-	    for (;;) {
-		bool cond = false;
-		MachineState s;
-		auto v = db.evaluateExpr(args.front, s);
-		if (v.type.isIntegerType)
-		    cond = s.readInteger(v.loc.readValue(s)) != 0;
-		if (!cond)
-		    break;
-		db.executeMacro(cmds);
-	    }
-	}
-    }
-}
-
-class InterpreterCommand: Command
-{
-    static this()
+    string description()
     {
-	Debugger.registerCommand(new InterpreterCommand);
+        return "Conditionally execute commands";
     }
 
-    override {
-	string name()
-	{
-	    return "interpreter";
-	}
+    void run(Debugger db, string[] args)
+    {
+        if (args.length != 1) {
+            db.pagefln("usage: while expr");
+            return;
+        }
 
-	string description()
-	{
-	    return "choose interpreter";
-	}
+        string endString;
+        string[] cmds = db.readStatementBody("", endString);
 
-	void run(Debugger db, string[] args)
-	{
-	    if (args.empty) {
-		db.pagefln("usage: interpreter <name> cmd");
-		return;
-	    }
-
-            switch (args.front) {
-            case "console":
-                db.executeCommand(args[1 .. $]);
+        for (;;) {
+            bool cond = false;
+            MachineState s;
+            auto v = db.evaluateExpr(args.front, s);
+            if (v.type.isIntegerType)
+                cond = s.readInteger(v.loc.readValue(s)) != 0;
+            if (!cond)
                 break;
-            case "mi":
-                db.executeMICommand(args[1 .. $]);
-                break;
-            default:
-                assert(0, "unknown interpreter " ~ args.front);
-            }
-	}
+            db.executeMacro(cmds);
+        }
+    }
+}
+
+class InterpreterCommand
+{
+    string name()
+    {
+        return "interpreter";
+    }
+
+    string description()
+    {
+        return "choose interpreter";
+    }
+
+    void run(Debugger db, string[] args)
+    {
+        if (args.empty) {
+            db.pagefln("usage: interpreter <name> cmd");
+            return;
+        }
+
+        switch (args.front) {
+        case "console":
+            db.executeCommand(args[1 .. $]);
+            break;
+        case "mi":
+            db.executeMICommand(args[1 .. $]);
+            break;
+        default:
+            assert(0, "unknown interpreter " ~ args.front);
+        }
     }
 }
 
