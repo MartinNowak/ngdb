@@ -841,7 +841,11 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                         writef("%d %s", ev.num, to!string(ev.str));
                 }
                 break;
-            case Cmd.Info: assert(0, *cmd);
+
+            case Cmd.Info:
+                executeInfoCommand(args);
+                break;
+
             case Cmd.Set: assert(0, *cmd);
             case Cmd.Run: assert(0, *cmd);
             case Cmd.Kill: assert(0, *cmd);
@@ -864,6 +868,174 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
             case Cmd.Print: assert(0, *cmd);
             case Cmd.List: assert(0, *cmd);
             }
+        }
+    }
+
+    void executeInfoCommand(string[] args) {
+        if (args.empty)
+            std.stdio.stderr.writeln(getInfoHelp(null));
+        if (auto cmd = args.front in infoCmdAbbrevs) {
+            args.popFront;
+            final switch (cast(string)*cmd) {
+            case InfoCmd.Source:
+                if (currentSourceFile_ is null)
+                    writeln("No current source file.");
+                else {
+                    auto sf = currentSourceFile_;
+                    writefln("Current source file is %s", std.path.basename(sf.filename));
+                    writefln("Compilation directory is %s", std.path.dirname(sf.filename));
+                    writefln("Located in %s", sf.filename);
+                    sf[0]; // force read in
+                    writefln("Contains %s lines.", sf.lines_.length);
+                    // TODO: need detailed information
+                    writeln("Source language is c.");
+                    writeln("Compiled with DWARF 2 debugging format.");
+                    writeln("Does not include preprocessor macro info.");
+                }
+                break;
+
+            case InfoCmd.Sources:
+                writeln("Source files for which symbols have been read in:\n\n");
+                writeln("\nSource files for which symbols will be read in on demand:\n");
+                foreach(sf; sourceFiles_)
+                    writeln(std.path.basename(sf.filename));
+                break;
+
+            case InfoCmd.Breakpoints:
+                if (breakpoints_.empty) {
+                    writeln("No breakpoints");
+                } else {
+                    Breakpoint.printHeader;
+                    foreach (b; breakpoints_)
+                        b.print;
+                }
+                break;
+
+            case InfoCmd.Threads:
+                foreach (i, t; threads_) {
+                    auto mark = t is currentThread ? "*" : " ";
+                    auto desc = describeAddress(t.state.pc, t.state);
+                    writefln("%s %-2d: %s", mark, t.id, desc);
+                }
+                break;
+
+            case InfoCmd.Locals:
+                if (target_ is null) {
+                    writeln("target is not running");
+                    return;
+                }
+
+                string fmt;
+                if (args.length > 0 && args.front[0] == '/') {
+                    uint count, width;
+                    if (!parseFormat(args.front, count, width, fmt))
+                        return;
+                    if (fmt == "i") {
+                        writeln("Instruction format not supported");
+                        return;
+                    }
+                    if (count != 1) {
+                        writeln("Counts greater than one not supported");
+                        return;
+                    }
+                    if (width != 4) {
+                        writeln("Format width characters not supported");
+                    }
+                }
+
+                auto f = currentFrame;
+                if (f is null) {
+                    writeln("current stack frame is invalid");
+                    return;
+                }
+
+                auto  s = f.state_;
+                auto func = f.func_;
+                if (func is null)
+                    return;
+
+                auto names = func.contents(s);
+                foreach (name; names) {
+                    DebugItem d;
+                    if (func.lookup(name, s, d)) {
+                        auto v = cast(Variable) d;
+                        if (!v.value.loc.valid(s))
+                            continue;
+                        writefln("%s = %s",
+                                v.toString, v.valueToString(fmt, s));
+                    }
+                }
+                break;
+
+            case InfoCmd.Modules:
+                ulong pc = 0;
+                if (currentThread)
+                    pc = currentThread.state.pc;
+                foreach (i, mod; modules_) {
+                    string addrs = format("%#x .. %#x", mod.start, mod.end);
+                    auto mark = (pc >= mod.start && pc < mod.end) ? "*" : " ";
+                    writefln("%s%2d: %-32s %s", mark, i + 1, addrs, mod.filename);
+                }
+                break;
+
+            case InfoCmd.Registers:
+                auto f = currentFrame;
+                if (f is null) {
+                    writeln("No current stack frame");
+                    return;
+                }
+                writeln(f.toString);
+                auto s = f.state_;
+                s.dumpState;
+                ulong pc = s.pc;
+                ulong tpc = pc;
+                writefln("%s:\t%s", lookupAddress(pc),
+                         s.disassemble(tpc, &lookupAddress));
+                break;
+
+            case InfoCmd.Float:
+                auto f = currentFrame;
+                if (f is null) {
+                    writeln("No current stack frame");
+                    return;
+                }
+                f.state_.dumpFloat;
+                break;
+
+            case InfoCmd.Frame:
+                Frame f;
+                if (args.empty)
+                    f = currentFrame;
+                else
+                    assert(0, "unimplemented \"info frame ADDR\"");
+                if (f is null) {
+                    writeln("No stack.");
+                    return;
+                }
+                writefln("rip = %#x; saved rip %#x", f.state_.pc, null);
+                // TODO: more info
+                break;
+
+            case InfoCmd.Stack:
+                Frame f;
+                if (args.empty)
+                    f = currentFrame;
+                else
+                    assert(0, "unimplemented \"info stack ADDR\"");
+                if (f is null) {
+                    writeln("No stack.");
+                    return;
+                }
+                uint cnt;
+                while (f !is null) {
+                    auto pc = f.state_.pc;
+                    writefln("#%-4d %#-16x %s", cnt, pc, describeAddress(pc, null));
+                    f = f.outer;
+                }
+                break;
+            }
+        } else {
+            std.stdio.stderr.writeln(getInfoHelp(args));
         }
     }
 
@@ -1195,7 +1367,6 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 		currentSourceLine_ = stoppedSourceLine_ = le[0].line;
 		displaySourceLine(sf, currentSourceLine_);
 		commands_.onSourceLine(this, sf, le[0].line);
-		infoCommands_.onSourceLine(this, sf, le[0].line);
 	    }
 	} else {
 	    currentFrame_ = topFrame_ =
@@ -1255,7 +1426,6 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	currentSourceFile_ = sf;
 	currentSourceLine_ = line;
 	commands_.onSourceLine(this, sf, line);
-	infoCommands_.onSourceLine(this, sf, line);
     }
 
     string describeAddress(ulong pc, MachineState state)
@@ -1679,13 +1849,6 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	commands_.add(c);
     }
 
-    static void registerInfoCommand(Command c)
-    {
-	if (!infoCommands_)
-	    infoCommands_ = new CommandTable;
-	infoCommands_.add(c);
-    }
-
     static void registerSetCommand(Command c)
     {
 	if (!setCommands_)
@@ -1952,7 +2115,6 @@ version (editline) {
 }
 
     static CommandTable commands_;
-    static CommandTable infoCommands_;
     static CommandTable setCommands_;
 
     bool interactive_ = true;
@@ -2071,43 +2233,6 @@ class HelpCommand: Command
 	{
 	    foreach (c; db.commands_.list_)
 		db.pagefln("%s: %s", c.name, c.description);
-	}
-    }
-}
-
-class InfoCommand: Command
-{
-    static this()
-    {
-	Debugger.registerCommand(new InfoCommand);
-    }
-
-    override {
-	string name()
-	{
-	    return "info";
-	}
-
-	string description()
-	{
-	    return "Print information";
-	}
-
-	void run(Debugger db, string[] args)
-	{
-	    if (args.length == 0) {
-		db.pagefln("usage: info subcommand [args ...]");
-                foreach (c; db.infoCommands_.list_)
-                    db.pagefln("info %s: %s", c.name, c.description);
-		return;
-	    }
-	    db.infoCommands_.run(db, args, "info ");
-	}
-	string[] complete(Debugger db, string args)
-	{
-	    if (args.length == 0)
-		return null;
-	    return db.infoCommands_.complete(db, args);
 	}
     }
 }
@@ -2656,108 +2781,6 @@ class DeleteCommand: Command
     }
 }
 
-class InfoSourceCommand: Command
-{
-    static this()
-    {
-	Debugger.registerInfoCommand(new InfoSourceCommand);
-    }
-
-    override {
-	string name()
-	{
-	    return "source";
-	}
-
-	string description()
-	{
-	    return "Information about the current source file";
-	}
-
-	void run(Debugger db, string[] args)
-	{
-            if (db.currentSourceFile_ is null)
-                db.pagefln("No current source file.");
-            else {
-                auto sf = db.currentSourceFile_;
-                db.pagefln("Current source file is %s", std.path.basename(sf.filename));
-                db.pagefln("Compilation directory is %s", std.path.dirname(sf.filename));
-                db.pagefln("Located in %s", sf.filename);
-                sf[0]; // force read in
-                db.pagefln("Contains %s lines.", sf.lines_.length);
-                // TODO: need detailed information
-                db.pagefln("Source language is c.");
-                db.pagefln("Compiled with DWARF 2 debugging format.");
-                db.pagefln("Does not include preprocessor macro info.");
-            }
-	}
-    }
-}
-
-class InfoSourcesCommand: Command
-{
-    static this()
-    {
-	Debugger.registerInfoCommand(new InfoSourcesCommand);
-    }
-
-    override {
-	string name()
-	{
-	    return "sources";
-	}
-
-	string description()
-	{
-	    return "Source files in the program";
-	}
-
-	void run(Debugger db, string[] args)
-	{
-            db.pagefln("Source files for which symbols have been read in:\n\n");
-            db.pagefln("\nSource files for which symbols will be read in on demand:\n");
-            foreach(sf; db.sourceFiles_)
-                db.pagefln(std.path.basename(sf.filename));
-	}
-    }
-}
-
-class InfoBreakCommand: Command
-{
-    static this()
-    {
-	Debugger.registerInfoCommand(new InfoBreakCommand);
-    }
-
-    override {
-	string name()
-	{
-	    return "breakpoints";
-	}
-
-        string shortName()
-        {
-            return "break";
-        }
-
-	string description()
-	{
-	    return "List breakpoints";
-	}
-
-	void run(Debugger db, string[] args)
-	{
-	    if (db.breakpoints_.length == 0) {
-		db.pagefln("No breakpoints");
-		return;
-	    }
-	    Breakpoint.printHeader;
-	    foreach (b; db.breakpoints_)
-		b.print;
-	}
-    }
-}
-
 class ThreadCommand: Command
 {
     static this()
@@ -2795,279 +2818,6 @@ class ThreadCommand: Command
 		}
 	    }
 	    db.pagefln("Invalid thread %s", args.front);
-	}
-    }
-}
-
-class InfoModulesCommand: Command
-{
-    static this()
-    {
-	Debugger.registerInfoCommand(new InfoModulesCommand);
-    }
-
-    override {
-	string name()
-	{
-	    return "modules";
-	}
-
-	string description()
-	{
-	    return "List moduless";
-	}
-
-	void run(Debugger db, string[] args)
-	{
-	    ulong pc = 0;
-	    if (db.currentThread)
-		pc = db.currentThread.state.pc;
-	    foreach (i, mod; db.modules_) {
-		string addrs = format("%#x .. %#x", mod.start, mod.end);
-		bool active = false;
-		if (pc >= mod.start && pc < mod.end)
-		    active = true;
-		db.pagefln("%s%2d: %-32s %s",
-			   active ? "*" : " ", i + 1, addrs, mod.filename);
-	    }
-	}
-    }
-}
-
-class InfoThreadsCommand: Command
-{
-    static this()
-    {
-	Debugger.registerInfoCommand(new InfoThreadsCommand);
-    }
-
-    override {
-	string name()
-	{
-	    return "threads";
-	}
-
-	string description()
-	{
-	    return "List threads";
-	}
-
-	void run(Debugger db, string[] args)
-	{
-	    foreach (i, t; db.threads_) {
-		db.pagefln("%s %-2d: %s",
-			   t is db.currentThread ? "*" : " ",
-			   t.id,
-			   db.describeAddress(t.state.pc, t.state));
-	    }
-	}
-    }
-}
-
-class InfoRegistersCommand: Command
-{
-    static this()
-    {
-	Debugger.registerInfoCommand(new InfoRegistersCommand);
-    }
-
-    override {
-	string name()
-	{
-	    return "registers";
-	}
-
-	string description()
-	{
-	    return "List registers";
-	}
-
-	void run(Debugger db, string[] args)
-	{
-	    auto f = db.currentFrame;
-	    if (!f) {
-		db.pagefln("No current stack frame");
-		return;
-	    }
-	    db.pagefln("%s", f.toString);
-	    auto s = f.state_;
-	    s.dumpState;
-	    ulong pc = s.pc;
-	    ulong tpc = pc;
-	    db.pagefln("%s:\t%s", db.lookupAddress(pc),
-		     s.disassemble(tpc, &db.lookupAddress));
-	}
-    }
-}
-
-class InfoFloatCommand: Command
-{
-    static this()
-    {
-	Debugger.registerInfoCommand(new InfoFloatCommand);
-    }
-
-    override {
-	string name()
-	{
-	    return "float";
-	}
-
-	string description()
-	{
-	    return "Display floating point state";
-	}
-
-	void run(Debugger db, string[] args)
-	{
-	    auto f = db.currentFrame;
-	    if (!f) {
-		db.pagefln("No current stack frame");
-		return;
-	    }
-	    f.state_.dumpFloat;
-	}
-    }
-}
-
-class InfoLocalsCommand: Command
-{
-    static this()
-    {
-	Debugger.registerInfoCommand(new InfoLocalsCommand);
-    }
-
-    override {
-	string name()
-	{
-	    return "locals";
-	}
-
-	string description()
-	{
-	    return "Local variables of current stack frame";
-	}
-
-	void run(Debugger db, string[] args)
-	{
-	    string fmt = null;
-
-	    if (!db.target_) {
-		db.pagefln("target is not running");
-		return;
-	    }
-
-	    if (args.length > 0 && args.front[0] == '/') {
-		uint count, width;
-		if (!db.parseFormat(args.front, count, width, fmt))
-		    return;
-		if (fmt == "i") {
-		    db.pagefln("Instruction format not supported");
-		    return;
-		}
-		if (count != 1) {
-		    db.pagefln("Counts greater than one not supported");
-		    return;
-		}
-		if (width != 4) {
-		    db.pagefln("Format width characters not supported");
-		}
-	    }
-
-	    auto f = db.currentFrame;
-	    if (!f) {
-		db.pagefln("current stack frame is invalid");
-		return;
-	    }
-
-	    auto  s = f.state_;
-	    auto func = f.func_;
-	    if (func) {
-		auto names = func.contents(s);
-		foreach (name; names) {
-		    DebugItem d;
-		    if (func.lookup(name, s, d)) {
-			auto v = cast(Variable) d;
-			if (!v.value.loc.valid(s))
-			    continue;
-			db.pagefln("%s = %s",
-				   v.toString, v.valueToString(fmt, s));
-		    }
-		}
-	    }
-	}
-    }
-}
-
-class InfoFrameCommand: Command
-{
-    static this()
-    {
-	Debugger.registerInfoCommand(new InfoFrameCommand);
-    }
-
-    override {
-	string name()
-	{
-	    return "frame";
-	}
-
-	string description()
-	{
-	    return "All about selected stack frame, or frame at ADDR.";
-	}
-
-	void run(Debugger db, string[] args)
-	{
-            if (args.length == 0) {
-                auto f = db.currentFrame;
-                if (!f) {
-                    if (db.annotate_)
-                        db.pagefln("\n\032\032error-begin");
-                    db.pagefln("No stack.");
-                    if (db.annotate_)
-                        db.pagefln("\n\032\032error");
-                    return;
-                } else {
-                }
-            } else {
-                assert(0, "unimplemented \"info frame ADDR\"");
-            }
-	}
-    }
-}
-
-class InfoStackCommand: Command
-{
-    static this()
-    {
-	Debugger.registerInfoCommand(new InfoStackCommand);
-    }
-
-    override {
-	string name()
-	{
-	    return "stack";
-	}
-
-	string description()
-	{
-	    return "Backtrace of stack, or innermost COUNT frames.";
-	}
-
-	void run(Debugger db, string[] args)
-	{
-            auto f = db.currentFrame;
-            if (!f) {
-                if (db.annotate_)
-                    db.pagefln("\n\032\032error-begin");
-                db.pagefln("No stack");
-                if (db.annotate_)
-                    db.pagefln("\n\032\032error");
-                return;
-            } else {
-                assert(0, "unimplemented \"info stack ADDR\"");
-            }
 	}
     }
 }
