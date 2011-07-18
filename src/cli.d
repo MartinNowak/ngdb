@@ -482,18 +482,6 @@ class PagerQuit: Exception
 }
 
 /**
- * Return a copy of list with all duplicates removed.
- */
-private string[] uniq(string[] list)
-{
-    bool[string] map;
-
-    foreach (s; list)
-	map[s] = true;
-    return map.keys;
-}
-
-/**
  * Implement a command line interface to the debugger.
  */
 class Debugger: TargetListener, TargetBreakpointListener, Scope
@@ -2233,7 +2221,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	    for (int i = 0; i < valueHistory_.length; i++)
 		res ~= "$" ~ to!string(i);
 
-	    return uniq(res);
+	    return array(uniq(sort(res)));
 	}
 	bool lookup(string name, MachineState state, out DebugItem val)
 	{
