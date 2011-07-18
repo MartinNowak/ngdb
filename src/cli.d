@@ -404,27 +404,30 @@ private class Breakpoint: TargetBreakpointListener
 
     static void printHeader()
     {
-	writefln("%-3s %-3s %-18s %s",
-		 "Id", "Enb", "Address", "Where");
+	writefln("%-7s %-14s %-4s %-3s %-18s %s",
+		 "Num", "Type", "Disp", "Enb", "Address", "What");
     }
 
     void print()
     {
-	if (addresses_.length > 0) {
-	    bool first = true;
-	    foreach (addr; addresses_) {
-		if (first)
-		    writef("%-3d %-3s %#-18x ",
-			   id, enabled ? "y" : "n", addr);
-		else
-		    writef("        %#-18x ", addr);
-		first = false;
-		writefln("%s", db_.describeAddress(addr, null));
-	    }
-	} else {
-	    writefln("%-3d %-3s %-18s %s",
-		     id,  enabled ? "y" : "n", " ", expr);
-	}
+	if (addresses_.empty) {
+	    writef("%-7d %-14s %-4s %-3s ", id, "breakpoint", "keep", enabled ? "y" : "n");
+            writefln("%-18s %s", "<PENDING>", expr);
+        } else {
+            writef("%-7d %-14s %-4s %-3s ", id, "breakpoint", "keep", enabled ? "y" : "n");
+            if (addresses_.length == 1) {
+                auto addr = addresses_.front;
+                writef("%#-18x ", addr);
+                writeln(db_.describeAddress(addr, null));
+            } else {
+                writefln("%-18s ", "<MULTIPLE>");
+                foreach(sidx, addr; addresses_) {
+                    auto cid = std.string.format("%d.%d", id, sidx + 1);
+                    writef("%-27s %-3s %#-18x ", cid, enabled ? "y" : "n", addr);
+                    writeln(db_.describeAddress(addr, null));
+                }
+            }
+        }
 	if (condition_)
 	    writefln("\tstop only if %s", join(condition_, " "));
 	if (command_)
@@ -863,6 +866,12 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 
 	std.format.doFormat(&putc, _arguments, _argptr);
 	s = detab(s);
+
+        if (s.empty) {
+            writeln();
+            return;
+        }
+
 	while (s.length) {
 	    auto n = s.length;
 	    if (n > 80) n = 80;
@@ -888,10 +897,13 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	    tab = &sourceFilesBasename_;
 	if (filename in *tab)
 	    return (*tab)[filename];
-	SourceFile sf = new SourceFile(filename);
-	sourceFiles_[filename] = sf;
-	sourceFilesBasename_[std.path.getBaseName(filename)] = sf;
-	return sf;
+        if (std.file.exists(filename) && std.file.isFile(filename)) {
+            SourceFile sf = new SourceFile(filename);
+            sourceFiles_[filename] = sf;
+            sourceFilesBasename_[std.path.getBaseName(filename)] = sf;
+            return sf;
+        }
+        return null;
     }
 
     bool parseFormat(ref string args,
@@ -1076,10 +1088,14 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	}
 	auto s = sf[line];
 	if (s) {
-	    string a = "  ";
-	    if (sf == stoppedSourceFile_ && line == stoppedSourceLine_)
-		a = "=>";
-	    writefln("%s%4d%s%s", a, line, bpmark, detab(s));
+            version (none) {
+                string a = "  ";
+                if (sf == stoppedSourceFile_ && line == stoppedSourceLine_)
+                    a = "=>";
+                writefln("%s%4d%s%s", a, line, bpmark, detab(s));
+            } else {
+                writefln("%d\t%s", line, s);
+            }
 	}
     }
 
@@ -1409,6 +1425,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	if (bp.active) {
 	    bp.id_ = nextBPID_++;
 	    breakpoints_ ~= bp;
+            // TODO: need shortPrint
 	    bp.printHeader;
 	    bp.print;
 	} else {
@@ -1516,6 +1533,13 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	if (!infoCommands_)
 	    infoCommands_ = new CommandTable;
 	infoCommands_.add(c);
+    }
+
+    static void registerSetCommand(Command c)
+    {
+	if (!setCommands_)
+	    setCommands_ = new CommandTable;
+	setCommands_.add(c);
     }
 
     Language currentLanguage()
@@ -1778,6 +1802,7 @@ version (editline) {
 
     static CommandTable commands_;
     static CommandTable infoCommands_;
+    static CommandTable setCommands_;
 
     bool interactive_ = true;
     bool quit_ = false;
@@ -1880,6 +1905,8 @@ class InfoCommand: Command
 	{
 	    if (args.length == 0) {
 		db.pagefln("usage: info subcommand [args ...]");
+                foreach (c; db.infoCommands_.list_)
+                    db.pagefln("info %s: %s", c.name, c.description);
 		return;
 	    }
 	    db.infoCommands_.run(db, args, "info ");
@@ -1889,6 +1916,43 @@ class InfoCommand: Command
 	    if (args.length == 0)
 		return null;
 	    return db.infoCommands_.complete(db, args);
+	}
+    }
+}
+
+class SetCommand: Command
+{
+    static this()
+    {
+	Debugger.registerCommand(new SetCommand);
+    }
+
+    override {
+	string name()
+	{
+	    return "set";
+	}
+
+	string description()
+	{
+	    return "Set a variable.";
+	}
+
+	void run(Debugger db, string[] args)
+	{
+	    if (args.length == 0) {
+		db.pagefln("usage: set VAR EXPR");
+                foreach (c; db.setCommands_.list_)
+                    db.pagefln("set %s: %s", c.name, c.description);
+		return;
+	    }
+	    db.setCommands_.run(db, args, "set ");
+	}
+	string[] complete(Debugger db, string args)
+	{
+	    if (args.length == 0)
+		return null;
+	    return db.setCommands_.complete(db, args);
 	}
     }
 }
@@ -2400,6 +2464,72 @@ class DeleteCommand: Command
     }
 }
 
+class InfoSourceCommand: Command
+{
+    static this()
+    {
+	Debugger.registerInfoCommand(new InfoSourceCommand);
+    }
+
+    override {
+	string name()
+	{
+	    return "source";
+	}
+
+	string description()
+	{
+	    return "Information about the current source file";
+	}
+
+	void run(Debugger db, string[] args)
+	{
+            if (db.currentSourceFile_ is null)
+                db.pagefln("No current source file.");
+            else {
+                auto sf = db.currentSourceFile_;
+                db.pagefln("Current source file is %s", std.path.basename(sf.filename));
+                db.pagefln("Compilation directory is %s", std.path.dirname(sf.filename));
+                db.pagefln("Located in %s", sf.filename);
+                sf[0]; // force read in
+                db.pagefln("Contains %s lines.", sf.lines_.length);
+                // TODO: need detailed information
+                db.pagefln("Source language is c.");
+                db.pagefln("Compiled with DWARF 2 debugging format.");
+                db.pagefln("Does not include preprocessor macro info.");
+            }
+	}
+    }
+}
+
+class InfoSourcesCommand: Command
+{
+    static this()
+    {
+	Debugger.registerInfoCommand(new InfoSourcesCommand);
+    }
+
+    override {
+	string name()
+	{
+	    return "sources";
+	}
+
+	string description()
+	{
+	    return "Source files in the program";
+	}
+
+	void run(Debugger db, string[] args)
+	{
+            db.pagefln("Source files for which symbols have been read in:\n\n");
+            db.pagefln("\nSource files for which symbols will be read in on demand:\n");
+            foreach(sf; db.sourceFiles_)
+                db.pagefln(std.path.basename(sf.filename));
+	}
+    }
+}
+
 class InfoBreakCommand: Command
 {
     static this()
@@ -2410,8 +2540,13 @@ class InfoBreakCommand: Command
     override {
 	string name()
 	{
-	    return "break";
+	    return "breakpoints";
 	}
+
+        string shortName()
+        {
+            return "break";
+        }
 
 	string description()
 	{
@@ -2507,17 +2642,17 @@ class InfoModulesCommand: Command
     }
 }
 
-class InfoThreadCommand: Command
+class InfoThreadsCommand: Command
 {
     static this()
     {
-	Debugger.registerInfoCommand(new InfoThreadCommand);
+	Debugger.registerInfoCommand(new InfoThreadsCommand);
     }
 
     override {
 	string name()
 	{
-	    return "thread";
+	    return "threads";
 	}
 
 	string description()
@@ -2552,7 +2687,7 @@ class InfoRegistersCommand: Command
 
 	string description()
 	{
-	    return "List registerss";
+	    return "List registers";
 	}
 
 	void run(Debugger db, string[] args)
@@ -2603,22 +2738,22 @@ class InfoFloatCommand: Command
     }
 }
 
-class InfoVariablesCommand: Command
+class InfoLocalsCommand: Command
 {
     static this()
     {
-	Debugger.registerInfoCommand(new InfoVariablesCommand);
+	Debugger.registerInfoCommand(new InfoLocalsCommand);
     }
 
     override {
 	string name()
 	{
-	    return "variables";
+	    return "locals";
 	}
 
 	string description()
 	{
-	    return "List variables";
+	    return "Local variables of current stack frame";
 	}
 
 	void run(Debugger db, string[] args)
@@ -2668,6 +2803,79 @@ class InfoVariablesCommand: Command
 		    }
 		}
 	    }
+	}
+    }
+}
+
+class InfoFrameCommand: Command
+{
+    static this()
+    {
+	Debugger.registerInfoCommand(new InfoFrameCommand);
+    }
+
+    override {
+	string name()
+	{
+	    return "frame";
+	}
+
+	string description()
+	{
+	    return "All about selected stack frame, or frame at ADDR.";
+	}
+
+	void run(Debugger db, string[] args)
+	{
+            if (args.length == 0) {
+                auto f = db.currentFrame;
+                if (!f) {
+                    if (db.annotate_)
+                        db.pagefln("\n\032\032error-begin");
+                    db.pagefln("No stack.");
+                    if (db.annotate_)
+                        db.pagefln("\n\032\032error");
+                    return;
+                } else {
+                }
+            } else {
+                assert(0, "unimplemented \"info frame ADDR\"");
+            }
+	}
+    }
+}
+
+class InfoStackCommand: Command
+{
+    static this()
+    {
+	Debugger.registerInfoCommand(new InfoStackCommand);
+    }
+
+    override {
+	string name()
+	{
+	    return "stack";
+	}
+
+	string description()
+	{
+	    return "Backtrace of stack, or innermost COUNT frames.";
+	}
+
+	void run(Debugger db, string[] args)
+	{
+            auto f = db.currentFrame;
+            if (!f) {
+                if (db.annotate_)
+                    db.pagefln("\n\032\032error-begin");
+                db.pagefln("No stack");
+                if (db.annotate_)
+                    db.pagefln("\n\032\032error");
+                return;
+            } else {
+                assert(0, "unimplemented \"info stack ADDR\"");
+            }
 	}
     }
 }
@@ -2889,35 +3097,6 @@ private:
     string lastExpr_;
 }
 
-class SetCommand: Command
-{
-    static this()
-    {
-	Debugger.registerCommand(new SetCommand);
-    }
-
-    override {
-	string name()
-	{
-	    return "set";
-	}
-
-	string description()
-	{
-	    return "evaluate expressio";
-	}
-
-	void run(Debugger db, string[] args)
-	{
-	    if (args.length == 0) {
-		db.pagefln("usage: set expr");
-		return;
-	    }
-	    db.evaluateExpr(join(args, " "));
-	}
-    }
-}
-
 class ExamineCommand: Command
 {
     static this()
@@ -3063,8 +3242,13 @@ class ListCommand: Command
 		return;
 	    }
 	    if (args.length == 0) {
-		sf = sourceFile_;
-		line = sourceLine_;
+                if (sourceFile_ !is null) {
+                    sf = sourceFile_;
+                    line = sourceLine_;
+                } else if (db.sourceFiles_.length) {
+                    sf = sourceFile_ = db.sourceFiles_.values.front;
+                    line = sourceLine_ = 1;
+                }
 	    } else if (args.front == "-") {
 		sf = sourceFile_;
 		line = sourceLine_;
@@ -3085,7 +3269,7 @@ class ListCommand: Command
 		    else
 			line = 1;
 		}
-	    } else {
+            } else {
 		db.pagefln("no source file");
 		return;
 	    }
@@ -3363,5 +3547,38 @@ class InterpreterCommand: Command
                 assert(0, "unknown interpreter " ~ args.front);
             }
 	}
+    }
+}
+
+class SetHeightCommand: Command
+{
+    static this()
+    {
+	Debugger.registerSetCommand(new SetHeightCommand);
+    }
+
+    override {
+	string name()
+	{
+	    return "height";
+	}
+
+	string description()
+	{
+	    return "Set number of lines ngdb thinks are in a page.";
+	}
+
+	void run(Debugger db, string[] args)
+	{
+            if (args.length != 1) {
+                db.pagefln("usage: set height LINES");
+            }
+
+            try {
+                auto h = to!uint(args.front);
+                db.pagemaxline_ = h;
+            } catch (ConvException) {
+            }
+        }
     }
 }
