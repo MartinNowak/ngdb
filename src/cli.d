@@ -1106,7 +1106,52 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                 displaySourceLine(f.state_);
                 break;
 
-            case Cmd.Print: assert(0, *cmd);
+            case Cmd.Print:
+                static string lastExpr_;
+
+                string fmt;
+                if (args.length > 0
+                    && args.front[0] == '/') {
+                    uint count, width;
+                    if (!parseFormat(args.front, count, width, fmt))
+                        return;
+                    if (fmt == "i") {
+                        std.stdio.stderr.writeln("Instruction format not supported");
+                        return;
+                    }
+                    if (count != 1) {
+                        std.stdio.stderr.writeln("Counts greater than one not supported");
+                        return;
+                    }
+                    if (width != 4) {
+                        std.stdio.stderr.writeln("Format width characters not supported");
+                    }
+                }
+
+                string expr;
+                if (args.empty) {
+                    if (lastExpr_ is null) {
+                        std.stdio.stderr.writeln("No previous expression to print");
+                        return;
+                    }
+                    expr = lastExpr_;
+                } else {
+                    expr = join(args, " ");
+                    lastExpr_ = expr;
+                }
+
+                MachineState s;
+                auto v = evaluateExpr(expr, s);
+                if (v) {
+                    writefln("$%s = (%s) %s",
+                            valueHistory_.length,
+                            v.type.toString,
+                            v.toString(fmt, s));
+                    // TODO: implement output command, that doesn't record values
+                    valueHistory_ ~= v;
+                }
+                break;
+
             case Cmd.List: assert(0, *cmd);
             }
         } else {
@@ -2425,73 +2470,6 @@ enum InfoCmd : string {
 enum SetCmd : string {
     Height = "height",
     Width = "width",
-}
-
-class PrintCommand: Command
-{
-    static this()
-    {
-	Debugger.registerCommand(new PrintCommand);
-    }
-
-    override {
-	string name()
-	{
-	    return "print";
-	}
-
-	string description()
-	{
-	    return "evaluate and print expressio";
-	}
-
-	void run(Debugger db, string[] args)
-	{
-	    string fmt = null;
-
-	    if (args.length > 0
-		&& args.front[0] == '/') {
-		uint count, width;
-		if (!db.parseFormat(args.front, count, width, fmt))
-		    return;
-		if (fmt == "i") {
-		    db.pagefln("Instruction format not supported");
-		    return;
-		}
-		if (count != 1) {
-		    db.pagefln("Counts greater than one not supported");
-		    return;
-		}
-		if (width != 4) {
-		    db.pagefln("Format width characters not supported");
-		}
-	    }
-
-	    string expr;
-	    if (args.length == 0) {
-		if (!lastExpr_) {
-		    db.pagefln("No previous expression to print");
-		    return;
-		}
-		expr = lastExpr_;
-	    } else {
-		expr = join(args, " ");
-		lastExpr_ = expr;
-	    }
-
-	    MachineState s;
-	    auto v = db.evaluateExpr(expr, s);
-	    if (v) {
-		db.pagefln("$%s = (%s) %s",
-			   db.valueHistory_.length,
-			   v.type.toString,
-			   v.toString(fmt, s));
-		db.valueHistory_ ~= v;
-	    }
-	}
-    }
-private:
-    string lastExpr_;
 }
 
 class ExamineCommand: Command
