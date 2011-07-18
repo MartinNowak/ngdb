@@ -823,20 +823,20 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
         return cast(T[string])std.string.abbrev(list);
     }
 
+    static bool tryFrontArgToUint(string[] from, out uint id) {
+        if (collectException!ConvException(to!uint(from.front), id)) {
+            std.stdio.stderr.writeln("Can't convert %s to an ID", from.front);
+            return false;
+        }
+        from.popFront;
+        return true;
+    }
+
     void executeCommand(string[] args)
     {
         // ignore comments (sourced files)
 	if (args.front[0] == '#')
 	    return;
-
-        static bool tryFrontToId(string[] from, out uint id) {
-            if (collectException!ConvException(to!uint(from.front), id)) {
-                std.stdio.stderr.writeln("Can't convert %s to an ID", from.front);
-                return false;
-            }
-            from.popFront;
-            return true;
-        }
 
         if (auto cmd = args.front in cmdAbbrevs) {
             args.popFront;
@@ -979,7 +979,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                     return;
                 }
                 uint bid;
-                if (!tryFrontToId(args, bid))
+                if (!tryFrontArgToUint(args, bid))
                     return;
                 foreach(bp; breakpoints_)
                     if (bp.id == bid)
@@ -992,7 +992,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                     return;
                 }
                 uint bid;
-                if (!tryFrontToId(args, bid))
+                if (!tryFrontArgToUint(args, bid))
                     return;
                 foreach(bp; breakpoints_)
                     if (bp.id == bid)
@@ -1005,7 +1005,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                         bp.enable;
                 } else {
                     uint bid;
-                    if (!tryFrontToId(args, bid))
+                    if (!tryFrontArgToUint(args, bid))
                         return;
                     foreach (bp; breakpoints_)
                         if (bp.id == bid)
@@ -1019,7 +1019,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                         bp.disable;
                 } else {
                     uint bid;
-                    if (!tryFrontToId(args, bid))
+                    if (!tryFrontArgToUint(args, bid))
                         return;
                     foreach (bp; breakpoints_)
                         if (bp.id == bid)
@@ -1033,7 +1033,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                     return;
                 } else {
                     uint bid;
-                    if (!tryFrontToId(args, bid))
+                    if (!tryFrontArgToUint(args, bid))
                         return;
                     auto pred = (Breakpoint bp) { return bp.id != bid; };
                     auto drop = partition!(pred, SwapStrategy.stable)(breakpoints_);
@@ -1201,19 +1201,18 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                 break;
 
             case InfoCmd.Stack:
-                Frame f;
-                if (args.empty)
-                    f = currentFrame_;
-                else
-                    assert(0, "unimplemented \"info stack ADDR\"");
-                if (f is null) {
-                    writeln("No stack.");
+                if (topFrame_ is null) {
+                    std.stdio.stderr.writeln("No stack.");
                     return;
                 }
-                uint cnt;
-                while (f !is null) {
+                uint cnt = uint.max;
+                if (!args.empty && !tryFrontArgToUint(args, cnt))
+                    return;
+
+                auto f = topFrame_;
+                while (cnt-- && f !is null) {
                     auto pc = f.state_.pc;
-                    writefln("#%-4d %#-16x %s", cnt, pc, describeAddress(pc, null));
+                    writefln("#%-4d %#-16x %s", f.index_, pc, describeAddress(pc, f.state_));
                     f = f.outer;
                 }
                 break;
