@@ -225,7 +225,7 @@ private class Breakpoint: TargetBreakpointListener
 	db_.currentThread = t;
 	if (condition_) {
 	    db_.setCurrentFrame;
-	    auto f = db_.currentFrame;
+	    auto f = db_.currentFrame_;
 	    auto sc = f.scope_;
 	    auto s = t.state;
 	    try {
@@ -1127,7 +1127,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                     }
                 }
 
-                auto f = currentFrame;
+                auto f = currentFrame_;
                 if (f is null) {
                     writeln("current stack frame is invalid");
                     return;
@@ -1163,7 +1163,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                 break;
 
             case InfoCmd.Registers:
-                auto f = currentFrame;
+                auto f = currentFrame_;
                 if (f is null) {
                     writeln("No current stack frame");
                     return;
@@ -1178,7 +1178,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                 break;
 
             case InfoCmd.Float:
-                auto f = currentFrame;
+                auto f = currentFrame_;
                 if (f is null) {
                     writeln("No current stack frame");
                     return;
@@ -1189,7 +1189,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
             case InfoCmd.Frame:
                 Frame f;
                 if (args.empty)
-                    f = currentFrame;
+                    f = currentFrame_;
                 else
                     assert(0, "unimplemented \"info frame ADDR\"");
                 if (f is null) {
@@ -1203,7 +1203,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
             case InfoCmd.Stack:
                 Frame f;
                 if (args.empty)
-                    f = currentFrame;
+                    f = currentFrame_;
                 else
                     assert(0, "unimplemented \"info stack ADDR\"");
                 if (f is null) {
@@ -1585,7 +1585,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	auto t = currentThread;
 	auto s = t.state;
 	auto newFrame = setCurrentFrame;
-	auto di = currentFrame.di_;
+	auto di = currentFrame_.di_;
 
 	if (di) {
 	    if (newFrame)
@@ -1941,7 +1941,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	    }
 	}
 	stopped();
-	if (currentFrame.func_) {
+	if (currentFrame_.func_) {
 	    ulong tpc = s.pc;
 	    pagefln("%s:\t%s", lookupAddress(s.pc),
 		    s.disassemble(tpc, &lookupAddress));
@@ -1987,11 +1987,6 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
     Frame topFrame()
     {
 	return topFrame_;
-    }
-
-    Frame currentFrame()
-    {
-	return currentFrame_;
     }
 
     Frame getFrame(uint frameIndex)
@@ -2042,8 +2037,8 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 
     Language currentLanguage()
     {
-	auto f = currentFrame;
-	if (f)
+	auto f = currentFrame_;
+	if (f !is null)
 	    return f.lang_;
 	else
 	    return CLikeLanguage.instance;
@@ -2055,8 +2050,8 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	DebugInfo di;
 	string fmt = null;
 
-	auto f = currentFrame;
-	if (f)
+	auto f = currentFrame_;
+	if (f !is null)
 	    s = f.state_;
 	else
 	    s = currentThread.state;
@@ -2453,8 +2448,8 @@ class FrameCommand: Command
 		}
 		db.currentFrame_ = f;
 	    }
-	    auto f = db.currentFrame;
-	    if (!f) {
+	    auto f = db.currentFrame_;
+	    if (f !is null) {
 		db.pagefln("stack frame information unavailable");
 		return;
 	    }
@@ -2488,7 +2483,7 @@ class UpCommand: Command
 		db.pagefln("usage: up");
 		return;
 	    }
-	    auto f = db.currentFrame;
+	    auto f = db.currentFrame_;
 	    if (!f) {
 		db.pagefln("stack frame information unavailable");
 		return;
@@ -2525,7 +2520,7 @@ class DownCommand: Command
 		db.pagefln("usage: down");
 		return;
 	    }
-	    auto f = db.currentFrame;
+	    auto f = db.currentFrame_;
 	    if (!f) {
 		db.pagefln("stack frame information unavailable");
 		return;
@@ -2664,7 +2659,7 @@ class ExamineCommand: Command
 		db.pagefln("Target is not running");
 		return;
 	    }
-	    auto f = db.currentFrame;
+	    auto f = db.currentFrame_;
 	    if (f)
 		s = f.state_;
 	    else if (db.currentThread)
