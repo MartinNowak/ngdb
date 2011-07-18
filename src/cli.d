@@ -828,6 +828,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
         // ignore comments (sourced files)
 	if (args.front[0] == '#')
 	    return;
+
         if (auto cmd = args.front in cmdAbbrevs) {
             args.popFront;
             final switch (cast(string)*cmd) {
@@ -856,15 +857,97 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                 executeSetCommand(args);
                 break;
 
-            case Cmd.Run: assert(0, *cmd);
-            case Cmd.Kill: assert(0, *cmd);
-            case Cmd.Step: assert(0, *cmd);
-            case Cmd.Next: assert(0, *cmd);
-            case Cmd.Stepi: assert(0, *cmd);
-            case Cmd.Nexti: assert(0, *cmd);
-            case Cmd.Continue: assert(0, *cmd);
-            case Cmd.Finish: assert(0, *cmd);
-            case Cmd.Break: assert(0, *cmd);
+            case Cmd.Run:
+                // TODO: find better way for storing state
+                static string[] runArgs_;
+                if (target_ !is null&& target_.state != TargetState.EXIT) {
+                    if (!yesOrNo("The program being debugged has been started already.\n"
+                                 ~ "Start it from the beginning?"))
+                        return;
+                }
+                if (target_ !is null) {
+                    onExit(target_);
+                }
+
+                PtraceRun pt = new PtraceRun;
+                if (!args.empty || runArgs_.empty)
+                    runArgs_  = prog_ ~ args;
+                pt.connect(this, runArgs_);
+                if (target_ !is null)
+                    stopped();
+                break;
+
+            case Cmd.Kill:
+                if (target_ !is null && target_.state == TargetState.EXIT) {
+                    std.stdio.stderr.writeln("Program is not running");
+                    return;
+                }
+
+                target_.cont(SIGKILL);
+                target_.wait;
+                break;
+
+            case Cmd.Step:
+                stepProgram(false);
+                break;
+            case Cmd.Next:
+                stepProgram(true);
+                break;
+            case Cmd.Stepi:
+                stepInstruction(false);
+                break;
+            case Cmd.Nexti:
+                stepInstruction(true);
+                break;
+
+            case Cmd.Continue:
+                if (target_.state == TargetState.EXIT) {
+                    std.stdio.stderr.writeln("Program is not being debugged");
+                    return;
+                }
+
+                started();
+                target_.cont();
+                target_.wait();
+                stopped();
+                break;
+
+            case Cmd.Finish:
+                auto f = topFrame;
+                if (f is null) {
+                    std.stdio.stderr.writeln("No current frame");
+                    return;
+                }
+                if (f.outer is null) {
+                    std.stdio.stderr.writeln("Already in outermost stack frame");
+                    return;
+                }
+                auto fromFrame = f;
+                auto toFrame = f.outer;
+
+                Type rTy = fromFrame.func_.returnType;
+                setStepBreakpoint(toFrame.state_.pc);
+                target_.cont();
+                target_.wait();
+                clearStepBreakpoints();
+                if (!currentThread)
+                    return;
+                if (rTy) {
+                    MachineState s = currentThread.state;
+                    Value val = s.returnValue(rTy);
+                    writeln("Value returned is %s", val.toString(null, s));
+                }
+                stopped();
+                break;
+
+            case Cmd.Break:
+                if (args.length != 1) {
+                    std.stdio.stderr.writeln(getCmdHelp([Cmd.Break]));
+                    return;
+                }
+                setBreakpoint(args.front);
+                break;
+
             case Cmd.Condition: assert(0, *cmd);
             case Cmd.Command: assert(0, *cmd);
             case Cmd.Enable: assert(0, *cmd);
@@ -2236,380 +2319,6 @@ enum InfoCmd : string {
 enum SetCmd : string {
     Height = "height",
     Width = "width",
-}
-
-class QuitCommand: Command
-{
-    static this()
-    {
-	Debugger.registerCommand(new QuitCommand);
-    }
-
-    override {
-	string name()
-	{
-	    return "quit";
-	}
-
-	string description()
-	{
-	    return "Exit the debugger";
-	}
-
-	void run(Debugger db, string[] args)
-	{
-	    db.quit_ = true;
-	}
-    }
-}
-
-class HelpCommand: Command
-{
-    static this()
-    {
-	Debugger.registerCommand(new HelpCommand);
-    }
-
-    override {
-	string name()
-	{
-	    return "help";
-	}
-
-	string description()
-	{
-	    return "Print this message";
-	}
-
-	void run(Debugger db, string[] args)
-	{
-	    foreach (c; db.commands_.list_)
-		db.pagefln("%s: %s", c.name, c.description);
-	}
-    }
-}
-
-class RunCommand: Command
-{
-    static this()
-    {
-	Debugger.registerCommand(new RunCommand);
-    }
-
-    override {
-	string name()
-	{
-	    return "run";
-	}
-
-	string description()
-	{
-	    return "run the program being debugged";
-	}
-
-	void run(Debugger db, string[] args)
-	{
-	    if (db.target_ && db.target_.state != TargetState.EXIT) {
-		db.pagefln("Program is already being debugged");
-		return;
-	    }
-	    if (db.target_) {
-		auto target = db.target_;
-		db.onExit(target);
-		//delete target;
-	    }
-
-	    PtraceRun pt = new PtraceRun;
-	    if (args.length > 0 || runArgs_.length == 0) {
-		runArgs_ = db.prog_  ~ args;
-	    }
-	    pt.connect(db, runArgs_);
-	    if (db.target_)
-		db.stopped();
-	}
-    }
-    string[] runArgs_;
-}
-
-class KillCommand: Command
-{
-    static this()
-    {
-	Debugger.registerCommand(new KillCommand);
-    }
-
-    override {
-	string name()
-	{
-	    return "kill";
-	}
-
-	string description()
-	{
-	    return "kill the program being debugged";
-	}
-
-	void run(Debugger db, string[] args)
-	{
-	    if (db.target_ && db.target_.state == TargetState.EXIT) {
-		db.pagefln("Program is not running");
-		return;
-	    }
-
-	    db.target_.cont(SIGKILL);
-	    db.target_.wait;
-	}
-    }
-}
-
-class NextCommand: Command
-{
-    static this()
-    {
-	Debugger.registerCommand(new NextCommand);
-    }
-
-    override {
-	string name()
-	{
-	    return "next";
-	}
-
-	string shortName()
-	{
-	    return "n";
-	}
-
-	string description()
-	{
-	    return "step the program being debugged, stepping over function calls";
-	}
-
-	void run(Debugger db, string[] args)
-	{
-	    db.stepProgram(true);
-	}
-    }
-}
-
-class StepCommand: Command
-{
-    static this()
-    {
-	Debugger.registerCommand(new StepCommand);
-    }
-
-    override {
-	string name()
-	{
-	    return "step";
-	}
-
-	string shortName()
-	{
-	    return "s";
-	}
-
-	string description()
-	{
-	    return "step the program being debugged, stepping into function calls";
-	}
-
-	void run(Debugger db, string[] args)
-	{
-	    db.stepProgram(false);
-	}
-    }
-}
-
-class StepICommand: Command
-{
-    static this()
-    {
-	Debugger.registerCommand(new StepICommand);
-    }
-
-    override {
-	string name()
-	{
-	    return "stepi";
-	}
-
-	string shortName()
-	{
-	    return "si";
-	}
-
-	string description()
-	{
-	    return "Step the program one instruction, stepping into function calls";
-	}
-
-	void run(Debugger db, string[] args)
-	{
-	    db.stepInstruction(false);
-	}
-    }
-}
-
-class NextICommand: Command
-{
-    static this()
-    {
-	Debugger.registerCommand(new NextICommand);
-    }
-
-    override {
-	string name()
-	{
-	    return "nexti";
-	}
-
-	string shortName()
-	{
-	    return "ni";
-	}
-
-	string description()
-	{
-	    return "Step the program one instruction, stepping over function calls";
-	}
-
-	void run(Debugger db, string[] args)
-	{
-	    db.stepInstruction(true);
-	}
-    }
-}
-
-class ContinueCommand: Command
-{
-    static this()
-    {
-	Debugger.registerCommand(new ContinueCommand);
-    }
-
-    override {
-	string name()
-	{
-	    return "continue";
-	}
-
-	string shortName()
-	{
-	    return "c";
-	}
-
-	string description()
-	{
-	    return "continue the program being debugged";
-	}
-
-	void run(Debugger db, string[] args)
-	{
-	    if (db.target_.state == TargetState.EXIT) {
-		db.pagefln("Program is not being debugged");
-		return;
-	    }
-
-	    db.started();
-	    db.target_.cont();
-	    db.target_.wait();
-	    db.stopped();
-	}
-    }
-}
-
-class FinishCommand: Command
-{
-    static this()
-    {
-	Debugger.registerCommand(new FinishCommand);
-    }
-
-    override {
-	string name()
-	{
-	    return "finish";
-	}
-
-	string description()
-	{
-	    return "Continue to calling stack frame";
-	}
-
-	void run(Debugger db, string[] args)
-	{
-	    auto f = db.topFrame;
-	    if (!f) {
-		db.pagefln("No current frame");
-		return;
-	    }
-	    if (!f.outer) {
-		db.pagefln("Already in outermost stack frame");
-		return;
-	    }
-	    auto fromFrame = f;
-	    auto toFrame = f.outer;
-
-	    Type rTy = fromFrame.func_.returnType;
-	    db.setStepBreakpoint(toFrame.state_.pc);
-	    db.target_.cont();
-	    db.target_.wait();
-	    db.clearStepBreakpoints();
-	    if (!db.currentThread)
-		return;
-	    if (rTy) {
-		MachineState s = db.currentThread.state;
-		Value val = s.returnValue(rTy);
-		db.pagefln("Value returned is %s", val.toString(null, s));
-	    }
-	    db.stopped();
-	}
-    }
-}
-
-class BreakCommand: Command
-{
-    static this()
-    {
-	Debugger.registerCommand(new BreakCommand);
-    }
-
-    override {
-	string name()
-	{
-	    return "break";
-	}
-
-	string description()
-	{
-	    return "Set a breakpoint";
-	}
-
-	void run(Debugger db, string[] args)
-	{
-	    if (args.length != 1) {
-		db.pagefln("usage: break [<function or line>]");
-		return;
-	    }
-	    db.setBreakpoint(args.front);
-	}
-
-	string[] complete(Debugger db, string args)
-	{
-	    if (args.empty)
-		return null;
-
-	    auto state = db.currentThread ? db.currentThread.state : null;
-	    string[] syms = db.contents(state);
-	    string[] matches;
-	    foreach (sym; syms)
-		if (args.startsWith(sym))
-		    matches ~= sym[args.length .. $];
-	    return matches;
-	}
-    }
 }
 
 class ConditionCommand: Command
