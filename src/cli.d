@@ -762,6 +762,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	    stopped();
 
 	string buf;
+        string[] cmd;
 	while (!quit_ && (buf = inputline(prompt_)) != null) {
 	    int ac;
 	    char** av;
@@ -777,8 +778,10 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 		    stopped();
 	    }
 
-            auto cmd = split(buf);
-	    if (cmd.length == 0)
+            auto ncmd = split(buf);
+	    if (!ncmd.empty)
+                cmd = ncmd;
+            if (cmd.empty)
 		continue;
 
             if (cmd.front != "server")
