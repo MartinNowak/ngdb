@@ -47,7 +47,7 @@ interface TargetBreakpointListener
      * Called when a thread hits a breakpoint. Return true to stop
      * execution or false to keep running.
      */
-    bool onBreakpoint(Target, TargetThread);
+    bool onBreakpoint(Target, TargetThread, ulong addr);
 }
 
 /**
@@ -239,7 +239,12 @@ interface Target
     /**
      * Clear any breakpoints set with the given id.
      */
-    void clearBreakpoint(TargetBreakpointListener tbl);
+    void clearAllBreakpoints(TargetBreakpointListener tbl);
+
+    /**
+     * Clear breakpoints at addr set with the given id.
+     */
+    void clearBreakpoint(ulong addr, TargetBreakpointListener tbl);
 }
 
 /**

@@ -420,7 +420,11 @@ class ColdTarget: Target
 	{
 	}
 
-	void clearBreakpoint(TargetBreakpointListener)
+	void clearBreakpoint(ulong, TargetBreakpointListener)
+	{
+	}
+
+	void clearAllBreakpoints(TargetBreakpointListener)
 	{
 	}
     }

@@ -677,7 +677,8 @@ class PtraceTarget: Target, TargetBreakpointListener
 	    }
 	}
 
-	void clearBreakpoint(TargetBreakpointListener tbl)
+        // TODO: improve
+	void clearAllBreakpoints(TargetBreakpointListener tbl)
 	{
 	    debug(breakpoints)
 		writefln("clearing breakpoints for 0x%x",
@@ -692,7 +693,20 @@ class PtraceTarget: Target, TargetBreakpointListener
 	    }
 	    breakpoints_ = newBreakpoints;
 	}
-	bool onBreakpoint(Target, TargetThread)
+
+	void clearBreakpoint(ulong addr, TargetBreakpointListener tbl)
+	{
+	    debug(breakpoints)
+		writefln("clearing breakpoint at %#x for %#x", addr, cast(void*)tbl);
+            if (auto pbp = addr in breakpoints_) {
+                if (pbp.matchListener(tbl))
+                    pbp.removeListener(tbl);
+                if (pbp.listeners.length == 0)
+                    breakpoints_.remove(addr);
+            }
+        }
+
+	bool onBreakpoint(Target, TargetThread, ulong addr)
 	{
 	    if (!sharedLibraryBreakpoint_) {
 		/*
@@ -701,7 +715,7 @@ class PtraceTarget: Target, TargetBreakpointListener
 		 * and see if we can figure out how to monitor dlopen
 		 * and dlclose.
 		 */
-		clearBreakpoint(this);
+		clearAllBreakpoints(this);
 		getModules;
 		/*
 		 * Re-read dynamic entries - the runtime linker may have
@@ -1169,7 +1183,7 @@ private:
 				    writefln("hit breakpoint at 0x%x for 0x%x",
 					     pt.state.pc,
 					     cast(ulong) cast(void*) tbl);
-				if (tbl.onBreakpoint(this, pt))
+				if (tbl.onBreakpoint(this, pt, pbp.address))
 				    ret = true;
 			    }
 			}

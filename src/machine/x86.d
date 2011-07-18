@@ -635,7 +635,7 @@ class X86State: MachineState
 
 	    static class callBreakpoint: TargetBreakpointListener
 	    {
-		bool onBreakpoint(Target, TargetThread)
+		bool onBreakpoint(Target, TargetThread, ulong)
 		{
 		    callBpHit_ = true;
 		    return true;
@@ -662,7 +662,7 @@ class X86State: MachineState
 	    target_.cont(0);
 	    target_.wait;
 
-	    target_.clearBreakpoint(bpl);
+	    target_.clearBreakpoint(target_.entry, bpl);
 
 	    if (!bpl.callBpHit_)
 		throw new EvalException(
@@ -1555,7 +1555,7 @@ class X86_64State: MachineState
 
 	    static class callBreakpoint: TargetBreakpointListener
 	    {
-		bool onBreakpoint(Target, TargetThread)
+                override bool onBreakpoint(Target, TargetThread, ulong)
 		{
 		    callBpHit_ = true;
 		    return true;
@@ -1583,7 +1583,7 @@ class X86_64State: MachineState
 	    target_.cont(0);
 	    target_.wait;
 
-	    target_.clearBreakpoint(bpl);
+	    target_.clearBreakpoint(target_.entry, bpl);
 
 	    if (!bpl.callBpHit_)
 		throw new EvalException(

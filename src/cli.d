@@ -77,8 +77,9 @@ private class Breakpoint: TargetBreakpointListener
 	func_ = func;
     }
 
-    bool onBreakpoint(Target, TargetThread t)
+    override bool onBreakpoint(Target, TargetThread t, ulong addr)
     {
+        assert(canFind(addresses_, addr));
 	db_.currentThread = t;
 	if (condition_) {
 	    db_.setCurrentFrame;
@@ -205,8 +206,8 @@ private class Breakpoint: TargetBreakpointListener
     void disable()
     {
 	if (enabled_) {
-	    if (addresses_.length > 0)
-		db_.target_.clearBreakpoint(this);
+            foreach(addr; addresses_)
+		db_.target_.clearBreakpoint(addr, this);
 	    enabled_ = false;
 	}
     }
@@ -214,8 +215,8 @@ private class Breakpoint: TargetBreakpointListener
     void enable()
     {
 	if (!enabled_) {
-	    foreach (address; addresses_)
-		db_.target_.setBreakpoint(address, this);
+            foreach(addr; addresses_)
+		db_.target_.setBreakpoint(addr, this);
 	    enabled_ = true;
 	}
     }
@@ -1727,7 +1728,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	debug (step)
 	    writefln("clearing step breakpoints");
 	if (target_)
-	    target_.clearBreakpoint(this);
+	    target_.clearAllBreakpoints(this);
     }
 
     void stepProgram(bool stepOverCalls)
@@ -2133,7 +2134,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	    foreach (bp; breakpoints_)
 		bp.deactivate(mod);
 	}
-	bool onBreakpoint(Target, TargetThread t)
+	bool onBreakpoint(Target, TargetThread t, ulong addr)
 	{
 	    /*
 	     * We use this as listener for the step breakpoints.
