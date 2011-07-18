@@ -50,6 +50,7 @@ import std.array;
 import std.ascii;
 import std.conv;
 import std.datetime;
+import std.exception;
 static import std.path;
 import std.string;
 import std.stdio;
@@ -804,10 +805,12 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
     // immutable string[string] cmdAbbrevs = buildAbbrevs!Cmd;
     static Cmd[string] cmdAbbrevs;
     static InfoCmd[string] infoCmdAbbrevs;
+    static SetCmd[string] setCmdAbbrevs;
 
     static this() {
         cmdAbbrevs = buildAbbrevs!Cmd();
         infoCmdAbbrevs = buildAbbrevs!InfoCmd();
+        setCmdAbbrevs = buildAbbrevs!SetCmd();
     }
 
     static T[string] buildAbbrevs(T)() {
@@ -846,7 +849,10 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                 executeInfoCommand(args);
                 break;
 
-            case Cmd.Set: assert(0, *cmd);
+            case Cmd.Set:
+                executeSetCommand(args);
+                break;
+
             case Cmd.Run: assert(0, *cmd);
             case Cmd.Kill: assert(0, *cmd);
             case Cmd.Step: assert(0, *cmd);
@@ -1039,6 +1045,30 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
         }
     }
 
+    void executeSetCommand(string[] args) {
+        if (args.empty)
+            std.stdio.stderr.writeln(getSetHelp(null));
+        if (auto cmd = args.front in setCmdAbbrevs) {
+            args.popFront;
+            final switch (cast(string)*cmd) {
+            case SetCmd.Height:
+                // TODO: interpret expr
+                uint height;
+                if (collectException(to!uint(args.front), height))
+                    std.stdio.stderr.writefln(getSetHelp([SetCmd.Height]));
+                pagemaxheight_ = height;
+                break;
+
+            case SetCmd.Width:
+                // TODO: noop
+                break;
+            }
+        } else {
+            std.stdio.stderr.writeln(getSetHelp(args));
+        }
+
+    }
+
     string getCmdHelp(string[] args) {
         if (args.empty) {
             auto result = "help [COMMAND]: Print help about command.\nCOMMAND can be of:\n";
@@ -1060,7 +1090,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
             case Cmd.Info:
                 return getInfoHelp(args);
             case Cmd.Set:
-                return "info VAR EXPR: Set value.";
+                return getSetHelp(args);
             case Cmd.Run:
                 return "run [ARGS]: Run program with arguments.";
             case Cmd.Kill:
@@ -1143,6 +1173,28 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
         return std.string.format("Undefined command info %s.", args.front);
     }
 
+    string getSetHelp(string[] args) {
+        if (args.empty) {
+            auto result = "set VAR EXPR: Evaluate expression and set VAR to result.";
+            result ~= "\nVAR can be of can be of:";
+            foreach(e; EnumMembers!SetCmd) {
+                result ~= ("\n" ~ e);
+            }
+            return result;
+        }
+
+        if (auto cmd = args.front in setCmdAbbrevs) {
+            args.popFront;
+            final switch(cast(string)*cmd) {
+            case SetCmd.Height:
+                return "set height <num>: Set height of output console.";
+            case SetCmd.Width:
+                return "set width <num>: Set width of output console.";
+            }
+        }
+        return std.string.format("Undefined command set %s.", args.front);
+    }
+
     void executeMICommand(string[] cmd)
     {
         writefln("^error,msg=\"Undefined MI command: %s\"", cmd.front);
@@ -1200,9 +1252,9 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	    if (n > 80) n = 80;
 	    writefln("%s", s[0..n]);
 	    s = s[n..$];
-	    if (pagemaxline_) {
+	    if (pagemaxheight_) {
 		pageline_++;
-		if (pageline_ >= pagemaxline_) {
+		if (pageline_ >= pagemaxheight_) {
 		    writef("--Press return to continue or type 'q' to quit--");
 		    auto t = readln();
 		    if (t.length > 0 && (t[0] == 'q' || t[0] == 'Q'))
@@ -1849,13 +1901,6 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	commands_.add(c);
     }
 
-    static void registerSetCommand(Command c)
-    {
-	if (!setCommands_)
-	    setCommands_ = new CommandTable;
-	setCommands_.add(c);
-    }
-
     Language currentLanguage()
     {
 	auto f = currentFrame;
@@ -2115,7 +2160,6 @@ version (editline) {
 }
 
     static CommandTable commands_;
-    static CommandTable setCommands_;
 
     bool interactive_ = true;
     bool quit_ = false;
@@ -2125,7 +2169,7 @@ version (editline) {
     string core_;
     string prompt_;
     uint pageline_;
-    uint pagemaxline_ = 23;
+    uint pagemaxheight_ = 23;
     Target target_;
     TargetModule[] modules_;
     TargetThread[] threads_;
@@ -2186,6 +2230,11 @@ enum InfoCmd : string {
     Stack = "stack",
 }
 
+enum SetCmd : string {
+    Height = "height",
+    Width = "width",
+}
+
 class QuitCommand: Command
 {
     static this()
@@ -2233,43 +2282,6 @@ class HelpCommand: Command
 	{
 	    foreach (c; db.commands_.list_)
 		db.pagefln("%s: %s", c.name, c.description);
-	}
-    }
-}
-
-class SetCommand: Command
-{
-    static this()
-    {
-	Debugger.registerCommand(new SetCommand);
-    }
-
-    override {
-	string name()
-	{
-	    return "set";
-	}
-
-	string description()
-	{
-	    return "Set a variable.";
-	}
-
-	void run(Debugger db, string[] args)
-	{
-	    if (args.length == 0) {
-		db.pagefln("usage: set VAR EXPR");
-                foreach (c; db.setCommands_.list_)
-                    db.pagefln("set %s: %s", c.name, c.description);
-		return;
-	    }
-	    db.setCommands_.run(db, args, "set ");
-	}
-	string[] complete(Debugger db, string args)
-	{
-	    if (args.length == 0)
-		return null;
-	    return db.setCommands_.complete(db, args);
 	}
     }
 }
@@ -3492,35 +3504,3 @@ class InterpreterCommand: Command
     }
 }
 
-class SetHeightCommand: Command
-{
-    static this()
-    {
-	Debugger.registerSetCommand(new SetHeightCommand);
-    }
-
-    override {
-	string name()
-	{
-	    return "height";
-	}
-
-	string description()
-	{
-	    return "Set number of lines ngdb thinks are in a page.";
-	}
-
-	void run(Debugger db, string[] args)
-	{
-            if (args.length != 1) {
-                db.pagefln("usage: set height LINES");
-            }
-
-            try {
-                auto h = to!uint(args.front);
-                db.pagemaxline_ = h;
-            } catch (ConvException) {
-            }
-        }
-    }
-}
