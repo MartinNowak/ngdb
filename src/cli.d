@@ -829,6 +829,15 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	if (args.front[0] == '#')
 	    return;
 
+        static bool tryFrontToId(string[] from, out uint id) {
+            if (collectException!ConvException(to!uint(from.front), id)) {
+                std.stdio.stderr.writeln("Can't convert %s to an ID", from.front);
+                return false;
+            }
+            from.popFront;
+            return true;
+        }
+
         if (auto cmd = args.front in cmdAbbrevs) {
             args.popFront;
             final switch (cast(string)*cmd) {
@@ -964,11 +973,76 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                 setBreakpoint(args.front);
                 break;
 
-            case Cmd.Condition: assert(0, *cmd);
-            case Cmd.Command: assert(0, *cmd);
-            case Cmd.Enable: assert(0, *cmd);
-            case Cmd.Disable: assert(0, *cmd);
-            case Cmd.Delete: assert(0, *cmd);
+            case Cmd.Condition:
+                if (args.empty) {
+                    std.stdio.stderr.writeln(getCmdHelp([Cmd.Condition]));
+                    return;
+                }
+                uint bid;
+                if (!tryFrontToId(args, bid))
+                    return;
+                foreach(bp; breakpoints_)
+                    if (bp.id == bid)
+                        bp.condition = args;
+                break;
+
+            case Cmd.Command:
+                if (args.empty) {
+                    std.stdio.stderr.writeln(getCmdHelp([Cmd.Command]));
+                    return;
+                }
+                uint bid;
+                if (!tryFrontToId(args, bid))
+                    return;
+                foreach(bp; breakpoints_)
+                    if (bp.id == bid)
+                        bp.command = args;
+                break;
+
+            case Cmd.Enable:
+                if (args.empty) {
+                    foreach (bp; breakpoints_)
+                        bp.enable;
+                } else {
+                    uint bid;
+                    if (!tryFrontToId(args, bid))
+                        return;
+                    foreach (bp; breakpoints_)
+                        if (bp.id == bid)
+                            bp.enable;
+                }
+                break;
+
+            case Cmd.Disable:
+                if (args.empty) {
+                    foreach (bp; breakpoints_)
+                        bp.disable;
+                } else {
+                    uint bid;
+                    if (!tryFrontToId(args, bid))
+                        return;
+                    foreach (bp; breakpoints_)
+                        if (bp.id == bid)
+                            bp.disable;
+                }
+                break;
+
+            case Cmd.Delete:
+                if (args.empty) {
+                    std.stdio.stderr.writeln(getCmdHelp([Cmd.Delete]));
+                    return;
+                } else {
+                    uint bid;
+                    if (!tryFrontToId(args, bid))
+                        return;
+                    auto pred = (Breakpoint bp) { return bp.id != bid; };
+                    auto drop = partition!(pred, SwapStrategy.stable)(breakpoints_);
+                    breakpoints_.length -= drop.length;
+                    foreach (bp; drop)
+                        bp.disable;
+                }
+                break;
+
             case Cmd.Thread: assert(0, *cmd);
             case Cmd.Up: assert(0, *cmd);
             case Cmd.Down: assert(0, *cmd);
@@ -1910,45 +1984,6 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	}
     }
 
-    void setBreakpointCondition(uint bpid, string[] cond)
-    {
-	foreach (bp; breakpoints_)
-	    if (bp.id == bpid)
-		bp.condition = cond;
-    }
-
-    void setBreakpointCommand(uint bpid, string[] cmd)
-    {
-	foreach (bp; breakpoints_)
-	    if (bp.id == bpid)
-		bp.command = cmd;
-    }
-
-    void enableBreakpoint(uint bpid)
-    {
-	foreach (bp; breakpoints_)
-	    if (bp.id == bpid)
-		bp.enable;
-    }
-
-    void disableBreakpoint(uint bpid)
-    {
-	foreach (bp; breakpoints_)
-	    if (bp.id == bpid)
-		bp.disable;
-    }
-
-    void deleteBreakpoint(uint bpid)
-    {
-	Breakpoint[] newBreakpoints;
-	foreach (bp; breakpoints_)
-	    if (bp.id == bpid)
-		bp.disable;
-	    else
-		newBreakpoints ~= bp;
-	breakpoints_ = newBreakpoints;
-    }
-
     Frame topFrame()
     {
 	return topFrame_;
@@ -2337,190 +2372,6 @@ enum InfoCmd : string {
 enum SetCmd : string {
     Height = "height",
     Width = "width",
-}
-
-class ConditionCommand: Command
-{
-    static this()
-    {
-	Debugger.registerCommand(new ConditionCommand);
-    }
-
-    override {
-	string name()
-	{
-	    return "condition";
-	}
-
-	string description()
-	{
-	    return "Set breakpoint condition";
-	}
-
-	void run(Debugger db, string[] args)
-	{
-	    if (args.empty) {
-		db.pagefln("usage: condition <id> [expression]");
-		return;
-	    }
-	    try {
-                auto id = to!uint(args.front);
-                args.popFront;
-		db.setBreakpointCondition(id, args);
-	    } catch (ConvException ce) {
-		db.pagefln("Can't parse breakpoint ID");
-	    }
-	}
-    }
-}
-
-class CommandCommand: Command
-{
-    static this()
-    {
-	Debugger.registerCommand(new CommandCommand);
-    }
-
-    override {
-	string name()
-	{
-	    return "command";
-	}
-
-	string description()
-	{
-	    return "Set breakpoint stop command";
-	}
-
-	void run(Debugger db, string[] args)
-	{
-	    if (args.empty) {
-		db.pagefln("usage: command <id> [command]");
-		return;
-	    }
-	    try {
-                auto id = to!uint(args.front);
-                args.popFront;
-		db.setBreakpointCommand(id, args);
-	    } catch (ConvException ce) {
-		db.pagefln("Can't parse breakpoint ID");
-	    }
-	}
-    }
-}
-
-class EnableCommand: Command
-{
-    static this()
-    {
-	Debugger.registerCommand(new EnableCommand);
-    }
-
-    override {
-	string name()
-	{
-	    return "enable";
-	}
-
-	string description()
-	{
-	    return "Enable a breakpoint";
-	}
-
-	void run(Debugger db, string[] args)
-	{
-	    if (args.length > 1) {
-		db.pagefln("usage: enable [<id>]");
-		return;
-	    }
-	    if (args.length == 0) {
-		foreach (bp; db.breakpoints_)
-		    bp.enable;
-	    } else {
-		try {
-		    db.enableBreakpoint(to!uint(args.front));
-		} catch (ConvException ce) {
-		    db.pagefln("Can't parse breakpoint ID");
-		}
-	    }
-	}
-    }
-}
-
-class DisableCommand: Command
-{
-    static this()
-    {
-	Debugger.registerCommand(new DisableCommand);
-    }
-
-    override {
-	string name()
-	{
-	    return "disable";
-	}
-
-	string description()
-	{
-	    return "Disable a breakpoint";
-	}
-
-	void run(Debugger db, string[] args)
-	{
-	    if (args.length > 1) {
-		db.pagefln("usage: disable [<id>]");
-		return;
-	    }
-	    if (args.length == 0) {
-		foreach (bp; db.breakpoints_)
-		    bp.enable;
-	    } else {
-		try {
-		    db.disableBreakpoint(to!uint(args.front));
-		} catch (ConvException ce) {
-		    db.pagefln("Can't parse breakpoint ID");
-		}
-	    }
-	}
-    }
-}
-
-class DeleteCommand: Command
-{
-    static this()
-    {
-	Debugger.registerCommand(new DeleteCommand);
-    }
-
-    override {
-	string name()
-	{
-	    return "delete";
-	}
-
-	string shortName()
-	{
-	    return "d";
-	}
-
-	string description()
-	{
-	    return "Delete a breakpoint";
-	}
-
-	void run(Debugger db, string[] args)
-	{
-	    if (args.length != 1) {
-		db.pagefln("usage: delete [<id>]");
-		return;
-	    }
-	    try {
-		db.deleteBreakpoint(to!uint(args.front));
-	    } catch (ConvException ce) {
-		db.pagefln("Can't parse breakpoint ID");
-	    }
-	}
-    }
 }
 
 class ThreadCommand: Command
