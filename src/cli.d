@@ -1043,10 +1043,69 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                 }
                 break;
 
-            case Cmd.Thread: assert(0, *cmd);
-            case Cmd.Up: assert(0, *cmd);
-            case Cmd.Down: assert(0, *cmd);
-            case Cmd.Frame: assert(0, *cmd);
+            case Cmd.Thread:
+                if (args.empty) {
+                    std.stdio.stderr.writeln(getCmdHelp([Cmd.Thread]));
+                    return;
+                }
+                uint tid;
+                if (!tryFrontArgToUint(args, tid))
+                    return;
+                foreach (t; threads_) {
+                    if (t.id == tid) {
+                        currentThread = t;
+                        stopped();
+                        return;
+                    }
+                }
+                std.stdio.stderr.writeln("Invalid thread %d.", tid);
+                break;
+
+            case Cmd.Up:
+                if (currentFrame_ is null) {
+                    std.stdio.stderr.writeln("stack frame information unavailable");
+                    return;
+                }
+                if (currentFrame_.outer !is null)
+                    currentFrame_ = currentFrame_.outer;
+                writeln(currentFrame_.toString);
+                displaySourceLine(currentFrame_.state_);
+                break;
+
+            case Cmd.Down:
+                if (currentFrame_ is null) {
+                    std.stdio.stderr.writeln("stack frame information unavailable");
+                    return;
+                }
+                if (currentFrame_.inner !is null)
+                    currentFrame_ = currentFrame_.inner;
+                writeln(currentFrame_.toString);
+                displaySourceLine(currentFrame_.state_);
+                break;
+
+            case Cmd.Frame:
+                Frame f;
+                if (args.empty)
+                    f = currentFrame_;
+                else {
+                    uint fidx;
+                    if (!tryFrontArgToUint(args, fidx))
+                        return;
+                    f = getFrame(fidx);
+                    if (f is null) {
+                        std.stdio.stderr.writeln("Invalid frame number %d", fidx);
+                        return;
+                    }
+                }
+                if (f is null) {
+                    std.stdio.stderr.writeln("stack frame information unavailable");
+                    return;
+                }
+                currentFrame_ = f;
+                writeln(f.toString);
+                displaySourceLine(f.state_);
+                break;
+
             case Cmd.Print: assert(0, *cmd);
             case Cmd.List: assert(0, *cmd);
             }
@@ -1303,7 +1362,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
             case Cmd.Down:
                 return "down: Select next inner stack frame.";
             case Cmd.Frame:
-                return "frame [idx]: Select frame index or current.";
+                return "frame [idx]: Select frame index or topmost.";
             case Cmd.Print:
                 return "print <expr>: Evaluate and print expression.";
             case Cmd.List:
@@ -2366,197 +2425,6 @@ enum InfoCmd : string {
 enum SetCmd : string {
     Height = "height",
     Width = "width",
-}
-
-class ThreadCommand: Command
-{
-    static this()
-    {
-	Debugger.registerCommand(new ThreadCommand);
-    }
-
-    override {
-	string name()
-	{
-	    return "thread";
-	}
-
-	string description()
-	{
-	    return "Select a thread";
-	}
-
-	void run(Debugger db, string[] args)
-	{
-	    if (args.length != 1) {
-		db.pagefln("usage: thread <number>");
-		return;
-	    }
-	    uint n = ~0;
-	    try {
-		n = to!uint(args.front);
-	    } catch (ConvException ce) {
-	    }
-	    foreach (t; db.threads_) {
-		if (t.id == n) {
-		    db.currentThread = t;
-		    db.stopped();
-		    return;
-		}
-	    }
-	    db.pagefln("Invalid thread %s", args.front);
-	}
-    }
-}
-
-class FrameCommand: Command
-{
-    static this()
-    {
-	Debugger.registerCommand(new FrameCommand);
-    }
-
-    override {
-	string name()
-	{
-	    return "frame";
-	}
-
-	string description()
-	{
-	    return "Manipulate stack frame";
-	}
-
-	void run(Debugger db, string[] args)
-	{
-	    if (args.length > 1) {
-		db.pagefln("usage: frame [frame index]");
-		return;
-	    }
-	    if (args.length > 0) {
-		uint frameIndex;
-		try {
-		    frameIndex = to!uint(args.front);
-		} catch (ConvException ce) {
-		    frameIndex = ~0;
-		}
-		Frame f = db.getFrame(frameIndex);
-		if (!f) {
-		    db.pagefln("Invalid frame number %s", args.front);
-		    return;
-		}
-		db.currentFrame_ = f;
-	    }
-	    auto f = db.currentFrame_;
-	    if (f !is null) {
-		db.pagefln("stack frame information unavailable");
-		return;
-	    }
-	    db.pagefln("%s", f.toString);
-	    db.displaySourceLine(f.state_);
-	}
-    }
-}
-
-class UpCommand: Command
-{
-    static this()
-    {
-	Debugger.registerCommand(new UpCommand);
-    }
-
-    override {
-	string name()
-	{
-	    return "up";
-	}
-
-	string description()
-	{
-	    return "Select next outer stack frame";
-	}
-
-	void run(Debugger db, string[] args)
-	{
-	    if (args.length != 0) {
-		db.pagefln("usage: up");
-		return;
-	    }
-	    auto f = db.currentFrame_;
-	    if (!f) {
-		db.pagefln("stack frame information unavailable");
-		return;
-	    }
-	    if (f.outer)
-		db.currentFrame_ = f = f.outer;
-	    db.pagefln("%s", f.toString);
-	    db.displaySourceLine(f.state_);
-	}
-    }
-}
-
-class DownCommand: Command
-{
-    static this()
-    {
-	Debugger.registerCommand(new DownCommand);
-    }
-
-    override {
-	string name()
-	{
-	    return "down";
-	}
-
-	string description()
-	{
-	    return "Select next inner stack frame";
-	}
-
-	void run(Debugger db, string[] args)
-	{
-	    if (args.length != 0) {
-		db.pagefln("usage: down");
-		return;
-	    }
-	    auto f = db.currentFrame_;
-	    if (!f) {
-		db.pagefln("stack frame information unavailable");
-		return;
-	    }
-	    if (f.inner)
-		db.currentFrame_ = f = f.inner;
-	    db.pagefln("%s", f.toString);
-	    db.displaySourceLine(f.state_);
-	}
-    }
-}
-
-class WhereCommand: Command
-{
-    static this()
-    {
-	Debugger.registerCommand(new WhereCommand);
-    }
-
-    override {
-	string name()
-	{
-	    return "where";
-	}
-
-	string description()
-	{
-	    return "Stack backtrace";
-	}
-
-	void run(Debugger db, string[] args)
-	{
-	    for (Frame f = db.topFrame; f; f = f.outer)
-		db.pagefln("%d: %s", f.index_,
-		    db.describeAddress(f.state_.pc, f.state_));
-	}
-    }
 }
 
 class PrintCommand: Command
