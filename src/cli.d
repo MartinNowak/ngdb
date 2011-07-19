@@ -844,8 +844,10 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                     foreach (bp; breakpoints_) {
                         if (bp.enabled_)
                             continue;
-                        foreach (addr; bp.addresses_)
+                        foreach (addr; bp.addresses_) {
+                            breakpointMap_[addr] = bp;
                             target_.setBreakpoint(addr, this);
+                        }
                         bp.enabled_ = true;
                     }
                 } else {
@@ -855,8 +857,10 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                     foreach (bp; breakpoints_) {
                         if (bp.id != bid || bp.enabled_)
                             continue;
-                        foreach (addr; bp.addresses_)
+                        foreach (addr; bp.addresses_) {
+                            breakpointMap_[addr] = bp;
                             target_.setBreakpoint(addr, this);
+                        }
                         bp.enabled_ = true;
                     }
                 }
@@ -867,8 +871,10 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                     foreach (bp; breakpoints_) {
                         if (!bp.enabled_)
                             continue;
-                        foreach (addr; bp.addresses_)
+                        foreach (addr; bp.addresses_) {
                             target_.clearBreakpoint(addr, this);
+                            breakpointMap_.remove(addr);
+                        }
                         bp.enabled_ = false;
                     }
                 } else {
@@ -878,8 +884,10 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                     foreach (bp; breakpoints_) {
                         if (bp.id != bid || !bp.enabled_)
                             continue;
-                        foreach (addr; bp.addresses_)
+                        foreach (addr; bp.addresses_) {
                             target_.clearBreakpoint(addr, this);
+                            breakpointMap_.remove(addr);
+                        }
                         bp.enabled_ = false;
                     }
                 }
