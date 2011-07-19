@@ -507,8 +507,6 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	    el_set(el_, EL_ADDFN, toStringz("ed-complete"), toStringz("Complete argument"), &_complete);
 	    el_set(el_, EL_BIND, toStringz("^I"), toStringz("ed-complete"), null);
 	}
-
-	nextBPID_ = 1;
     }
 
     ~this()
@@ -2396,7 +2394,7 @@ version (editline) {
     uint stoppedSourceLine_;
     SourceFile currentSourceFile_;
     uint currentSourceLine_;
-    uint nextBPID_;
+    uint nextBPID_ = 1;
     Value[] valueHistory_;
     Value[string] userVars_;
 }
