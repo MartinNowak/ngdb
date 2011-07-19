@@ -445,6 +445,9 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 
     ~this()
     {
+        assert(steppcs_.length == 0);
+        assert(breakpoints_.length == 0);
+        assert(breakpointMap_.length == 0);
 	version (editline) {
 	    history_end(hist_);
 	    el_end(el_);
@@ -1778,18 +1781,24 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
     {
 	debug (step)
 	    writefln("step breakpoint at %#x", pc);
-        steppc_ = pc;
-	if (target_)
-	    target_.setBreakpoint(steppc_, this);
+	if (target_) {
+            steppcs_[pc] = true;
+	    target_.setBreakpoint(pc, this);
+        }
     }
 
     void clearStepBreakpoints()
     {
 	debug (step)
 	    writefln("clearing step breakpoints");
-        steppc_ = 0;
-	if (target_)
-	    target_.clearBreakpoint(steppc_, this);
+	if (target_) {
+            foreach(pc; steppcs_.values) {
+                target_.clearBreakpoint(pc, this);
+                steppcs_.remove(pc);
+            }
+            // @@ BUG 5683 have to delete one after another @@
+            // steppcs_.clear;
+        }
     }
 
     void stepProgram(bool stepOverCalls)
@@ -2239,7 +2248,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	}
 	bool onBreakpoint(Target, TargetThread t, ulong addr)
 	{
-            if (steppc_ != 0) // suppress spurious notice while single stepping
+            if (addr in steppcs_) // ignore step breakpoints
                 return true;
 
             currentThread = t;
@@ -2441,7 +2450,6 @@ version (editline) {
     bool quit_ = false;
     bool stopped_;
     uint annotate_;
-    ulong steppc_;
     string[] sourceLines_;
     string prog_;
     string core_;
@@ -2458,6 +2466,7 @@ version (editline) {
     Breakpoint[ulong] breakpointMap_;
     // TODO: consider synthesizing this member from breakpointMap_
     Breakpoint[] breakpoints_;
+    bool[ulong] steppcs_;
 
     SourceFile[string] sourceFiles_;
     SourceFile[string] sourceFilesBasename_;
