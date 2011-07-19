@@ -1979,15 +1979,19 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 
     void addBreakpoint(string bploc)
     {
+        if (target_ is null || modules_.empty) {
+            writefln("Can't set breakpoint %s.", bploc);
+            return;
+        }
+
 	if (bploc.empty) {
 	    if (currentSourceFile_ is null) {
-		writefln("no current source file");
+		writefln("No current source file.");
 		return;
 	    }
             auto bp = new Breakpoint(this, currentSourceFile_, currentSourceLine_);
-            if (target_)
-                foreach (mod; modules_)
-                    bp.activate(mod);
+            foreach (mod; modules_)
+                bp.activate(mod);
             if (bp.active) {
                 bp.id_ = nextBPID_++;
                 breakpoints_ ~= bp;
@@ -1995,16 +1999,15 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                 bp.printHeader;
                 bp.print;
             } else {
-                writefln("Can't set breakpoint %s", bploc);
+                writefln("Can't set breakpoint %s.", bploc);
             }
         } else {
             SourceFile sf;
             uint line;
 	    if (parseSourceSpec(bploc, sf, line)) {
                 auto bp = new Breakpoint(this, sf, line);
-                if (target_)
-                    foreach (mod; modules_)
-                        bp.activate(mod);
+                foreach (mod; modules_)
+                    bp.activate(mod);
                 if (bp.active) {
                     bp.id_ = nextBPID_++;
                     breakpoints_ ~= bp;
@@ -2016,9 +2019,8 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                 }
             } else {
                 auto bp = new Breakpoint(this, bploc);
-                if (target_)
-                    foreach (mod; modules_)
-                        bp.activate(mod);
+                foreach (mod; modules_)
+                    bp.activate(mod);
                 if (bp.active) {
                     bp.id_ = nextBPID_++;
                     breakpoints_ ~= bp;
