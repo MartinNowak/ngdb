@@ -841,11 +841,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                 break;
 
             case Cmd.Break:
-                if (args.length != 1) {
-                    std.stdio.stderr.writeln(getCmdHelp([Cmd.Break]));
-                    return;
-                }
-                setBreakpoint(args.front);
+                addBreakpoint(args.empty ? null : args.front);
                 break;
 
             case Cmd.Condition:
@@ -1981,39 +1977,58 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	}
     }
 
-    void setBreakpoint(string bploc)
+    void addBreakpoint(string bploc)
     {
-	SourceFile sf;
-	string func;
-	uint line;
-	if (bploc) {
-	    string file;
-	    if (!parseSourceSpec(bploc, sf, line))
-		func = bploc;
-	} else {
-	    sf = currentSourceFile_;
-	    line = currentSourceLine_;
-	    if (!sf) {
+	if (bploc.empty) {
+	    if (currentSourceFile_ is null) {
 		writefln("no current source file");
 		return;
 	    }
-	}
-	Breakpoint bp;
-	if (sf)
-	    bp = new Breakpoint(this, sf, line);
-	else
-	    bp = new Breakpoint(this, func);
-	if (target_)
-	    foreach (mod; modules_)
-		bp.activate(mod);
-	if (bp.active) {
-	    bp.id_ = nextBPID_++;
-	    breakpoints_ ~= bp;
-            // TODO: need shortPrint
-	    bp.printHeader;
-	    bp.print;
-	} else {
-	    writefln("Can't set breakpoint %s", bploc);
+            auto bp = new Breakpoint(this, currentSourceFile_, currentSourceLine_);
+            if (target_)
+                foreach (mod; modules_)
+                    bp.activate(mod);
+            if (bp.active) {
+                bp.id_ = nextBPID_++;
+                breakpoints_ ~= bp;
+                // TODO: need shortPrint
+                bp.printHeader;
+                bp.print;
+            } else {
+                writefln("Can't set breakpoint %s", bploc);
+            }
+        } else {
+            SourceFile sf;
+            uint line;
+	    if (parseSourceSpec(bploc, sf, line)) {
+                auto bp = new Breakpoint(this, sf, line);
+                if (target_)
+                    foreach (mod; modules_)
+                        bp.activate(mod);
+                if (bp.active) {
+                    bp.id_ = nextBPID_++;
+                    breakpoints_ ~= bp;
+                    // TODO: need shortPrint
+                    bp.printHeader;
+                    bp.print;
+                } else {
+                    writefln("Can't set breakpoint %s", bploc);
+                }
+            } else {
+                auto bp = new Breakpoint(this, bploc);
+                if (target_)
+                    foreach (mod; modules_)
+                        bp.activate(mod);
+                if (bp.active) {
+                    bp.id_ = nextBPID_++;
+                    breakpoints_ ~= bp;
+                    // TODO: need shortPrint
+                    bp.printHeader;
+                    bp.print;
+                } else {
+                    writefln("Can't set breakpoint %s", bploc);
+                }
+            }
 	}
     }
 
