@@ -1044,9 +1044,27 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                         return;
                     }
                     if (auto func = spec.func) {
-                        // TODO: implement function lookup
-                        std.stdio.stderr.writefln("Can't find location %s.", spec);
-                        return;
+                        bool found;
+                        foreach(i, mod; modules_) {
+                            if (mod.debugInfo is null)
+                                continue;
+                            LineEntry[] lines;
+                            // TODO: check pubnames scanning, seems to be unreliable
+                            if (!mod.debugInfo.findLineByFunction(func, lines))
+                                continue;
+                            // TODO: ambiguity possible???
+                            assert(lines.length == 1);
+                            if (auto sf = findFile(lines.front.fullname)) {
+                                currentSourceFile_ = sf;
+                                currentSourceLine_ = lines.front.line;
+                                found = true;
+                                break;
+                            }
+                        }
+                        if (!found) {
+                            std.stdio.stderr.writefln("Can't find location %s.", spec);
+                            return;
+                        }
                     } else if (auto sf = findFile(spec.file)) {
                         assert(spec.line);
                         currentSourceFile_ = sf;
