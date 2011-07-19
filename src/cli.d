@@ -64,17 +64,10 @@ extern (C) void free(void*);
 
 private class Breakpoint
 {
-    this(Debugger db, SourceFile sf, uint line)
+    this(Debugger db, SourceLocSpec spec)
     {
 	db_ = db;
-	sf_ = sf;
-	line_ = line;
-    }
-
-    this(Debugger db, string func)
-    {
-	db_ = db;
-	func_ = func;
+	spec_ = spec;
     }
 
     string[] condition()
@@ -129,15 +122,16 @@ private class Breakpoint
 
 	LineEntry[] lines;
 	bool found;
-	if (sf_ !is null) {
+	if (spec_.func is null) {
+            assert(spec_.line != 0 && spec_.file !is null);
 	    if (di)
-		found = di.findLineByName(sf_.filename, line_, lines);
+		found = di.findLineByName(spec_.file, spec_.line_, lines);
 	} else {
 	    if (di)
-		found = di.findLineByFunction(func_, lines);
+		found = di.findLineByFunction(spec_.func, lines);
 	    if (!found) {
 		TargetSymbol sym;
-		if (mod.lookupSymbol(func_, sym) && sym.value) {
+		if (mod.lookupSymbol(spec_.func, sym) && sym.value) {
 		    LineEntry le;
 		    le.address = sym.value;
 		    lines ~= le;
@@ -222,10 +216,7 @@ private class Breakpoint
 
     string expr()
     {
-	if (sf_)
-	    return format("%s:%d", sf_.filename, line_);
-	else
-	    return func_;
+        return spec_.toString();
     }
 
     bool matches(ulong pc)
@@ -268,9 +259,7 @@ private class Breakpoint
 	    writefln("\t%s", join(command_, " "));
     }
 
-    SourceFile sf_;
-    uint line_;
-    string func_;
+    SourceLocSpec spec_;
     string[] condition_;
     string[] command_;
     Expr expr_;
@@ -281,7 +270,7 @@ private class Breakpoint
 }
 
 
-private struct PendingBreakpoint {
+private struct SourceLocSpec {
     this(string func, string file=null) {
         func_ = func;
         file_ = file;
@@ -296,12 +285,21 @@ private struct PendingBreakpoint {
         return file_;
     }
 
+    @property void file(string f) {
+        file_ = f;
+    }
+
     @property string func() const {
         return func_.ptr is null ? null : func_;
     }
 
     @property uint line() const {
         return func_.ptr is null ? line_ : 0;
+    }
+
+    @property string toString() const {
+        auto postcol = (func is null) ? to!string(line) : func;
+        return (file is null) ? postcol : std.string.format("%s:%s", file, postcol);
     }
 
 private:
@@ -314,22 +312,22 @@ private:
 }
 
 unittest {
-    auto pb = PendingBreakpoint("_Dmain");
+    auto pb = SourceLocSpec("_Dmain");
     assert(pb.file is null);
     assert(pb.func == "_Dmain");
     assert(pb.line == 0);
 
-    pb = PendingBreakpoint("_Dmain", "foo.d");
+    pb = SourceLocSpec("_Dmain", "foo.d");
     assert(pb.file == "foo.d");
     assert(pb.func == "_Dmain");
     assert(pb.line == 0);
 
-    pb = PendingBreakpoint(12);
+    pb = SourceLocSpec(12);
     assert(pb.file is null);
     assert(pb.func is null);
     assert(pb.line == 12);
 
-    pb = PendingBreakpoint(12, "foo.d");
+    pb = SourceLocSpec(12, "foo.d");
     assert(pb.file == "foo.d");
     assert(pb.func is null);
     assert(pb.line == 12);
@@ -1040,8 +1038,21 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                 } else  {
                     auto tok = split(join(args, " "), ",");
                     assert(tok.length == 1, "range list unimplemented");
-                    if (!parseSourceSpec(tok.front, currentSourceFile_, currentSourceLine_)) {
-                        std.stdio.stderr.writefln("Can't find %s", tok);
+                    SourceLocSpec spec;
+                    if (!parseSourceLocSpec(tok.front, spec)) {
+                        std.stdio.stderr.writefln("Failed to parse source location %s.", tok.front);
+                        return;
+                    }
+                    if (auto func = spec.func) {
+                        // TODO: implement function lookup
+                        std.stdio.stderr.writefln("Can't find location %s.", spec);
+                        return;
+                    } else if (auto sf = findFile(spec.file)) {
+                        assert(spec.line);
+                        currentSourceFile_ = sf;
+                        currentSourceLine_ = spec.line;
+                    } else {
+                        std.stdio.stderr.writefln("Can't find location %s.", spec);
                         return;
                     }
                 }
@@ -1541,34 +1552,32 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
     /*
      * finds source file and line from (File | File:Line | Func | File:Func)
      */
-    bool parseSourceSpec(string s, ref SourceFile sf, ref uint line)
+    bool parseSourceLocSpec(string s, out SourceLocSpec spec)
     {
         auto scoped = split(s, ":");
-        SourceFile file;
+        string file;
         if (scoped.length == 2) {
-            file = findFile(strip(scoped.front));
+            file = strip(scoped.front);
             scoped.popFront;
         }
-        if (file is null)
-            file = currentSourceFile_;
 
-        if (scoped.length != 1 || file is null)
+        if (scoped.length != 1)
             return false;
 
-        auto spec = strip(scoped.front);
-        if (spec.empty)
+        auto loc = strip(scoped.front);
+        if (loc.empty)
             return false;
 
-        if (isDigit(spec.front)) {
-            uint no;
-            if (collectException!ConvException(to!uint(spec), no))
+        if (isDigit(loc.front)) {
+            uint lineno;
+            if (collectException!ConvException(to!uint(loc), lineno))
                 return false;
-            sf = file;
-            line = no;
+            spec = SourceLocSpec(lineno, file);
             return true;
         } else {
-            // TODO: implement function name lookup
-            return false;
+            // assume loc is a func
+            spec = SourceLocSpec(loc, file);
+            return true;
         }
     }
 
@@ -1977,59 +1986,48 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 
     void addBreakpoint(string bploc)
     {
-        if (target_ is null || modules_.empty) {
+        if (target_ is null) {
             writefln("Can't set breakpoint %s.", bploc);
             return;
         }
 
-	if (bploc.empty) {
-	    if (currentSourceFile_ is null) {
-		writefln("No current source file.");
-		return;
-	    }
-            auto bp = new Breakpoint(this, currentSourceFile_, currentSourceLine_);
-            foreach (mod; modules_)
-                bp.activate(mod);
-            if (bp.active) {
-                bp.id_ = nextBPID_++;
-                breakpoints_ ~= bp;
-                // TODO: need shortPrint
-                bp.printHeader;
-                bp.print;
+        SourceLocSpec spec;
+        if (bploc.empty) {
+            if (currentSourceFile_ is null) {
+                std.stdio.stderr.writeln("No current source file.");
+                return;
             } else {
-                writefln("Can't set breakpoint %s.", bploc);
+                spec = SourceLocSpec(currentSourceLine_, currentSourceFile_.filename);
             }
         } else {
-            SourceFile sf;
-            uint line;
-	    if (parseSourceSpec(bploc, sf, line)) {
-                auto bp = new Breakpoint(this, sf, line);
-                foreach (mod; modules_)
-                    bp.activate(mod);
-                if (bp.active) {
-                    bp.id_ = nextBPID_++;
-                    breakpoints_ ~= bp;
-                    // TODO: need shortPrint
-                    bp.printHeader;
-                    bp.print;
-                } else {
-                    writefln("Can't set breakpoint %s", bploc);
-                }
-            } else {
-                auto bp = new Breakpoint(this, bploc);
-                foreach (mod; modules_)
-                    bp.activate(mod);
-                if (bp.active) {
-                    bp.id_ = nextBPID_++;
-                    breakpoints_ ~= bp;
-                    // TODO: need shortPrint
-                    bp.printHeader;
-                    bp.print;
-                } else {
-                    writefln("Can't set breakpoint %s", bploc);
-                }
+	    if (!parseSourceLocSpec(bploc, spec)) {
+                std.stdio.stderr.writefln("Failed to parse source location %s.", bploc);
+                return;
             }
-	}
+            // Bind line only specs to the current source file but
+            // leave func specs alone.
+            if (spec.file is null && spec.func is null)
+                spec.file = currentSourceFile_.filename;
+        }
+        if (!activateBreakpoint(spec)) {
+            // TODO: query for schedule pending
+            std.stdio.stderr.writefln("Can't set breakpoint at %s.", bploc.empty ? "current location" : bploc);
+            return;
+        }
+    }
+
+    bool activateBreakpoint(SourceLocSpec spec) {
+        auto bp = new Breakpoint(this, spec);
+        foreach (mod; modules_)
+            bp.activate(mod);
+        if (!bp.active)
+            return false;
+        bp.id_ = nextBPID_++;
+        breakpoints_ ~= bp;
+        // TODO: need shortPrint
+        bp.printHeader;
+        bp.print;
+        return true;
     }
 
     Frame topFrame()
