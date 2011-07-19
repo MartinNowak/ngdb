@@ -755,12 +755,14 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 
                 Type rTy = fromFrame.func_.returnType;
                 setStepBreakpoint(toFrame.state_.pc);
+                started();
                 try {
                     target_.cont();
                     target_.wait();
                 } catch (TargetException te) {
                     std.stdio.stderr.writeln(te.msg);
                 }
+                stopped();
                 clearStepBreakpoints();
                 if (currentThread is null)
                     return;
