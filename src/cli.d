@@ -64,45 +64,14 @@ extern (C) void free(void*);
 
 private class Breakpoint
 {
-    this(Debugger db, SourceLocSpec spec)
+    this(SourceLocSpec spec)
     {
-	db_ = db;
 	spec_ = spec;
     }
 
-    string[] condition()
+    string condition()
     {
 	return condition_;
-    }
-
-    void condition(string[] s)
-    {
-	if (s == null)
-	    writefln("Breakpoint %d is now unconditional", id);
-
-	/*
-	 * Try to guess a source language for parsing the expression.
-	 */
-	Language lang;
-	gotLang: foreach (address; addresses_) {
-	    foreach (mod; db_.modules_) {
-		auto di = mod.debugInfo;
-		if (di)
-		    lang = di.findLanguage(address);
-		if (lang)
-		    break gotLang;
-	    }
-	}
-	if (!lang)
-	    lang = CLikeLanguage.instance;
-	try {
-            // TODO: switch parseExpr to list
-	    auto e = lang.parseExpr(join(s, " "), db_);
-	    condition_ = s;
-	    expr_ = e;
-	} catch (EvalException ex) {
-	    db_.pagefln("Error parsing breakpoint condition: %s", ex.msg);
-	}
     }
 
     string[] command()
@@ -115,7 +84,8 @@ private class Breakpoint
 	command_ = s;
     }
 
-    void activate(TargetModule mod)
+    // returns newly added addresses
+    ulong[] addAddresses(TargetModule mod)
     {
 	DebugInfo di = mod.debugInfo;
 	int pos;
@@ -140,6 +110,7 @@ private class Breakpoint
 	    }
 	}
 	if (found) {
+            auto oldlen = addresses_.length;
 	    Function func = null;
 	    foreach (le; lines) {
 		/*
@@ -154,39 +125,12 @@ private class Breakpoint
 			continue;
 		    func = f;
 		}
-		db_.target_.setBreakpoint(le.address, db_);
-                db_.breakpointMap_[le.address] = this;
 		addresses_ ~= le.address;
 	    }
+            if (oldlen != addresses_.length)
+                return addresses_[oldlen .. $];
 	}
-    }
-
-    void deactivate(TargetModule mod)
-    {
-	ulong[] newAddresses;
-
-	foreach (addr; addresses_)
-	    if (!mod.contains(addr))
-		newAddresses ~= addr;
-	addresses_ = newAddresses;
-    }
-
-    void disable()
-    {
-	if (enabled_) {
-            foreach(addr; addresses_)
-		db_.target_.clearBreakpoint(addr, db_);
-	    enabled_ = false;
-	}
-    }
-
-    void enable()
-    {
-	if (!enabled_) {
-	    foreach (addr; addresses_)
-		db_.target_.setBreakpoint(addr, db_);
-	    enabled_ = true;
-	}
+        return null;
     }
 
     void onExit()
@@ -204,11 +148,6 @@ private class Breakpoint
 	return id_;
     }
 
-    bool enabled()
-    {
-	return enabled_;
-    }
-
     ulong[] addresses()
     {
 	return addresses_;
@@ -221,10 +160,7 @@ private class Breakpoint
 
     bool matches(ulong pc)
     {
-	foreach (addr; addresses_)
-	    if (pc == addr)
-		return true;
-	return false;
+        return canFind(addresses_, pc);
     }
 
     static void printHeader()
@@ -233,40 +169,40 @@ private class Breakpoint
 		 "Num", "Type", "Disp", "Enb", "Address", "What");
     }
 
-    void print()
+    void print(Debugger db)
     {
 	if (addresses_.empty) {
-	    writef("%-7d %-14s %-4s %-3s ", id, "breakpoint", "keep", enabled ? "y" : "n");
+	    writef("%-7d %-14s %-4s %-3s ", id, "breakpoint", "keep", enabled_ ? "y" : "n");
             writefln("%-18s %s", "<PENDING>", expr);
         } else {
-            writef("%-7d %-14s %-4s %-3s ", id, "breakpoint", "keep", enabled ? "y" : "n");
+            writef("%-7d %-14s %-4s %-3s ", id, "breakpoint", "keep", enabled_ ? "y" : "n");
             if (addresses_.length == 1) {
                 auto addr = addresses_.front;
                 writef("%#-18x ", addr);
-                writeln(db_.describeAddress(addr, null));
+                writeln(db.describeAddress(addr, null));
             } else {
                 writefln("%-18s ", "<MULTIPLE>");
                 foreach(sidx, addr; addresses_) {
                     auto cid = std.string.format("%d.%d", id, sidx + 1);
-                    writef("%-27s %-3s %#-18x ", cid, enabled ? "y" : "n", addr);
-                    writeln(db_.describeAddress(addr, null));
+                    writef("%-27s %-3s %#-18x ", cid, enabled_ ? "y" : "n", addr);
+                    writeln(db.describeAddress(addr, null));
                 }
             }
         }
-	if (condition_)
-	    writefln("\tstop only if %s", join(condition_, " "));
+	if (condition_ !is null)
+	    writefln("\tstop only if %s", condition_);
 	if (command_)
 	    writefln("\t%s", join(command_, " "));
     }
 
     SourceLocSpec spec_;
-    string[] condition_;
+    ulong[] addresses_;
+    string condition_;
     string[] command_;
+    // TODO: synthesize condition text from Expr ???
     Expr expr_;
     bool enabled_ = true;
-    Debugger db_;
     uint id_;
-    ulong[] addresses_;
 }
 
 
@@ -848,9 +784,44 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                 uint bid;
                 if (!tryFrontArgToUint(args, bid))
                     return;
-                foreach(bp; breakpoints_)
-                    if (bp.id == bid)
-                        bp.condition = args;
+
+                if (args.empty) {
+                    foreach(bp; breakpoints_) {
+                        if (bp.id != bid)
+                            continue;
+                        writefln("Breakpoint %d is now unconditional", bid);
+                        bp.condition_ = null;
+                        bp.expr_ = null;
+                    }
+                    return;
+                }
+
+                auto exprstr = join(args, " ");
+
+                foreach(bp; breakpoints_) {
+                    if (bp.id != bid)
+                        continue;
+
+                    // Try to guess a source language for parsing the expression.
+                    Language lang;
+                gotLang: foreach(addr; bp.addresses_)
+                        foreach(mod; modules_)
+                            if (auto di = mod.debugInfo)
+                                if ((lang = di.findLanguage(addr)) !is null)
+                                    break gotLang;
+
+                    if (lang is null)
+                        lang = (currentFrame_ !is null && currentFrame_.lang_ !is null)
+                            ? currentFrame_.lang_
+                            : CLikeLanguage.instance;
+                    try {
+                        auto e = lang.parseExpr(exprstr, this);
+                        bp.condition_ = exprstr;
+                        bp.expr_ = e;
+                    } catch (EvalException ex) {
+                        std.stdio.stderr.writefln("Error parsing breakpoint condition: %s", ex.msg);
+                    }
+                }
                 break;
 
             case Cmd.Command:
@@ -868,29 +839,47 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 
             case Cmd.Enable:
                 if (args.empty) {
-                    foreach (bp; breakpoints_)
-                        bp.enable;
+                    foreach (bp; breakpoints_) {
+                        if (bp.enabled_)
+                            continue;
+                        foreach (addr; bp.addresses_)
+                            target_.setBreakpoint(addr, this);
+                        bp.enabled_ = true;
+                    }
                 } else {
                     uint bid;
                     if (!tryFrontArgToUint(args, bid))
                         return;
-                    foreach (bp; breakpoints_)
-                        if (bp.id == bid)
-                            bp.enable;
+                    foreach (bp; breakpoints_) {
+                        if (bp.id != bid || bp.enabled_)
+                            continue;
+                        foreach (addr; bp.addresses_)
+                            target_.setBreakpoint(addr, this);
+                        bp.enabled_ = true;
+                    }
                 }
                 break;
 
             case Cmd.Disable:
                 if (args.empty) {
-                    foreach (bp; breakpoints_)
-                        bp.disable;
+                    foreach (bp; breakpoints_) {
+                        if (!bp.enabled_)
+                            continue;
+                        foreach (addr; bp.addresses_)
+                            target_.clearBreakpoint(addr, this);
+                        bp.enabled_ = false;
+                    }
                 } else {
                     uint bid;
                     if (!tryFrontArgToUint(args, bid))
                         return;
-                    foreach (bp; breakpoints_)
-                        if (bp.id == bid)
-                            bp.disable;
+                    foreach (bp; breakpoints_) {
+                        if (bp.id != bid || !bp.enabled_)
+                            continue;
+                        foreach (addr; bp.addresses_)
+                            target_.clearBreakpoint(addr, this);
+                        bp.enabled_ = false;
+                    }
                 }
                 break;
 
@@ -906,9 +895,12 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                     auto drop = partition!(pred, SwapStrategy.stable)(breakpoints_);
                     breakpoints_.length -= drop.length;
                     foreach (bp; drop) {
-                        bp.disable;
-                        foreach(addr; bp.addresses_)
+                        foreach(addr; bp.addresses_) {
                             breakpointMap_.remove(addr);
+                            if (bp.enabled_)
+                                target_.clearBreakpoint(addr, this);
+                        }
+                        bp.enabled_ = false;
                     }
                 }
                 break;
@@ -1145,7 +1137,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                 } else {
                     Breakpoint.printHeader;
                     foreach (b; breakpoints_)
-                        b.print;
+                        b.print(this);
                 }
                 break;
 
@@ -2035,16 +2027,21 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
     }
 
     bool activateBreakpoint(SourceLocSpec spec) {
-        auto bp = new Breakpoint(this, spec);
-        foreach (mod; modules_)
-            bp.activate(mod);
+        auto bp = new Breakpoint(spec);
+        foreach (mod; modules_) {
+            foreach(addr; bp.addAddresses(mod)) {
+                breakpointMap_[addr] = bp;
+                if (bp.enabled_)
+                    target_.setBreakpoint(addr, this);
+            }
+        }
         if (!bp.active)
             return false;
         bp.id_ = nextBPID_++;
         breakpoints_ ~= bp;
         // TODO: need shortPrint
         bp.printHeader;
-        bp.print;
+        bp.print(this);
         return true;
     }
 
@@ -2174,8 +2171,13 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 		foreach (s; di.findSourceFiles)
 		    findFile(s);
 	    }
-	    foreach (bp; breakpoints_)
-		bp.activate(mod);
+	    foreach (bp; breakpoints_) {
+                foreach(addr; bp.addAddresses(mod)) {
+                    breakpointMap_[addr] = bp;
+                    if (bp.enabled_)
+                        target_.setBreakpoint(addr, this);
+                }
+            }
 	}
 	void onModuleDelete(Target, TargetModule mod)
 	{
@@ -2184,8 +2186,16 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 		if (omod !is mod)
 		    newModules ~= omod;
 	    modules_ = newModules;
-	    foreach (bp; breakpoints_)
-		bp.deactivate(mod);
+            auto pred = (ulong addr) { return !mod.contains(addr); };
+	    foreach (bp; breakpoints_) {
+                auto drop = partition!(pred, SwapStrategy.stable)(bp.addresses_);
+                bp.addresses_.length -= drop.length;
+                foreach (addr; drop) {
+                    if (bp.enabled_)
+                        target_.clearBreakpoint(addr, this);
+                    breakpointMap_.remove(addr);
+                }
+            }
 	}
 	bool onBreakpoint(Target, TargetThread t, ulong addr)
 	{
@@ -2219,7 +2229,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
             if (annotate_)
                 writefln("\n\032\032breakpoint %d", bp.id);
             writefln("Stopped at breakpoint %d", bp.id);
-            if (bp.command_) {
+            if (bp.command) {
                 stopped();
                 executeCommand(bp.command);
             }
