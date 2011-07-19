@@ -762,7 +762,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                     std.stdio.stderr.writeln(te.msg);
                 }
                 clearStepBreakpoints();
-                if (!currentThread)
+                if (currentThread is null)
                     return;
                 if (rTy) {
                     MachineState s = currentThread.state;
@@ -1623,6 +1623,8 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
     void started()
     {
 	stopped_ = false;
+        if (annotate_)
+            writeln("\n\032\032starting");
     }
 
     void stopped()
@@ -1638,14 +1640,26 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	auto di = currentFrame_.di_;
 
 	if (di) {
-	    if (newFrame)
-		writefln("%s", describeAddress(s.pc, s));
+            if (newFrame) {
+                if (annotate_)
+                    writefln("\n\032\032frame-begin %d %#x", currentFrame_.index, s.pc);
+                writefln("%s", describeAddress(s.pc, s));
+            }
 	    LineEntry[] le;
 	    if (di.findLineByAddress(s.pc, le)) {
 		SourceFile sf = findFile(le[0].fullname);
 		currentSourceFile_ = stoppedSourceFile_ = sf;
 		currentSourceLine_ = stoppedSourceLine_ = le[0].line;
-		displaySourceLine(sf, currentSourceLine_);
+                // TODO: character is absolute file index, middle ???
+                auto character = le[0].column;
+                if (annotate_)
+                    writefln("\n\032\032source %s:%d:%d:%s:%#x",
+                             currentSourceFile_.filename, currentSourceLine_,
+                             character, false ? "middle" : "beg", s.pc);
+                else
+                    // TODO: there should actually be no else to annotate_ but
+                    // having no source in cli is as bad as having source in mi.
+                    displaySourceLine(sf, currentSourceLine_);
 	    }
 	} else {
 	    currentFrame_ = topFrame_ =
@@ -1654,6 +1668,8 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	    writefln("%s:\t%s", lookupAddress(s.pc),
 		     s.disassemble(tpc, &lookupAddress));
 	}
+        if (annotate_)
+            writeln("\n\032\032stopped");
     }
 
     void displaySourceLine(MachineState s)
@@ -2070,14 +2086,16 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 
     void currentThread(TargetThread t)
     {
-	if (t !is currentThread_) {
-	    foreach (i, tt; threads_) {
-		if (t is tt) {
-		    pagefln("Switched to thread %d", i + 1);
-		}
-	    }
-	    currentThread_ = t;
-	}
+	if (t is currentThread_)
+            return;
+        currentThread_ = t;
+        if (t is null)
+            return;
+        if (t.target !is null && t.target.state != TargetState.EXIT) {
+            writefln("[Switching to Thread %d (LWP %d)]", t.id, t.target.entry);
+            if (annotate_)
+                writeln("\n\032\032thread-changed");
+        }
     }
 
     bool findDebugInfo(MachineState s, out DebugInfo di)
@@ -2148,6 +2166,12 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	{
 	    stopped_ = false;
 	    target_ = target;
+            if (target.state != TargetState.EXIT) {
+                if (annotate_)
+                    writeln("\n\032\032starting");
+                // TODO: target.entry is still 0 here, search some other id
+                writefln("[New LWP %d]", target.entry);
+            }
 	}
 	void onThreadCreate(Target target, TargetThread thread)
 	{
@@ -2155,8 +2179,10 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 		if (t is thread)
 		    return;
 	    threads_ ~= thread;
-	    if (!currentThread_)
-		currentThread_ = thread;
+            if (annotate_ && target_.state != TargetState.EXIT)
+              writeln("\n\032\032new-thread");
+	    if (currentThread is null)
+		currentThread = thread;
 	}
 	void onThreadDestroy(Target target, TargetThread thread)
 	{
@@ -2211,7 +2237,8 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
             if (auto p = addr in breakpointMap_) {
                 bp = *p;
             } else {
-                std.stdio.stderr.writefln("Stop from unknowk breakpoint at %#x", addr);
+                // TODO: investigate in conjunction with step
+                std.stdio.stderr.writefln("Stop from unknown breakpoint at %#x", addr);
                 return true;
             }
 
@@ -2230,9 +2257,13 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                     return true;
                 }
             }
-            if (annotate_)
+            if (annotate_) {
                 writefln("\n\032\032breakpoint %d", bp.id);
-            writefln("Stopped at breakpoint %d", bp.id);
+                setCurrentFrame;
+                auto f = currentFrame_;
+                stopped();
+            }
+            writefln("Stopped at breakpoint %d %s", bp.id, describeAddress(t.state.pc, null));
             if (bp.command) {
                 stopped();
                 executeCommand(bp.command);
@@ -2252,7 +2283,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 
 	    target_ = null;
 	    threads_.length = 0;
-	    currentThread_ = null;
+	    currentThread = null;
 	    modules_.length = 0;
 	    topFrame_ = currentFrame_ = null;
 	    foreach (bp; breakpoints_)
