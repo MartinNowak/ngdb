@@ -2019,15 +2019,19 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
             if (spec.file is null && spec.func is null)
                 spec.file = currentSourceFile_.filename;
         }
-        if (!activateBreakpoint(spec)) {
-            // TODO: query for schedule pending
-            std.stdio.stderr.writefln("Can't set breakpoint at %s.", bploc.empty ? "current location" : bploc);
+        auto bp = new Breakpoint(spec);
+        if (!activateBreakpoint(bp)) {
+            if (yesOrNo(
+                    std.string.format("Can't resolve breakpoint at %s.\n", bploc.empty ? "current location" : bploc)
+                    ~ "Make breakpoint pending on future shared library load?")) {
+                bp.id_ = nextBPID_++;
+                breakpoints_ ~= bp;
+            }
             return;
         }
     }
 
-    bool activateBreakpoint(SourceLocSpec spec) {
-        auto bp = new Breakpoint(spec);
+    bool activateBreakpoint(Breakpoint bp) {
         foreach (mod; modules_) {
             foreach(addr; bp.addAddresses(mod)) {
                 breakpointMap_[addr] = bp;
