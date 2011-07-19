@@ -2769,36 +2769,3 @@ class WhileCommand
         }
     }
 }
-
-class InterpreterCommand
-{
-    string name()
-    {
-        return "interpreter";
-    }
-
-    string description()
-    {
-        return "choose interpreter";
-    }
-
-    void run(Debugger db, string[] args)
-    {
-        if (args.empty) {
-            db.pagefln("usage: interpreter <name> cmd");
-            return;
-        }
-
-        switch (args.front) {
-        case "console":
-            db.executeCommand(args[1 .. $]);
-            break;
-        case "mi":
-            db.executeMICommand(args[1 .. $]);
-            break;
-        default:
-            assert(0, "unknown interpreter " ~ args.front);
-        }
-    }
-}
-
