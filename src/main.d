@@ -24,6 +24,7 @@
  * SUCH DAMAGE.
  */
 
+import std.algorithm;
 import std.getopt;
 import std.stdio;
 import std.path;
@@ -50,10 +51,9 @@ main(string[] args)
     string core = null;
     if (args.length == 3)
 	core = args[2];
-    cli.Debugger cli = new cli.Debugger(prog, core, annotate);
-    if (getBaseName(args[1]) == "ngdb"
-	|| getBaseName(args[1]) == "ngdb.new")
-	cli.prompt = "(topdb) ";
+
+    string prompt = (args[1].basename.startsWith("ngdb")) ? "(topdb) " : "(ngdb) ";
+    cli.Debugger cli = new cli.Debugger(prog, core, prompt, annotate);
 
     cli.run();
     return 0;

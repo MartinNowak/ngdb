@@ -416,12 +416,12 @@ class PagerQuit: Exception
  */
 class Debugger: TargetListener, TargetBreakpointListener, Scope
 {
-    this(string prog, string core, uint annotate)
+    this(string prog, string core, string prompt, uint annotate)
     {
 	prog_ = prog;
 	core_ = core;
         annotate_ = annotate;
-	prompt = "(ngdb) ";
+	prompt_ = prompt;
     }
 
     ~this()
@@ -454,16 +454,12 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	interactive_ = true;
     }
 
-    void prompt(string s)
+    string inputline()
     {
-        if (annotate_)
-            prompt_ = "\n\032\032pre-prompt\n" ~ s ~ "\n\032\032prompt\n";
-        else
-            prompt_ = s;
-    }
-
-    string inputline(string prompt)
-    {
+        if (annotate_) {
+            writeln("\n\032\032pre-prompt");
+            writeln("\n\032\032prompt");
+        }
         write(prompt_);
         auto result = readln();
         if (annotate_)
