@@ -1050,7 +1050,8 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                 foreach (t; target.threads) {
                     auto mark = t is currentThread ? "*" : " ";
                     auto desc = describeAddress(t.state.pc, t.state);
-                    writefln("%s %-2d: %s", mark, t.id, desc);
+                    // TODO: need thread entry point instead of pc
+                    writefln("%s %d Thread %x (LWP 100351) %s", mark, t.id, t.state.pc, desc);
                 }
                 break;
 
