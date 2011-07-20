@@ -245,6 +245,11 @@ interface Target
      * Clear breakpoints at addr set with the given id.
      */
     void clearBreakpoint(ulong addr, TargetBreakpointListener tbl);
+
+    /**
+     * Iterate over all modules within this target.
+     */
+    int delegate(scope int delegate(ref TargetModule mod)) modules();
 }
 
 /**

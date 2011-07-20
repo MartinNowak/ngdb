@@ -427,6 +427,16 @@ class ColdTarget: Target
 	void clearAllBreakpoints(TargetBreakpointListener)
 	{
 	}
+
+        int delegate(scope int delegate(ref TargetModule mod)) modules() {
+            return &applyModules;
+        }
+    }
+
+    final int applyModules(scope int delegate(ref TargetModule mod) dg) {
+        foreach(TargetModule mod; modules_)
+            if (auto res = dg(mod)) return res;
+        return 0;
     }
 
 private:

@@ -709,7 +709,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                     // Try to guess a source language for parsing the expression.
                     Language lang;
                 gotLang: foreach(addr; bp.addresses_)
-                        foreach(mod; modules_)
+                        foreach(mod; target.modules)
                             if (auto di = mod.debugInfo)
                                 if ((lang = di.findLanguage(addr)) !is null)
                                     break gotLang;
@@ -949,7 +949,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                     }
                     if (auto func = spec.func) {
                         bool found;
-                        foreach(i, mod; modules_) {
+                        foreach(mod; target.modules) {
                             if (mod.debugInfo is null)
                                 continue;
                             LineEntry[] lines;
@@ -1113,10 +1113,12 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                 ulong pc = 0;
                 if (currentThread)
                     pc = currentThread.state.pc;
-                foreach (i, mod; modules_) {
+                size_t idx;
+                foreach (mod; target.modules) {
+                    ++idx;
                     string addrs = format("%#x .. %#x", mod.start, mod.end);
                     auto mark = (pc >= mod.start && pc < mod.end) ? "*" : " ";
-                    writefln("%s%2d: %-32s %s", mark, i + 1, addrs, mod.filename);
+                    writefln("%s%2d: %-32s %s", mark, idx, addrs, mod.filename);
                 }
                 break;
 
@@ -1553,7 +1555,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
     void displaySourceLine(SourceFile sf, uint line)
     {
 	string bpmark = " ";
-	showline: foreach (mod; modules_) {
+	showline: foreach (mod; target.modules) {
 	    DebugInfo di = mod.debugInfo;
 	    if (!di)
 		continue;
@@ -1583,7 +1585,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
     string describeAddress(ulong pc, MachineState state)
     {
 	LineEntry[] le;
-	foreach (mod; modules_) {
+	foreach (mod; target.modules) {
 	    DebugInfo di = mod.debugInfo;
 	    if (di && di.findLineByAddress(pc, le)) {
 		string s = "";
@@ -1604,7 +1606,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
     {
 	TargetSymbol bestSym;
 	bool found = false;
-	foreach (mod; modules_) {
+	foreach (mod; target.modules) {
 	    TargetSymbol sym;
 	    if (mod.lookupSymbol(addr, sym)) {
 		if (!found || addr - sym.value < addr - bestSym.value) {
@@ -1717,7 +1719,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 			stoppedAt("single stepped to", s.pc);
 
 		    bool inPLT(ulong pc) {
-			foreach (mod; modules_)
+			foreach (mod; target.modules)
 			    if (mod.inPLT(pc))
 				return true;
 			return false;
@@ -1912,7 +1914,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
     }
 
     bool activateBreakpoint(Breakpoint bp) {
-        foreach (mod; modules_) {
+        foreach (mod; target.modules) {
             foreach(addr; bp.addAddresses(mod)) {
                 breakpointMap_[addr] = bp;
                 if (bp.enabled_)
@@ -1990,7 +1992,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
     bool findDebugInfo(MachineState s, out DebugInfo di)
     {
 	Location loc;
-	foreach (mod; modules_) {
+	foreach (mod; target.modules) {
 	    di = mod.debugInfo;
 	    if (di && di.findFrameBase(s, loc)) {
 		di = mod.debugInfo;
@@ -2079,8 +2081,6 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	}
 	void onModuleAdd(Target, TargetModule mod)
 	{
-	    modules_ ~= mod;
-
 	    auto di = mod.debugInfo;
 	    if (di) {
 		foreach (s; di.findSourceFiles)
@@ -2096,11 +2096,6 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	}
 	void onModuleDelete(Target, TargetModule mod)
 	{
-	    TargetModule[] newModules;
-	    foreach (omod; modules_)
-		if (omod !is mod)
-		    newModules ~= omod;
-	    modules_ = newModules;
             auto pred = (ulong addr) { return !mod.contains(addr); };
 	    foreach (bp; breakpoints_) {
                 auto drop = partition!(pred, SwapStrategy.stable)(bp.addresses_);
@@ -2166,7 +2161,6 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	    target = null;
 	    threads_.length = 0;
 	    currentThread = null;
-	    modules_.length = 0;
 	    topFrame_ = currentFrame_ = null;
 	    foreach (bp; breakpoints_) {
                 foreach(addr; bp.addresses_)
@@ -2177,7 +2171,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	string[] contents(MachineState state)
 	{
 	    string[] res;
-	    foreach (mod; modules_)
+	    foreach (mod; target.modules)
 		res ~= mod.contents(state);
 	    for (int i = 0; i < valueHistory_.length; i++)
 		res ~= "$" ~ to!string(i);
@@ -2186,7 +2180,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	}
 	bool lookup(string name, MachineState state, out DebugItem val)
 	{
-	    foreach (mod; modules_)
+	    foreach (mod; target.modules)
 		if (mod.lookup(name, state, val))
 		    return true;
 
@@ -2222,21 +2216,21 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	}
 	bool lookupStruct(string name, out Type ty)
 	{
-	    foreach (mod; modules_)
+	    foreach (mod; target.modules)
 		if (mod.lookupStruct(name, ty))
 		    return true;
 	    return false;
 	}
 	bool lookupUnion(string name, out Type ty)
 	{
-	    foreach (mod; modules_)
+	    foreach (mod; target.modules)
 		if (mod.lookupTypedef(name, ty))
 		    return true;
 	    return false;
 	}
 	bool lookupTypedef(string name, out Type ty)
 	{
-	    foreach (mod; modules_)
+	    foreach (mod; target.modules)
 		if (mod.lookupTypedef(name, ty))
 		    return true;
 	    return false;
@@ -2253,7 +2247,6 @@ private:
     bool quit_ = false;
     bool stopped_;
     Target target_;
-    TargetModule[] modules_;
     TargetThread[] threads_;
     TargetThread currentThread_;
     Frame topFrame_;
