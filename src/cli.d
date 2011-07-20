@@ -356,16 +356,11 @@ private class Frame
 	if (!di_)
 	    return null;
 
-	auto s = di_.unwind(state_);
-	if (!s)
-	    return null;
-	DebugInfo di;
-	if (!db_.findDebugInfo(s, di))
-	    return null;
-	auto func = di.findFunction(s.pc);
-	if (!func)
-	    return null;
-	return new Frame(db_, index_ + 1, this, di, func, s);
+	if (auto s = di_.unwind(state_))
+            if (auto di = db_.findDebugInfo(s))
+                if (auto func = di.findFunction(s.pc))
+                    return new Frame(db_, index_ + 1, this, di, func, s);
+        return null;
     }
 
     /**
@@ -393,6 +388,19 @@ private class Frame
  */
 class Debugger: TargetListener, TargetBreakpointListener, Scope
 {
+    /**
+     * Bitmask to communicate available/wanted target information.
+     */
+    private enum Info {
+        None = 0,
+        Frame = (1 << 0),
+        FrameEx = (1 << 1),
+        Stack = (1 << 2),
+        MState = (1 << 3),
+        SourceLocation = (1 << 4),
+        SymbolName = (1 << 5),
+    }
+
     this(string prog, string core, string prompt, uint annotate)
     {
 	prog_ = prog;
@@ -551,6 +559,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	if (args.front[0] == '#')
 	    return;
 
+        TargetInfos infos;
         if (auto cmd = args.front in cmdAbbrevs) {
             args.popFront;
             final switch (cast(string)*cmd) {
@@ -829,12 +838,13 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                 break;
 
             case Cmd.Up:
-                if (currentFrame_ is null) {
-                    std.stdio.stderr.writeln("stack frame information unavailable");
+                if (auto missing = wantInfos(Info.Frame | Info.MState, infos)) {
+                    // TODO: reportUnavailableInfos(missing);
+                    std.stdio.stderr.writeln("Stack frame information unavailable");
                     return;
                 }
-                if (currentFrame_.outer !is null)
-                    currentFrame_ = currentFrame_.outer;
+                if (auto upf = infos.frame.outer)
+                    currentFrame_ = upf;
                 writeln(currentFrame_.toString);
                 displaySourceLine(currentFrame_.state_);
                 break;
@@ -1443,9 +1453,8 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
     {
 	TargetThread t = currentThread;
 	MachineState s = t.state;
-	DebugInfo di;
 
-	if (findDebugInfo(s, di)) {
+	if (auto di = findDebugInfo(s)) {
 	    Location loc;
 	    Function func;
 	    if (di.findFrameBase(s, loc) && (func = di.findFunction(s.pc)) !is null) {
@@ -1456,13 +1465,12 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 		    return true;
 		}
 	    }
+            return false;
 	} else {
 	    currentFrame_ = topFrame_ =
 		new Frame(this, 0, null, null, null, s);
-	    ulong tpc = s.pc;
 	    return true;
 	}
-	return false;
     }
 
     void started()
@@ -1516,18 +1524,15 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 
     void displaySourceLine(MachineState s)
     {
-	DebugInfo di;
 	LineEntry[] le;
 
-	if (!findDebugInfo(s, di))
-            return;
-        if (!di.findLineByAddress(s.pc, le))
-            return;
-        if (auto sf = findFile(le[0].fullname)) {
-            displaySourceLine(sf, le[0].line);
-            currentSourceFile_ = sf;
-            currentSourceLine_ = le[0].line;
-        }
+	if (auto di = findDebugInfo(s))
+            if (di.findLineByAddress(s.pc, le))
+                if (auto sf = findFile(le[0].fullname)) {
+                    displaySourceLine(sf, le[0].line);
+                    currentSourceFile_ = sf;
+                    currentSourceLine_ = le[0].line;
+                }
     }
 
     void displaySourceLine(SourceFile sf, uint line)
@@ -1652,10 +1657,9 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 
 	TargetThread t = currentThread;
 	MachineState s = t.state;
-	DebugInfo di;
 
 	started();
-	if (findDebugInfo(s, di)) {
+	if (auto di = findDebugInfo(s)) {
 	    Location frameLoc;
 	    di.findFrameBase(s, frameLoc);
 	    auto frameFunc = di.findFunction(s.pc);
@@ -1726,7 +1730,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 		    debug (step)
 			stoppedAt("stopped at", s.pc);
 		}
-		if (!findDebugInfo(s, di)) {
+		if ((di = findDebugInfo(s)) !is null) {
 		    /*
 		     * If we step into something without debug info,
 		     * just continue until we hit the step breakpoint.
@@ -1814,18 +1818,16 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	MachineState s = t.state;
 
 	ulong frame = 0;
-	DebugInfo di;
 
-	if (findDebugInfo(s, di)) {
-	    Location frameLoc;
+        Location frameLoc;
+	if (auto di = findDebugInfo(s, frameLoc)) {
 	    di.findFrameBase(s, frameLoc);
 	    frame = frameLoc.address(s);
 	}
 
 	target.step(t);
 
-	if (findDebugInfo(s, di)) {
-	    Location frameLoc;
+	if (auto di = findDebugInfo(s, frameLoc)) {
 	    di.findFrameBase(s, frameLoc);
 	    if (frameLoc.address(s) != frame) {
 		debug (step)
@@ -1981,17 +1983,19 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
         }
     }
 
-    bool findDebugInfo(MachineState s, out DebugInfo di)
+    DebugInfo findDebugInfo(MachineState s, out Location loc)
+    {
+	foreach (mod; target.modules)
+	    if (auto di = mod.debugInfo)
+                if (di.findFrameBase(s, loc))
+                    return di;
+	return null;
+    }
+
+    DebugInfo findDebugInfo(MachineState s)
     {
 	Location loc;
-	foreach (mod; target.modules) {
-	    di = mod.debugInfo;
-	    if (di && di.findFrameBase(s, loc)) {
-		di = mod.debugInfo;
-		return true;
-	    }
-	}
-	return false;
+        return findDebugInfo(s, loc);
     }
 
     Language currentLanguage()
@@ -2220,7 +2224,57 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	}
     }
 
+    /**
+     * Tries to make the wanted information available and returns a bitmask of
+     * missing infos.
+     */
+    Info wantInfos(Info wantMask, out TargetInfos infos) {
+        Info resolved;
+        // bare minimum
+        auto thr = currentThread;
+        if (thr is null)
+            return resolved;
+        // If have no state from frame use thread state or fail. This is so to
+        // allow switching frames.
+        auto st = (currentFrame_ is null) ? null : currentFrame_.state_;
+        if (st is null && (st = thr.state) is null)
+            return resolved;
+
+
+        if (wantMask & Info.Frame) {
+            Location loc;
+            if (auto di = findDebugInfo(st, loc)) {
+                if (auto func = di.findFunction(st.pc)) {
+                    if (currentFrame_ is null
+                        || currentFrame_.func_ != func
+                        || currentFrame_.addr_ != loc.address(st)
+                    )
+                        currentFrame_ = new Frame(this, 0, null, di, func, st);
+                    infos.frame = currentFrame_;
+                    resolved |= Info.Frame;
+                }
+            }
+            if ((resolved & Info.Frame) == 0) {
+                // TODO: create a bare frame from state
+            }
+        }
+
+        if (wantMask & Info.MState) {
+            infos.mstate = st; // TODO: dup ??
+            resolved |= Info.MState;
+        }
+
+        infos.mask = resolved ^ wantMask;
+        return infos.mask;
+    }
+
 private:
+
+    static struct TargetInfos {
+        Info mask;
+        Frame frame;
+        MachineState mstate;
+    }
 
     immutable string prog_;
     immutable string core_;
