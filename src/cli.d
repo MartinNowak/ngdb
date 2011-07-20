@@ -1161,13 +1161,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                 uint cnt = uint.max;
                 if (!args.empty && !tryFrontArgToUint(args, cnt))
                     return;
-
-                auto f = topFrame_;
-                while (cnt-- && f !is null) {
-                    auto pc = f.state_.pc;
-                    writefln("#%-4d %#-16x %s", f.index_, pc, describeAddress(pc, f.state_));
-                    f = f.outer;
-                }
+                printStackFrames(cnt);
                 break;
             }
         } else {
@@ -1500,7 +1494,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
             if (newFrame) {
                 if (annotate_)
                     writefln("\n\032\032frame-begin %d %#x", currentFrame_.index, s.pc);
-                writefln("%s", describeAddress(s.pc, s));
+                printStackFrames(1);
             }
 	    LineEntry[] le;
 	    if (di.findLineByAddress(s.pc, le)) {
@@ -1575,21 +1569,35 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	}
     }
 
+    /**
+     * Prints a backtrace of at most depth frames from frame or topFrame_.
+     */
+    void printStackFrames(uint depth, Frame frame=null) {
+        if (frame is null)
+            frame = topFrame_;
+        while (depth-- && frame !is null) {
+            auto pc = frame.state_.pc;
+            writefln("#%d %s", frame.index_, describeAddress(pc, frame.state_));
+            frame = frame.outer;
+        }
+    }
+
+    /**
+     * Return a string describing the location of pc. At best through function
+     * name and source location, at worst through addr and module.
+     */
     string describeAddress(ulong pc, MachineState state)
     {
 	LineEntry[] le;
 	foreach (mod; target.modules) {
 	    DebugInfo di = mod.debugInfo;
 	    if (di && di.findLineByAddress(pc, le)) {
-		string s = "";
-
-		Function func = di.findFunction(pc);
-		if (func) {
-		    s = func.toString(null, state) ~ ": ";
-		}
-
-		s ~= le[0].name ~ ":" ~ to!string(le[0].line);
-		return s;
+		if (auto func = di.findFunction(pc)) {
+		    return std.string.format("%s at %s:%d",
+                                             func.toString(null, state), le[0].name, le[0].line);
+		} else if (mod.contains(pc)) {
+		    return std.string.format("%#-16x in ?? () at %s:%d", pc, le[0].name, le[0].line);
+                }
 	    }
 	}
 	return lookupAddress(pc);
@@ -1598,27 +1606,23 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
     string lookupAddress(ulong addr)
     {
 	TargetSymbol bestSym;
-	bool found = false;
+	string modname;
 	foreach (mod; target.modules) {
 	    TargetSymbol sym;
 	    if (mod.lookupSymbol(addr, sym)) {
-		if (!found || addr - sym.value < addr - bestSym.value) {
+                // TODO: underflow subtract ???
+		if (modname.empty || addr - sym.value < addr - bestSym.value) {
 		    bestSym = sym;
-		    found = true;
+		    modname = mod.filename;
 		}
 	    }
 	}
-	if (found) {
-	    string s;
-	    if (addr != bestSym.value)
-		s = bestSym.name ~ "+" ~ to!string(addr - bestSym.value);
-	    else
-		s = bestSym.name;
-	    if (s.length > 33)
-		s = s[0..15] ~ "..." ~ s[$-15..$];
-	    return std.string.format("%#x <%s>", addr, s);
+        // TODO: don't write modname if it's the main module (program)
+	if (!modname.empty) {
+            return std.string.format("%#-16x in %s+%d () from %s",
+                                     addr, bestSym.name, addr - bestSym.value, modname);
 	}
-	return std.string.format("%#x", addr);
+	return std.string.format("%#-16x in ?? () from %s", addr, modname);
     }
 
     void setStepBreakpoint(ulong pc)
@@ -1952,9 +1956,9 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
             return;
         assert(t.target is target_); // unless capable of handling multiple targets
         if (activeTarget) {
-            writefln("[Switching to Thread %d (LWP %d)]", t.id, t.target.entry);
             if (annotate_)
                 writeln("\n\032\032thread-changed");
+            writefln("[Switching to Thread %d (LWP %d)]", t.id, t.target.entry);
         }
     }
 
@@ -2102,6 +2106,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                 return true;
 
             currentThread = t;
+            stopped();
             Breakpoint bp;
             if (auto p = addr in breakpointMap_) {
                 bp = *p;
@@ -2143,6 +2148,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	void onSignal(Target, TargetThread t, int sig, string sigName)
 	{
 	    currentThread = t;
+            stopped();
 	    writefln("Thread %d received signal %d (%s)", t.id, sig, sigName);
 	}
 	void onExit(Target)
