@@ -2234,7 +2234,11 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
      * Tries to make the wanted information available and returns a bitmask of
      * missing infos.
      */
-    Info wantInfos(Info wantMask, out TargetInfos infos) {
+    private final Info wantInfos(Info wantMask, out TargetInfos infos)
+    in {
+        assert(wantMask != Info.None);
+        assert(target_ is null || target_.state != TargetState.RUNNING);
+    } body {
         Info resolved;
         // bare minimum
         auto thr = currentThread;
@@ -2247,7 +2251,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
             return resolved;
 
 
-        if (wantMask & Info.Frame) {
+        if (wantMask & (Info.Frame | Info.FrameEx)) {
             Location loc;
             if (auto di = findDebugInfo(st, loc)) {
                 if (auto func = di.findFunction(st.pc)) {
