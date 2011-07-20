@@ -28,10 +28,6 @@ module cli;
 
 //debug = step;
 
-version = editline;
-
-version (editline)
-	import editline;
 import target.target;
 import target.ptracetarget;
 import target.coldtarget;
@@ -426,21 +422,6 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	core_ = core;
         annotate_ = annotate;
 	prompt = "(ngdb)";
-
-	version (editline) {
-	    HistEvent ev;
-	    hist_ = history_init();
-	    history(hist_, &ev, H_SETSIZE, 100);
-
-	    el_ = el_init(toStringz("ngdb"), std.c.stdio.stdin, std.c.stdio.stdout, std.c.stdio.stderr);
-	    el_set(el_, EL_CLIENTDATA, cast(void*) this);
-	    el_set(el_, EL_EDITOR, toStringz("emacs"));
-	    el_set(el_, EL_SIGNAL, 1);
-	    el_set(el_, EL_PROMPT, &_prompt);
-	    el_set(el_, EL_HIST, &history, hist_);
-	    el_set(el_, EL_ADDFN, toStringz("ed-complete"), toStringz("Complete argument"), &_complete);
-	    el_set(el_, EL_BIND, toStringz("^I"), toStringz("ed-complete"), null);
-	}
     }
 
     ~this()
@@ -448,10 +429,6 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
         assert(steppcs_.length == 0);
         assert(breakpoints_.length == 0);
         assert(breakpointMap_.length == 0);
-	version (editline) {
-	    history_end(hist_);
-	    el_end(el_);
-	}
     }
 
     static extern(C) void ignoreSig(int)
@@ -503,14 +480,8 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	    return "";
 	}
 
-	version (editline) {
-	    int num;
-	    elPrompt_ = prompt;
-	    auto result = to!string(el_gets(el_, &num));
-	} else {
-	    writef("%s ", prompt_);
-	    auto result = chomp(readln());
-	}
+        write(prompt_);
+        auto result = chomp(readln());
         if (annotate_)
             writeln("\n\032\032post-prompt");
         return result;
@@ -596,12 +567,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 
             if (cmd.front != "server")
             {
-                version (editline) {
-                    HistEvent ev;
-                    if (buf.length > 1) {
-                        history(hist_, &ev, H_ENTER, toStringz(buf));
-                    }
-                }
+                // TODO: store command in history
 	    } else {
                 cmd.popFront;
             }
@@ -659,13 +625,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                 break;
 
             case Cmd.History:
-                version (editline) {
-                    HistEvent ev;
-                    for (int rv = history(hist_, &ev, H_LAST);
-                         rv != -1;
-                         rv = history(hist_, &ev, H_PREV))
-                        writef("%d %s", ev.num, to!string(ev.str));
-                }
+                // TODO: print history
                 break;
 
             case Cmd.Info:
@@ -2378,73 +2338,6 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
     }
 
 private:
-version (editline) {
-    string elPrompt_;
-
-    extern(C) static const(char)* _prompt(EditLine *el)
-    {
-	void* p;
-	el_get(el, EL_CLIENTDATA, &p);
-	Debugger db = cast(Debugger) p;
-	assert(db);
-	return toStringz(db.prompt(el));
-    }
-    extern(C) static char _complete(EditLine *el, int ch)
-    {
-	void* p;
-	el_get(el, EL_CLIENTDATA, &p);
-	Debugger db = cast(Debugger) p;
-	assert(db);
-	return db.complete(el, ch);
-    }
-
-    string prompt(EditLine *el)
-    {
-	return elPrompt_ ~ " ";
-    }
-
-    char complete(EditLine *el, int ch)
-    {
-        return CC_ERROR;
-//	LineInfo* li = el_line(el);
-//
-//	size_t n = li.cursor - li.buffer;
-//	string args = chomp(li.buffer[0..n].idup);
-//	string[] matches = commands_.complete(this, args);
-//
-//	if (matches.length == 1) {
-//	    string s = matches[0] ~ " ";
-//	    if (el_insertstr(el, toStringz(s)) == -1)
-//		return CC_ERROR;
-//	    return CC_REFRESH;
-//	} else {
-//	    /*
-//	     * Find the longest common prefix of all the matches
-//	     * and try to insert from that. If we can't insert any
-//	     * more, display the match list.
-//	     */
-//	    if (matches.length == 0)
-//		return CC_ERROR;
-//	    int i;
-//	    string m0 = matches[0];
-//	    gotPrefix: for (i = 0; i < m0.length; i++) {
-//		foreach (m; matches[1..$]) {
-//		    if (i >= m.length || m[i] != m0[i])
-//			break gotPrefix;
-//		}
-//	    }
-//	    if (i > 0) {
-//		string s = m0[0..i];
-//		if (el_insertstr(el, toStringz(s)) == -1)
-//		    return CC_ERROR;
-//		return CC_REFRESH;
-//	    }
-//	    return CC_ERROR;
-//	}
-    }
-    History* hist_;
-    EditLine* el_;
-}
 
     bool interactive_ = true;
     bool quit_ = false;
