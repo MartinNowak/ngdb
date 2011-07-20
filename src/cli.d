@@ -421,7 +421,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	prog_ = prog;
 	core_ = core;
         annotate_ = annotate;
-	prompt = "(ngdb)";
+	prompt = "(ngdb) ";
     }
 
     ~this()
@@ -481,7 +481,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	}
 
         write(prompt_);
-        auto result = chomp(readln());
+        auto result = readln();
         if (annotate_)
             writeln("\n\032\032post-prompt");
         return result;
@@ -542,11 +542,9 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	if (core_)
 	    stopped();
 
-	string buf;
         string[] cmd;
-	while (!quit_ && (buf = inputline(prompt_)) != null) {
-	    int ac;
-	    char** av;
+	while (!quit_) {
+            auto buf = inputline(prompt_);
 
 	    /*
 	     * If we don't have a target (e.g. the active target

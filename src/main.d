@@ -53,7 +53,7 @@ main(string[] args)
     cli.Debugger cli = new cli.Debugger(prog, core, annotate);
     if (getBaseName(args[1]) == "ngdb"
 	|| getBaseName(args[1]) == "ngdb.new")
-	cli.prompt = "(topdb)";
+	cli.prompt = "(topdb) ";
 
     cli.run();
     return 0;
