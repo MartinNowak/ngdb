@@ -851,26 +851,17 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                 break;
 
             case Cmd.Frame:
-                Frame f;
                 if (args.empty)
-                    f = currentFrame_;
+                    printStackFrames(1, currentFrame_);
                 else {
                     uint fidx;
                     if (!tryFrontArgToUint(args, fidx))
                         return;
-                    f = getFrame(fidx);
-                    if (f is null) {
-                        std.stdio.stderr.writefln("Invalid frame number %d", fidx);
-                        return;
-                    }
+                    if (auto f = getFrame(fidx))
+                        currentFrame_ = f;
+                    if (interactive_)
+                        printStackFrames(1, currentFrame_);
                 }
-                if (f is null) {
-                    std.stdio.stderr.writeln("stack frame information unavailable");
-                    return;
-                }
-                currentFrame_ = f;
-                writeln(f.toString);
-                displaySourceLine(f.state_);
                 break;
 
             case Cmd.Print:
@@ -1492,11 +1483,8 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	auto di = currentFrame_.di_;
 
 	if (di) {
-            if (newFrame) {
-                if (annotate_)
-                    writefln("\n\032\032frame-begin %d %#x", currentFrame_.index, s.pc);
+            if (newFrame)
                 printStackFrames(1);
-            }
 	    LineEntry[] le;
 	    if (di.findLineByAddress(s.pc, le)) {
 		SourceFile sf = findFile(le[0].fullname);
@@ -1577,8 +1565,11 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
         if (frame is null)
             frame = topFrame_;
         while (depth-- && frame !is null) {
-            auto pc = frame.state_.pc;
-            writefln("#%d %s", frame.index_, describeAddress(pc, frame.state_));
+            const pc = frame.state_.pc;
+            const idx = frame.index_;
+            if (annotate_)
+                writefln("\n\032\032frame-begin %d %#x", idx, pc);
+            writefln("#%d %s", idx, describeAddress(pc, frame.state_));
             frame = frame.outer;
         }
     }
