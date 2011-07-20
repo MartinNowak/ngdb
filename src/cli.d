@@ -454,16 +454,19 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	interactive_ = true;
     }
 
-    string inputline()
-    {
+    string inputline(string prompt, string annotation)
+    in {
+        assert(prompt.endsWith(" "));
+        assert(!annotation.empty);
+    } body {
         if (annotate_) {
-            writeln("\n\032\032pre-prompt");
-            writeln("\n\032\032prompt");
+            writefln("\n\032\032pre-%s", annotation);
+            writefln("\n\032\032%s", annotation);
         }
-        write(prompt_);
+        write(prompt);
         auto result = readln();
         if (annotate_)
-            writeln("\n\032\032post-prompt");
+            writefln("\n\032\032post-%s", annotation);
         return result;
     }
 
@@ -478,7 +481,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	string[] cmds;
 	uint level = 1;
 	for (;;) {
-	    string line = strip(inputline(">"));
+	    string line = strip(inputline("> ", "commands"));
 
 	    /*
 	     * Only check for optEnd at the outermost level so that we
@@ -524,7 +527,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 
         string[] cmd;
 	while (!quit_) {
-            auto buf = inputline(prompt_);
+            auto buf = inputline(prompt_, "prompt");
 
 	    /*
 	     * If we don't have a target (e.g. the active target
@@ -622,8 +625,9 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                 // TODO: find better way for storing state
                 static string[] runArgs_;
                 if (target_ !is null&& target_.state != TargetState.EXIT) {
-                    if (!yesOrNo("The program being debugged has been started already.\n"
-                                 ~ "Start it from the beginning?"))
+                    auto info = "The program being debugged has been started already.";
+                    auto question = "Start it from the beginning?";
+                    if (!query(info, question))
                         return;
                 }
                 if (target_ !is null) {
@@ -1377,27 +1381,19 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
         //        assert(0, "mi commands unimplemented");
     }
 
-    bool yesOrNo(...)
-    {
+    bool query(string info, string question)
+    in {
+        assert(!info.empty && !question.empty);
+    } body {
 	if (!interactive_)
 	    return true;
 
-	char[] prompt;
-
-	void putc(dchar c)
-	{
-	    std.utf.encode(prompt, c);
-	}
-
-	std.format.doFormat(&putc, _arguments, _argptr);
-	prompt ~= " (y or n)";
-	string s;
+	auto prompt = std.string.format("%s\n%s (y or n) ", info, question);
+        string resp;
 	do {
-	    s = std.string.toLower(strip(inputline(cast(immutable)(prompt))));
-	} while (s.length == 0 || (s[0] != 'y' && s[0] != 'n'));
-	if (s[0] == 'y')
-	    return true;
-	return false;
+            resp = strip(inputline(prompt, "query"));
+	} while (resp.empty || (resp.front != 'y' && resp.front != 'n'));
+        return resp.front == 'y';
     }
 
     void pagefln(...)
@@ -1994,9 +1990,10 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
         }
         auto bp = new Breakpoint(spec);
         if (!activateBreakpoint(bp)) {
-            if (yesOrNo(
-                    std.string.format("Can't resolve breakpoint at %s.\n", bploc.empty ? "current location" : bploc)
-                    ~ "Make breakpoint pending on future shared library load?")) {
+            auto info = std.string.format("Can't set breakpoint at %s.",
+                                          (bploc.empty) ? "current location" : bploc);
+            enum question = "Make breakpoint pending on future shared library load?";
+            if (query(info, question)) {
                 bp.id_ = nextBPID_++;
                 breakpoints_ ~= bp;
             }
@@ -2317,13 +2314,13 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 
 private:
 
+    immutable string prog_;
+    immutable string core_;
+    immutable string prompt_;
+    immutable uint annotate_;
     bool interactive_ = true;
     bool quit_ = false;
     bool stopped_;
-    uint annotate_;
-    string prog_;
-    string core_;
-    string prompt_;
     uint pageline_;
     uint pagemaxheight_ = 23;
     Target target_;
