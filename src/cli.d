@@ -129,24 +129,9 @@ private class Breakpoint
         return null;
     }
 
-    void onExit()
-    {
-	addresses_.length = 0;
-    }
-
     bool active()
     {
 	return addresses_.length > 0;
-    }
-
-    uint id()
-    {
-	return id_;
-    }
-
-    ulong[] addresses()
-    {
-	return addresses_;
     }
 
     string expr()
@@ -168,10 +153,10 @@ private class Breakpoint
     void print(Debugger db)
     {
 	if (addresses_.empty) {
-	    writef("%-7d %-14s %-4s %-3s ", id, "breakpoint", "keep", enabled_ ? "y" : "n");
+	    writef("%-7d %-14s %-4s %-3s ", id_, "breakpoint", "keep", enabled_ ? "y" : "n");
             writefln("%-18s %s", "<PENDING>", expr);
         } else {
-            writef("%-7d %-14s %-4s %-3s ", id, "breakpoint", "keep", enabled_ ? "y" : "n");
+            writef("%-7d %-14s %-4s %-3s ", id_, "breakpoint", "keep", enabled_ ? "y" : "n");
             if (addresses_.length == 1) {
                 auto addr = addresses_.front;
                 writef("%#-18x ", addr);
@@ -179,7 +164,7 @@ private class Breakpoint
             } else {
                 writefln("%-18s ", "<MULTIPLE>");
                 foreach(sidx, addr; addresses_) {
-                    auto cid = std.string.format("%d.%d", id, sidx + 1);
+                    auto cid = std.string.format("%d.%d", id_, sidx + 1);
                     writef("%-27s %-3s %#-18x ", cid, enabled_ ? "y" : "n", addr);
                     writeln(db.describeAddress(addr, null));
                 }
@@ -710,7 +695,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 
                 if (args.empty) {
                     foreach(bp; breakpoints_) {
-                        if (bp.id != bid)
+                        if (bp.id_ != bid)
                             continue;
                         writefln("Breakpoint %d is now unconditional", bid);
                         bp.condition_ = null;
@@ -722,7 +707,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                 auto exprstr = join(args, " ");
 
                 foreach(bp; breakpoints_) {
-                    if (bp.id != bid)
+                    if (bp.id_ != bid)
                         continue;
 
                     // Try to guess a source language for parsing the expression.
@@ -756,7 +741,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                 if (!tryFrontArgToUint(args, bid))
                     return;
                 foreach(bp; breakpoints_)
-                    if (bp.id == bid)
+                    if (bp.id_ == bid)
                         bp.command = args;
                 break;
 
@@ -776,7 +761,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                     if (!tryFrontArgToUint(args, bid))
                         return;
                     foreach (bp; breakpoints_) {
-                        if (bp.id != bid || bp.enabled_)
+                        if (bp.id_ != bid || bp.enabled_)
                             continue;
                         foreach (addr; bp.addresses_) {
                             breakpointMap_[addr] = bp;
@@ -803,7 +788,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                     if (!tryFrontArgToUint(args, bid))
                         return;
                     foreach (bp; breakpoints_) {
-                        if (bp.id != bid || !bp.enabled_)
+                        if (bp.id_ != bid || !bp.enabled_)
                             continue;
                         foreach (addr; bp.addresses_) {
                             target_.clearBreakpoint(addr, this);
@@ -822,7 +807,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                     uint bid;
                     if (!tryFrontArgToUint(args, bid))
                         return;
-                    auto pred = (Breakpoint bp) { return bp.id != bid; };
+                    auto pred = (Breakpoint bp) { return bp.id_ != bid; };
                     auto drop = partition!(pred, SwapStrategy.stable)(breakpoints_);
                     breakpoints_.length -= drop.length;
                     foreach (bp; drop) {
@@ -2149,12 +2134,12 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                 }
             }
             if (annotate_) {
-                writefln("\n\032\032breakpoint %d", bp.id);
+                writefln("\n\032\032breakpoint %d", bp.id_);
                 setCurrentFrame;
                 auto f = currentFrame_;
                 stopped();
             }
-            writefln("Stopped at breakpoint %d %s", bp.id, describeAddress(t.state.pc, null));
+            writefln("Stopped at breakpoint %d %s", bp.id_, describeAddress(t.state.pc, null));
             if (bp.command) {
                 stopped();
                 executeCommand(bp.command);
@@ -2177,8 +2162,11 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	    currentThread = null;
 	    modules_.length = 0;
 	    topFrame_ = currentFrame_ = null;
-	    foreach (bp; breakpoints_)
-		bp.onExit;
+	    foreach (bp; breakpoints_) {
+                foreach(addr; bp.addresses_)
+                    breakpointMap_.remove(addr);
+		bp.addresses_ = null;
+            }
 	}
 	string[] contents(MachineState state)
 	{
