@@ -401,13 +401,6 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	prompt_ = prompt;
     }
 
-    ~this()
-    {
-        assert(steppcs_.length == 0);
-        assert(breakpoints_.length == 0);
-        assert(breakpointMap_.length == 0);
-    }
-
     static extern(C) void ignoreSig(int)
     {
     }
