@@ -492,6 +492,10 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	sa.sa_flags = 0;
 	sigaction(SIGINT, &sa, null);
 
+        {
+            auto tgt = target; // TODO: needed to eagerly load ColdTarget
+        }
+
         string[] cmd;
 	while (!quit_) {
             auto buf = inputline(prompt_, "prompt");
@@ -554,18 +558,6 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	if (args.front[0] == '#')
 	    return;
 
-        /*
-         * If we don't have a target (e.g. the active target
-         * exitted or we disconnected), switch back to a cold
-         * target.
-         */
-        if (target_ is null) {
-            target_ = new ColdTarget(this, prog_, core_);
-            // TODO: doesn't work but should preload core information
-//            if (core_ !is null)
-//                stopped();
-        }
-
         if (auto cmd = args.front in cmdAbbrevs) {
             args.popFront;
             final switch (cast(string)*cmd) {
@@ -595,14 +587,11 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
             case Cmd.Run:
                 // TODO: find better way for storing state
                 static string[] runArgs_;
-                if (target_ !is null&& target_.state != TargetState.EXIT) {
+                if (activeTarget) {
                     auto info = "The program being debugged has been started already.";
                     auto question = "Start it from the beginning?";
                     if (!query(info, question))
                         return;
-                }
-                if (target_ !is null) {
-                    onExit(target_);
                 }
 
                 PtraceRun pt = new PtraceRun;
@@ -613,18 +602,17 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                 } catch (TargetException te) {
                     std.stdio.stderr.writeln(te.msg);
                 }
+                // TODO: do we really need this
                 if (target_ !is null)
                     stopped();
                 break;
 
             case Cmd.Kill:
-                if (target_ !is null && target_.state == TargetState.EXIT) {
-                    std.stdio.stderr.writeln("Program is not running");
-                    return;
-                }
-
-                target_.cont(SIGKILL);
-                target_.wait;
+                if (auto tgt = activeTarget) {
+                    target.cont(SIGKILL);
+                    target.wait;
+                } else
+                    std.stdio.stderr.writeln("Program is not running.");
                 break;
 
             case Cmd.Step:
@@ -641,19 +629,17 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                 break;
 
             case Cmd.Continue:
-                if (target_.state == TargetState.EXIT) {
-                    std.stdio.stderr.writeln("Program is not being debugged");
-                    return;
-                }
-
-                started();
-                try {
-                    target_.cont();
-                    target_.wait();
-                } catch (TargetException te) {
-                    std.stdio.stderr.writeln(te.msg);
-                }
-                stopped();
+                if (auto tgt = activeTarget) {
+                    started();
+                    try {
+                        target.cont();
+                        target.wait();
+                    } catch (TargetException te) {
+                        std.stdio.stderr.writeln(te.msg);
+                    }
+                    stopped();
+                } else
+                    std.stdio.stderr.writeln("Program is not running.");
                 break;
 
             case Cmd.Finish:
@@ -673,8 +659,8 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                 setStepBreakpoint(toFrame.state_.pc);
                 started();
                 try {
-                    target_.cont();
-                    target_.wait();
+                    target.cont();
+                    target.wait();
                 } catch (TargetException te) {
                     std.stdio.stderr.writeln(te.msg);
                 }
@@ -762,7 +748,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                             continue;
                         foreach (addr; bp.addresses_) {
                             breakpointMap_[addr] = bp;
-                            target_.setBreakpoint(addr, this);
+                            target.setBreakpoint(addr, this);
                         }
                         bp.enabled_ = true;
                     }
@@ -775,7 +761,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                             continue;
                         foreach (addr; bp.addresses_) {
                             breakpointMap_[addr] = bp;
-                            target_.setBreakpoint(addr, this);
+                            target.setBreakpoint(addr, this);
                         }
                         bp.enabled_ = true;
                     }
@@ -788,7 +774,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                         if (!bp.enabled_)
                             continue;
                         foreach (addr; bp.addresses_) {
-                            target_.clearBreakpoint(addr, this);
+                            target.clearBreakpoint(addr, this);
                             breakpointMap_.remove(addr);
                         }
                         bp.enabled_ = false;
@@ -801,7 +787,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                         if (bp.id_ != bid || !bp.enabled_)
                             continue;
                         foreach (addr; bp.addresses_) {
-                            target_.clearBreakpoint(addr, this);
+                            target.clearBreakpoint(addr, this);
                             breakpointMap_.remove(addr);
                         }
                         bp.enabled_ = false;
@@ -824,7 +810,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                         foreach(addr; bp.addresses_) {
                             breakpointMap_.remove(addr);
                             if (bp.enabled_)
-                                target_.clearBreakpoint(addr, this);
+                                target.clearBreakpoint(addr, this);
                         }
                         bp.enabled_ = false;
                     }
@@ -1076,8 +1062,8 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                 break;
 
             case InfoCmd.Locals:
-                if (target_ is null) {
-                    writeln("target is not running");
+                if (!activeTarget) {
+                    std.stdio.stderr.writeln("Program is not running.");
                     return;
                 }
 
@@ -1472,9 +1458,6 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 
     bool setCurrentFrame()
     {
-	if (!target_)
-	    return false;
-
 	TargetThread t = currentThread;
 	MachineState s = t.state;
 	DebugInfo di;
@@ -1508,7 +1491,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 
     void stopped()
     {
-	if (!target_ || stopped_)
+	if (stopped_ || !activeTarget)
 	    return;
 
 	stopped_ = true;
@@ -1647,9 +1630,9 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
     {
 	debug (step)
 	    writefln("step breakpoint at %#x", pc);
-	if (target_) {
+	if (auto tgt = activeTarget) {
             steppcs_[pc] = true;
-	    target_.setBreakpoint(pc, this);
+	    tgt.setBreakpoint(pc, this);
         }
     }
 
@@ -1657,9 +1640,9 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
     {
 	debug (step)
 	    writefln("clearing step breakpoints");
-	if (target_) {
+	if (auto tgt = activeTarget) {
             foreach(pc; steppcs_.values) {
-                target_.clearBreakpoint(pc, this);
+                tgt.clearBreakpoint(pc, this);
                 steppcs_.remove(pc);
             }
             // @@ BUG 5683 have to delete one after another @@
@@ -1669,8 +1652,8 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 
     void stepProgram(bool stepOverCalls)
     {
-	if (!target_) {
-	    writefln("Program is not being debugged");
+	if (!activeTarget) {
+	    std.stdio.stderr.writeln("Program is not running.");
 	    return;
 	}
 
@@ -1692,7 +1675,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	    if (di.findLineByAddress(s.pc, le))
 		stoppc = le[1].address;
 	    else {
-		target_.step(t);
+		target.step(t);
 		stopped();
 		return;
 	    }
@@ -1711,8 +1694,8 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 		 * we are sitting on a flow control instruction.
 		 */
 		if (s.pc != flowpc) {
-		    target_.cont();
-		    target_.wait();
+		    target.cont();
+		    target.wait();
 		}
 		debug (step) {
 		    void stoppedAt(string msg, ulong pc)
@@ -1729,7 +1712,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 		     */
 		    debug (step)
 			stoppedAt("stopped at flow control", s.pc);
-		    target_.step(t);
+		    target.step(t);
 		    debug (step)
 			stoppedAt("single stepped to", s.pc);
 
@@ -1743,7 +1726,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 		    while (inPLT(s.pc)) {
 			debug (step)
 			    writefln("single stepping over PLT entry");
-			target_.step(t);
+			target.step(t);
 		    }
 		    resetStep = true;
 		} else {
@@ -1757,8 +1740,8 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 		     */
 		    debug (step)
 			writefln("no debug info at %#x - continue", s.pc);
-		    target_.cont();
-		    target_.wait();
+		    target.cont();
+		    target.wait();
 		    break;
 		}
 		di.findFrameBase(s, frameLoc);
@@ -1785,8 +1768,8 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 			    writefln("return breakpoint at %#x", retpc);
 			setStepBreakpoint(retpc);
 			do {
-			    target_.cont();
-			    target_.wait();
+			    target.cont();
+			    target.wait();
 			    debug (step)
 				stoppedAt("stopped at", s.pc);
 			    if (s.pc != retpc
@@ -1795,7 +1778,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 			    debug (step)
 				if (frameLoc.address(s) < frame)
 				    writefln("stopped at inner frame %#x - continuing", frameLoc.address(s));
-			} while (target_ && frameLoc.address(s) != frame);
+			} while (activeTarget && frameLoc.address(s) != frame);
 			resetStep = true;
 		    } else {
 			clearStepBreakpoints();
@@ -1820,15 +1803,15 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	    clearStepBreakpoints();
 	    stopped();
 	} else {
-	    target_.step(t);
+	    target.step(t);
 	    stopped();
 	}
     }
 
     void stepInstruction(bool stepOverCalls)
     {
-	if (!target_) {
-	    writefln("Program is not being debugged");
+	if (!activeTarget) {
+	    std.stdio.stderr.writeln("Program is not running.");
 	    return;
 	}
 
@@ -1846,7 +1829,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	    frame = frameLoc.address(s);
 	}
 
-	target_.step(t);
+	target.step(t);
 
 	if (findDebugInfo(s, di)) {
 	    Location frameLoc;
@@ -1874,8 +1857,8 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 			writefln("return breakpoint at %#x", retpc);
 		    setStepBreakpoint(retpc);
 		    do {
-			target_.cont();
-			target_.wait();
+			target.cont();
+			target.wait();
 			clearStepBreakpoints();
 			if (s.pc != retpc
 			    || !di.findFrameBase(s, frameLoc))
@@ -1897,11 +1880,6 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 
     void addBreakpoint(string bploc)
     {
-        if (target_ is null) {
-            writefln("Can't set breakpoint %s.", bploc);
-            return;
-        }
-
         SourceLocSpec spec;
         if (bploc.empty) {
             if (currentSourceFile_ is null) {
@@ -1938,7 +1916,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
             foreach(addr; bp.addAddresses(mod)) {
                 breakpointMap_[addr] = bp;
                 if (bp.enabled_)
-                    target_.setBreakpoint(addr, this);
+                    target.setBreakpoint(addr, this);
             }
         }
         if (!bp.active)
@@ -1977,10 +1955,35 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
         currentThread_ = t;
         if (t is null)
             return;
-        if (t.target !is null && t.target.state != TargetState.EXIT) {
+        assert(t.target is target_); // unless capable of handling multiple targets
+        if (activeTarget) {
             writefln("[Switching to Thread %d (LWP %d)]", t.id, t.target.entry);
             if (annotate_)
                 writeln("\n\032\032thread-changed");
+        }
+    }
+
+    private Target activeTarget() {
+        return (target_ !is null && target_.state != TargetState.EXIT) ? target_ : null;
+    }
+
+    private Target target() {
+        if (target_ is null)
+            target_ = new ColdTarget(this, prog_, core_);
+        return target_;
+    }
+
+    private void target(Target tgt) {
+        if (target_ is tgt)
+            return;
+        if (activeTarget)
+            writeln("Target program has exited.");
+        target_ = tgt;
+        if (activeTarget) {
+            if (annotate_)
+                writeln("\n\032\032starting");
+            // TODO: target.entry is still 0 here, search some other id
+            writefln("[New LWP %d]", tgt.entry);
         }
     }
 
@@ -2048,30 +2051,26 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
     override
     {
 	// TargetListener
-	void onTargetStarted(Target target)
+	void onTargetStarted(Target tgt)
 	{
 	    stopped_ = false;
-	    target_ = target;
-            if (target.state != TargetState.EXIT) {
-                if (annotate_)
-                    writeln("\n\032\032starting");
-                // TODO: target.entry is still 0 here, search some other id
-                writefln("[New LWP %d]", target.entry);
-            }
+	    target = tgt;
 	}
+
 	void onThreadCreate(Target target, TargetThread thread)
 	{
 	    foreach (t; threads_)
 		if (t is thread)
 		    return;
 	    threads_ ~= thread;
-            if (annotate_ && target_.state != TargetState.EXIT)
+            if (annotate_ && target.state != TargetState.EXIT)
               writeln("\n\032\032new-thread");
 	    if (currentThread is null)
 		currentThread = thread;
 	}
 	void onThreadDestroy(Target target, TargetThread thread)
 	{
+            // TODO: fix deletion
 	    TargetThread[] newThreads;
 	    foreach (t; threads_)
 		if (t !is thread)
@@ -2091,7 +2090,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                 foreach(addr; bp.addAddresses(mod)) {
                     breakpointMap_[addr] = bp;
                     if (bp.enabled_)
-                        target_.setBreakpoint(addr, this);
+                        target.setBreakpoint(addr, this);
                 }
             }
 	}
@@ -2108,7 +2107,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                 bp.addresses_.length -= drop.length;
                 foreach (addr; drop) {
                     if (bp.enabled_)
-                        target_.clearBreakpoint(addr, this);
+                        target.clearBreakpoint(addr, this);
                     breakpointMap_.remove(addr);
                 }
             }
@@ -2164,10 +2163,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	}
 	void onExit(Target)
 	{
-	    if (target_ && target_.state != TargetState.EXIT)
-		writefln("Target program has exited.");
-
-	    target_ = null;
+	    target = null;
 	    threads_.length = 0;
 	    currentThread = null;
 	    modules_.length = 0;
@@ -2348,7 +2344,7 @@ class ExamineCommand
         MachineState s;
         DebugInfo di;
 
-        if (!db.target_) {
+        if (!db.activeTarget) {
             std.stdio.stderr.writeln("Target is not running");
             return;
         }
@@ -2410,7 +2406,7 @@ class ExamineCommand
         } else {
             string line = format("%#-15x ", addr);
             while (count > 0) {
-                ubyte[] mem = db.target_.readMemory(addr, width_);
+                ubyte[] mem = db.target.readMemory(addr, width_);
                 addr += width_;
                 ulong val = s.readInteger(mem);
                 if (width_ < 8)

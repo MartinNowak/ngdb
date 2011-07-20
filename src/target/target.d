@@ -180,7 +180,7 @@ interface TargetModule: Scope
 enum TargetState {
     STOPPED,
     RUNNING,
-    EXIT
+    EXIT,
 }
 
 /**
