@@ -1361,7 +1361,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
         if (std.file.exists(filename) && std.file.isFile(filename)) {
             SourceFile sf = new SourceFile(filename);
             sourceFiles_[filename] = sf;
-            sourceFilesBasename_[std.path.getBaseName(filename)] = sf;
+            sourceFilesBasename_[std.path.basename(filename)] = sf;
             return sf;
         }
         return null;

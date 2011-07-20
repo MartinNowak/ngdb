@@ -960,8 +960,11 @@ class DwarfFile: public DebugInfo
 	    while (p < pEnd)
 		parseLineTable(p, &processEntry);
 
-            auto dg = &disambiguateRelativeFile;
-	    return array(map!(dg)(fileset.keys));
+            string[] abs;
+            abs.length = fileset.length;
+            foreach(i, file; fileset.keys)
+                abs[i] = disambiguateRelativeFile(file);
+            return abs;
 	}
 
 	bool findLineByFunction(string func, out LineEntry[] res)
