@@ -92,7 +92,7 @@ class X86State: MachineState
 	MM7	= 36,
     }
 
-    static string[] RegNames = [
+    enum string[] RegNames = [
 	"eax",
 	"ecx",
 	"edx",
@@ -764,8 +764,7 @@ class X86State: MachineState
 
 	string[] contents(MachineState)
 	{
-	    string[] res;
-	    res = RegNames[];
+	    string[] res = RegNames;
 	    for (auto i = 0; i < 8; i++)
 		res ~= format("st%d", i);
 	    for (auto i = 0; i < 8; i++)
@@ -959,7 +958,7 @@ class X86_64State: MachineState
 	FSW	= 66,
     }
 
-    static  string[] RegNames = [
+    enum string[] RegNames = [
 	"rax",
 	"rdx",
 	"rcx",
@@ -1712,8 +1711,7 @@ class X86_64State: MachineState
 
 	string[] contents(MachineState)
 	{
-	    string[] res;
-	    res = RegNames[];
+	    string[] res = RegNames;
 	    res ~= "rflags";
 	    for (auto i = 0; i < 8; i++)
 		res ~= format("st%d", i);

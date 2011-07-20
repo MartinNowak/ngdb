@@ -65,7 +65,7 @@ enum ArmReg
     GR_COUNT
 }
 
-private string[] ArmRegNames =
+enum string[] ArmRegNames =
 [
     "r0",
     "r1",
