@@ -435,11 +435,6 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
     {
     }
 
-    bool interactive()
-    {
-	return interactive_;
-    }
-
     void sourceFile(string filename)
     {
 	string file = cast(string) std.file.read(filename);
@@ -2559,7 +2554,7 @@ class DefineCommand
 //                return;
 //        }
 
-        if (db.interactive)
+        if (db.interactive_)
             db.pagefln("Enter commands for \"%s\", finish with \"end\"",
                        args.front);
         string line, junk;
