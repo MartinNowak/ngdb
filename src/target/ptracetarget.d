@@ -527,6 +527,7 @@ class PtraceTarget: Target, TargetBreakpointListener
 	listener.onTargetStarted(this);
 	getModules();
 
+        // TODO: linux only, especially notice about main thread??
 	version (linux) {
 	    ptrace(PTRACE_SETOPTIONS, pid_, null,
 		   PTRACE_O_TRACECLONE | PTRACE_O_TRACEEXIT);
