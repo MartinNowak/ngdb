@@ -256,29 +256,21 @@ class PtraceModule: TargetModule
 		return dwarf_.contents(state);
 	    return null;
 	}
-	bool lookup(string name, MachineState state, out DebugItem val)
+	DebugItem lookup(string name, MachineState state)
 	{
-	    if (dwarf_)
-		return dwarf_.lookup(name, state, val);
-	    return false;
+	    return (dwarf_ is null) ? null : dwarf_.lookup(name, state);
 	}
-	bool lookupStruct(string name, out Type ty)
+	Type lookupStruct(string name)
 	{
-	    if (dwarf_)
-		return dwarf_.lookupStruct(name, ty);
-	    return false;
+	    return (dwarf_ is null) ? null : dwarf_.lookupStruct(name);
 	}
-	bool lookupUnion(string name, out Type ty)
+	Type lookupUnion(string name)
 	{
-	    if (dwarf_)
-		return dwarf_.lookupUnion(name, ty);
-	    return false;
+	    return (dwarf_ is null) ? null : dwarf_.lookupUnion(name);
 	}
-	bool lookupTypedef(string name, out Type ty)
+	Type lookupTypedef(string name)
 	{
-	    if (dwarf_)
-		return dwarf_.lookupTypedef(name, ty);
-	    return false;
+	    return (dwarf_ is null) ? null : dwarf_.lookupTypedef(name);
 	}
     }
 

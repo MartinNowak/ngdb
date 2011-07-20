@@ -876,29 +876,20 @@ class CompoundScope: Scope
 	    res ~= f.name;
 	return res;
     }
-    bool lookup(string name, MachineState, out DebugItem val)
+    DebugItem lookup(string name, MachineState)
     {
 	foreach (f; type_.fields_) {
 	    if (f.name == name) {
 		Value v = f.value;
-		val = new Value(v.loc.fieldLocation(base_, state_), v.type);
-		return true;
+		return new Value(v.loc.fieldLocation(base_, state_), v.type);
 	    }
 	}
-	return false;
+	return null;
     }
-    bool lookupStruct(string name, out Type)
-    {
-	return false;
-    }
-    bool lookupUnion(string name, out Type)
-    {
-	return false;
-    }
-    bool lookupTypedef(string name, out Type)
-    {
-	return false;
-    }
+    Type lookupStruct(string name) { return null; }
+    Type lookupUnion(string name) { return null; }
+    Type lookupTypedef(string name) { return null; }
+
 private:
     CompoundType type_;
     Location base_;

@@ -1051,7 +1051,7 @@ class CLikeLanguage: Language
 		if (ty)
 		    twoTypes(lastTok);
 		lex.consume;
-		if (lex.sc.lookupTypedef(tok.value, ty))
+		if ((ty = lex.sc.lookupTypedef(tok.value)) !is null)
 		    break;
 		throw new EvalException(format("Can't find typedef %s", tok.value));
 	    default:
@@ -1147,8 +1147,7 @@ class CLikeLanguage: Language
 	    if (tok.id != "identifier")
 		throw unexpected(tok);
 	    lex.consume;
-	    Type ty;
-	    if (lex.sc.lookupStruct(tok.value, ty))
+	    if (auto ty = lex.sc.lookupStruct(tok.value))
 		return ty;
 	    throw new EvalException(format("Can't find struct %s", tok.value));
 	} else if (tok.id == "union") {
@@ -1157,8 +1156,7 @@ class CLikeLanguage: Language
 	    if (tok.id != "identifier")
 		throw unexpected(tok);
 	    lex.consume;
-	    Type ty;
-	    if (lex.sc.lookupUnion(tok.value, ty))
+	    if (auto ty = lex.sc.lookupUnion(tok.value))
 		return ty;
 	    throw new EvalException(format("Can't find union %s", tok.value));
 	} else {
@@ -1971,12 +1969,11 @@ class DLanguage: CLikeLanguage
 	    goto case;
 	case "identifier":
 	    auto ids = join(identifierList(lex), ".");
-	    Type ty;
-	    if (lex.sc.lookupStruct(ids, ty))
+	    if (auto ty = lex.sc.lookupStruct(ids))
 		return ty;
-	    if (lex.sc.lookupUnion(ids, ty))
+	    if (auto ty = lex.sc.lookupUnion(ids))
 		return ty;
-	    if (lex.sc.lookupTypedef(ids, ty))
+	    if (auto ty = lex.sc.lookupTypedef(ids))
 		return ty;
 	    throw new EvalException(format("Can't find type %s", ids));
 

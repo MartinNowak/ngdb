@@ -774,47 +774,34 @@ class X86State: MachineState
 	    return res;
 	}
 
-	bool lookup(string reg, MachineState, out DebugItem val)
+	DebugItem lookup(string reg, MachineState)
 	{
 	    if (reg.length > 0 && reg[0] == '$')
 		reg = reg[1..$];
 	    if (reg == "pc") reg = "eip";
 	    foreach (i, s; RegNames) {
 		if (s == reg) {
-		    val = regAsValue(i, grType_);
-		    return true;
+		    return regAsValue(i, grType_);
 		}
 	    }
 	    if (reg.length == 3 && reg[0..2] == "st"
 		&& reg[2] >= '0' && reg[2] <= '7') {
-		val = regAsValue(11 + reg[2] - '0', frType_);
-		return true;
+		return regAsValue(11 + reg[2] - '0', frType_);
 	    }
 	    if (reg.length == 4 && reg[0..3] == "xmm"
 		&& reg[3] >= '0' && reg[3] <= '7') {
-		val = regAsValue(21 + reg[3] - '0', xmmType_);
-		return true;
+		return regAsValue(21 + reg[3] - '0', xmmType_);
 	    }
 	    if (reg.length == 3 && reg[0..2] == "mm"
 		&& reg[2] >= '0' && reg[2] <= '7') {
-		val = regAsValue(29 + reg[2] - '0', mmType_);
-		return true;
+		return regAsValue(29 + reg[2] - '0', mmType_);
 	    }
 
-	    return false;
+	    return null;
 	}
-	bool lookupStruct(string reg, out Type)
-	{
-	    return false;
-	}
-	bool lookupUnion(string reg, out Type)
-	{
-	    return false;
-	}
-	bool lookupTypedef(string reg, out Type)
-	{
-	    return false;
-	}
+	Type lookupStruct(string reg) { return null; }
+	Type lookupUnion(string reg) { return null; }
+	Type lookupTypedef(string reg) { return null; }
     }
 
     Value regAsValue(size_t i, Type ty)
@@ -1722,56 +1709,42 @@ class X86_64State: MachineState
 	    return res;
 	}
 
-	bool lookup(string reg, MachineState, out DebugItem val)
+	DebugItem lookup(string reg, MachineState)
 	{
 	    if (reg.length > 0 && reg[0] == '$')
 		reg = reg[1..$];
 	    if (reg == "pc") reg = "rip";
 	    foreach (i, s; RegNames) {
 		if (s == reg) {
-		    val = regAsValue(i, grType_);
-		    return true;
-		}
+		    return regAsValue(i, grType_);
+                }
 	    }
 	    if (reg == "rflags") {
-		val = regAsValue(RFLAGS, grType_);
+		return regAsValue(RFLAGS, grType_);
 	    }
 	    if (reg.length == 3 && reg[0..2] == "st"
 		&& reg[2] >= '0' && reg[2] <= '7') {
-		val = regAsValue(33 + reg[2] - '0', frType_);
-		return true;
-	    }
+		return regAsValue(33 + reg[2] - '0', frType_);
+            }
 	    if (reg.length == 4 && reg[0..3] == "xmm"
 		&& reg[3] >= '0' && reg[3] <= '9') {
-		val = regAsValue(17 + reg[3] - '0', xmmType_);
-		return true;
-	    }
+		return regAsValue(17 + reg[3] - '0', xmmType_);
+            }
 	    if (reg.length == 5 && reg[0..3] == "xmm"
 		&& reg[3] == '1'
 		&& reg[4] >= '0' && reg[4] <= '5') {
-		val = regAsValue(17 + 10 + reg[4] - '0', xmmType_);
-		return true;
-	    }
+		return regAsValue(17 + 10 + reg[4] - '0', xmmType_);
+            }
 	    if (reg.length == 3 && reg[0..2] == "mm"
 		&& reg[2] >= '0' && reg[2] <= '7') {
-		val = regAsValue(41 + reg[2] - '0', mmType_);
-		return true;
-	    }
+		return regAsValue(41 + reg[2] - '0', mmType_);
+            }
 
-	    return false;
+	    return null;
 	}
-	bool lookupStruct(string reg, out Type)
-	{
-	    return false;
-	}
-	bool lookupUnion(string reg, out Type)
-	{
-	    return false;
-	}
-	bool lookupTypedef(string reg, out Type)
-	{
-	    return false;
-	}
+	Type lookupStruct(string reg) { return null; }
+	Type lookupUnion(string reg) { return null; }
+	Type lookupTypedef(string reg) { return null; }
     }
 
     Value regAsValue(size_t i, Type ty)

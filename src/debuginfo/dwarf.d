@@ -821,7 +821,7 @@ class DwarfFile: public DebugInfo
 	    }
 	    return res;
 	}
-	bool lookup(string name, MachineState, out DebugItem val)
+	DebugItem lookup(string name, MachineState)
 	{
 	    foreach (ns; pubnames_) {
 		if (ns.cuOffset in compilationUnits_) {
@@ -830,16 +830,15 @@ class DwarfFile: public DebugInfo
 			cu.loadDIE;
 			foreach (dieOff; ns.names[name]) {
 			    DIE die = cu.dieMap[dieOff];
-			    val = die.debugItem;
-			    if (val)
-				return true;
+			    if (auto val = die.debugItem)
+				return val;
 			}
 		    }
 		}
 	    }
-	    return false;
+	    return null;
 	}
-	bool lookupStruct(string name, out Type res)
+	Type lookupStruct(string name)
 	{
 	    /*
 	     * Brute force all CUs.
@@ -848,21 +847,15 @@ class DwarfFile: public DebugInfo
 		cu.loadDIE;
 		foreach (d; cu.die.children_) {
 		    if (d.tag == DW_TAG_structure_type && d.name == name) {
-			res = d.toType;
-			return true;
+			return d.toType;
 		    }
 		}
 	    }
-	    return false;
+	    return null;
 	}
-	bool lookupUnion(string name, out Type)
-	{
-	    return false;
-	}
-	bool lookupTypedef(string name, out Type)
-	{
-	    return false;
-	}
+        // TODO: unimplemented ??
+	Type lookupUnion(string name) { return null; }
+	Type lookupTypedef(string name) { return null; }
 
 	// DebugInfo compliance
 	Language findLanguage(ulong address)
@@ -3162,49 +3155,45 @@ class CompilationUnit: Scope
 	    }
 	    return res;
 	}
-	bool lookup(string name, MachineState, out DebugItem val)
+	DebugItem lookup(string name, MachineState)
 	{
 	    loadDIE;
 	    foreach (d; die.children_) {
 		if (d.tag == DW_TAG_variable && d.name == name) {
-		    val = d.debugItem;
-		    return true;
+		    return d.debugItem;
 		}
 	    }
-	    return false;
+	    return null;
 	}
-	bool lookupStruct(string name, out Type res)
+	Type lookupStruct(string name)
 	{
 	    loadDIE;
 	    foreach (d; die.children_) {
 		if (d.tag == DW_TAG_structure_type && d.name == name) {
-		    res = d.toType;
-		    return true;
+		    return d.toType;
 		}
 	    }
-	    return false;
+	    return null;
 	}
-	bool lookupUnion(string name, out Type res)
+	Type lookupUnion(string name)
 	{
 	    loadDIE;
 	    foreach (d; die.children_) {
 		if (d.tag == DW_TAG_union_type && d.name == name) {
-		    res = d.toType;
-		    return true;
+		    return d.toType;
 		}
 	    }
-	    return false;
+	    return null;
 	}
-	bool lookupTypedef(string name, out Type res)
+	Type lookupTypedef(string name)
 	{
 	    loadDIE;
 	    foreach (d; die.children_) {
 		if (d.tag == DW_TAG_typedef && d.name == name) {
-		    res = d.toType;
-		    return true;
+		    return d.toType;
 		}
 	    }
-	    return false;
+	    return null;
 	}
     }
 

@@ -106,8 +106,7 @@ class VariableExpr: ExprBase
 	}
 	DebugItem eval(Scope sc, MachineState state)
 	{
-	    DebugItem val;
-	    if (sc.lookup(name_, state, val))
+	    if (auto val = sc.lookup(name_, state))
 		return val;
 	    throw new EvalException(format("Variable %s not found", name_));
 	}

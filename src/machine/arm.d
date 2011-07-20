@@ -354,30 +354,20 @@ class ArmState: MachineState
 	    return ArmRegNames[];
 	}
 
-	bool lookup(string reg, MachineState, out DebugItem val)
+	DebugItem lookup(string reg, MachineState)
 	{
 	    if (reg.length > 0 && reg[0] == '$')
 		reg = reg[1..$];
 	    foreach (i, s; ArmRegNames) {
 		if (s == reg) {
-		    val = regAsValue(i);
-		    return true;
+		    return regAsValue(i);
 		}
 	    }
-	    return false;
+	    return null;
 	}
-	bool lookupStruct(string reg, out Type)
-	{
-	    return false;
-	}
-	bool lookupUnion(string reg, out Type)
-	{
-	    return false;
-	}
-	bool lookupTypedef(string reg, out Type)
-	{
-	    return false;
-	}
+	Type lookupStruct(string reg) { return null; }
+	Type lookupUnion(string reg) { return null; }
+	Type lookupTypedef(string reg) { return null; }
     }
 
     Value regAsValue(size_t i)

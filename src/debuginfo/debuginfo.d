@@ -26,9 +26,9 @@
 
 module debuginfo.debuginfo;
 
-version(tangobos) import std.compat;
 import std.string;
 import std.c.stdlib;
+import std.range;
 
 import debuginfo.expr;
 import debuginfo.language;
@@ -65,10 +65,10 @@ interface DebugItem
 interface Scope
 {
     string[] contents(MachineState);
-    bool lookup(string, MachineState, out DebugItem);
-    bool lookupStruct(string, out Type);
-    bool lookupUnion(string, out Type);
-    bool lookupTypedef(string, out Type);
+    DebugItem lookup(string, MachineState);
+    Type lookupStruct(string );
+    Type lookupUnion(string);
+    Type lookupTypedef(string);
 }
 
 class UnionScope: Scope
@@ -86,33 +86,33 @@ class UnionScope: Scope
 		res ~= sc.contents(state);
 	    return res;
 	}
-	bool lookup(string name, MachineState state, out DebugItem val)
+	DebugItem lookup(string name, MachineState state)
 	{
 	    foreach (sc; subScopes_)
-		if (sc.lookup(name, state, val))
-		    return true;
-	    return false;
+		if (auto item = sc.lookup(name, state))
+                    return item;
+	    return null;
 	}
-	bool lookupStruct(string name, out Type ty)
+	Type lookupStruct(string name)
 	{
 	    foreach (sc; subScopes_)
-		if (sc.lookupStruct(name, ty))
-		    return true;
-	    return false;
+		if (auto ty = sc.lookupStruct(name))
+                    return ty;
+	    return null;
 	}
-	bool lookupUnion(string name, out Type ty)
+	Type lookupUnion(string name)
 	{
 	    foreach (sc; subScopes_)
-		if (sc.lookupUnion(name, ty))
-		    return true;
-	    return false;
+		if (auto ty = sc.lookupUnion(name))
+		    return ty;
+	    return null;
 	}
-	bool lookupTypedef(string name, out Type ty)
+	Type lookupTypedef(string name)
 	{
 	    foreach (sc; subScopes_)
-		if (sc.lookupTypedef(name, ty))
-		    return true;
-	    return false;
+		if (auto ty = sc.lookupTypedef(name))
+		    return ty;
+	    return null;
 	}
     }
 
@@ -978,32 +978,22 @@ class LexicalScope: DebugItem, Scope
 		res ~= v.name;
 	    return res;
 	}
-	bool lookup(string name, MachineState state, out DebugItem val)
+	DebugItem lookup(string name, MachineState state)
 	{
 	    foreach (sc; scopes_)
 		if (sc.contains(state.pc))
-		    if (sc.lookup(name, state, val))
-			return true;
+		    if (auto val = sc.lookup(name, state))
+			return val;
 	    foreach (v; variables_) {
 		if (name == v.name) {
-		    val = v;
-		    return true;
+		    return v;
 		}
 	    }
-	    return false;
+	    return null;
 	}
-	bool lookupStruct(string name, out Type)
-	{
-	    return false;
-	}
-	bool lookupUnion(string name, out Type)
-	{
-	    return false;
-	}
-	bool lookupTypedef(string name, out Type)
-	{
-	    return false;
-	}
+	Type lookupStruct(string name) { return null; }
+	Type lookupUnion(string name) { return null; }
+	Type lookupTypedef(string name) { return null; }
     }
 
     void addVariable(Variable var)
@@ -1058,7 +1048,7 @@ class Function: DebugItem, Scope
 
 	    if (containingType_)
 		s ~= containingType_.toString ~ lang_.renderNamespaceSeparator;
-	    s ~= std.string.format("%s(", name_);
+	    s ~= std.string.format("%s (", name_);
 	    bool first = true;
 	    foreach (a; arguments_) {
 		if (!first) {
@@ -1101,39 +1091,30 @@ class Function: DebugItem, Scope
 		res ~= compilationUnit_.contents(state);
 	    return res;
 	}
-	bool lookup(string name, MachineState state, out DebugItem val)
+	DebugItem lookup(string name, MachineState state)
 	{
 	    foreach (sc; scopes_)
 		if (sc.contains(state.pc))
-		    if (sc.lookup(name, state, val))
-			return true;
-	    foreach (v; arguments_ ~ variables_) {
-		if (name == v.name) {
-		    val = v;
-		    return true;
-		}
-	    }
-	    if (compilationUnit_)
-		return compilationUnit_.lookup(name, state, val);
-	    return false;
+		    if (auto val = sc.lookup(name, state))
+			return val;
+	    foreach (val; chain(arguments_, variables_))
+		if (name == val.name)
+		    return val;
+	    if (compilationUnit_ !is null)
+		return compilationUnit_.lookup(name, state);
+	    return null;
 	}
-	bool lookupStruct(string name, out Type val)
+	Type lookupStruct(string name)
 	{
-	    if (compilationUnit_)
-		return compilationUnit_.lookupStruct(name, val);
-	    return false;
+	    return (compilationUnit_ is null) ? null : compilationUnit_.lookupStruct(name);
 	}
-	bool lookupUnion(string name, out Type val)
+	Type lookupUnion(string name)
 	{
-	    if (compilationUnit_)
-		return compilationUnit_.lookupUnion(name, val);
-	    return false;
+	    return (compilationUnit_ is null) ? null : compilationUnit_.lookupUnion(name);
 	}
-	bool lookupTypedef(string name, out Type val)
+	Type lookupTypedef(string name)
 	{
-	    if (compilationUnit_)
-		return compilationUnit_.lookupTypedef(name, val);
-	    return false;
+	    return (compilationUnit_ is null) ? null : compilationUnit_.lookupTypedef(name);
 	}
     }
 

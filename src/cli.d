@@ -1083,9 +1083,8 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 
                 auto names = func.contents(s);
                 foreach (name; names) {
-                    DebugItem d;
-                    if (func.lookup(name, s, d)) {
-                        auto v = cast(Variable) d;
+                    if (auto d = func.lookup(name, s)) {
+                        auto v = cast(Variable)d;
                         if (!v.value.loc.valid(s))
                             continue;
                         writefln("%s = %s",
@@ -2164,62 +2163,55 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 
 	    return array(uniq(sort(res)));
 	}
-	bool lookup(string name, MachineState state, out DebugItem val)
+	DebugItem lookup(string name, MachineState state)
 	{
 	    foreach (mod; target.modules)
-		if (mod.lookup(name, state, val))
-		    return true;
+		if (auto val = mod.lookup(name, state))
+		    return val;
 
 	    if (name.length == 0 || name[0] != '$')
-		return false;
+		return null;
 	    name = name[1..$];
 	    if (name.length == 0 || isDigit(name[0])) {
 		try {
 		    size_t num = name.length > 0
 			? to!size_t(name) : valueHistory_.length - 1;
-		    if (num >= valueHistory_.length)
-			return false;
-		    val = valueHistory_[num];
-		    return true;
+		    return (num < valueHistory_.length) ? valueHistory_[num] : null;
 		} catch (ConvException ce) {
-		    return false;
+		    return null;
 		}
 	    } else if (isAlpha(name[0]) || name[0] == '_') {
-		auto vp = name in userVars_;
-		if (vp) {
-		    val = *vp;
-		    return true;
-		}
+		if (auto vp = name in userVars_)
+		    return *vp;
 		auto lang = currentLanguage;
 		Value var = new Value(new UserLocation,
 				      new UserType(lang));
 		userVars_[name] = var;
-		val = var;
-		return true;
+		return var;
 	    } else {
-		return false;
+		return null;
 	    }
 	}
-	bool lookupStruct(string name, out Type ty)
+	Type lookupStruct(string name)
 	{
 	    foreach (mod; target.modules)
-		if (mod.lookupStruct(name, ty))
-		    return true;
-	    return false;
+		if (auto ty = mod.lookupStruct(name))
+		    return ty;
+	    return null;
 	}
-	bool lookupUnion(string name, out Type ty)
+	Type lookupUnion(string name)
 	{
 	    foreach (mod; target.modules)
-		if (mod.lookupTypedef(name, ty))
-		    return true;
-	    return false;
+		if (auto ty = mod.lookupUnion(name))
+		    return ty;
+	    return null;
 	}
-	bool lookupTypedef(string name, out Type ty)
+	Type lookupTypedef(string name)
 	{
 	    foreach (mod; target.modules)
-		if (mod.lookupTypedef(name, ty))
-		    return true;
-	    return false;
+		if (auto ty = mod.lookupTypedef(name))
+		    return ty;
+	    return null;
 	}
     }
 

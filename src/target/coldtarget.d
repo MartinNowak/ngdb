@@ -123,28 +123,15 @@ class ColdModule: TargetModule
 	}
 	string[] contents(MachineState state)
 	{
-	    if (dwarf_)
-		return dwarf_.contents(state);
-	    return null;
+	    return (dwarf_ is null) ? null : dwarf_.contents(state);
 	}
-	bool lookup(string name, MachineState state, out DebugItem val)
+	DebugItem lookup(string name, MachineState state)
 	{
-	    if (dwarf_)
-		return dwarf_.lookup(name, state, val);
-	    return false;
+	    return (dwarf_ is null) ? null : dwarf_.lookup(name, state);
 	}
-	bool lookupStruct(string reg, out Type)
-	{
-	    return false;
-	}
-	bool lookupUnion(string reg, out Type)
-	{
-	    return false;
-	}
-	bool lookupTypedef(string reg, out Type)
-	{
-	    return false;
-	}
+	Type lookupStruct(string reg) { return null; }
+	Type lookupUnion(string reg) { return null; }
+	Type lookupTypedef(string reg) { return null; }
     }
 
     MachineState getState(Target target)
