@@ -1134,10 +1134,13 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                 Frame f;
                 if (args.empty)
                     f = currentFrame_;
-                else
-                    assert(0, "unimplemented \"info frame ADDR\"");
+                else {
+                    uint idx;
+                    if (tryFrontArgToUint(args, idx))
+                        f = getFrame(idx);
+                }
                 if (f is null) {
-                    writeln("No stack.");
+                    std.stdio.stderr.writeln("No frame.");
                     return;
                 }
                 writefln("rip = %#x; saved rip %#x", f.state_.pc, null);
@@ -1278,9 +1281,9 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
             case InfoCmd.Float:
                 return "info float: Information about floating point registers.";
             case InfoCmd.Frame:
-                return "info frame [ADDR]: Information about current frame or frame at ADDR.";
+                return "info frame [INDEX]: Information about current frame or frame at INDEX.";
             case InfoCmd.Stack:
-                return "info stack [COUNT]: Backtrace of stack or innermost COUNT frames.";
+                return "info stack [COUNT]: Backtrace of stack up to COUNT frames.";
             }
         }
         return std.string.format("Undefined command info %s.", args.front);
