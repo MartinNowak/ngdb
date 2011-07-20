@@ -507,13 +507,8 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 
     void run()
     {
-	try
-	    sourceFile(".ngdbinit");
-	catch {}
-
-	try
-	    sourceFile(to!string(getenv("HOME")) ~ "/.ngdbinit");
-	catch {}
+        sourceFile(".ngdbinit");
+        sourceFile(to!string(getenv("HOME")) ~ "/.ngdbinit");
 
 	sigaction_t sa;
 	sa.sa_handler = &ignoreSig;
