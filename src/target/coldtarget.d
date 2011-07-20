@@ -221,6 +221,11 @@ class ColdThread: TargetThread
 	{
 	    return id_;
 	}
+        // TODO: pull out lwpid
+        uint tid()
+        {
+            return -1;
+        }
     }
 
     ColdTarget target_;

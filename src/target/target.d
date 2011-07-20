@@ -114,6 +114,11 @@ interface TargetThread
      * thread. Identifiers are not re-used withing a target.
      */
     uint id();
+
+    /**
+     * System specific thread id.
+     */
+    int tid();
 }
 
 struct TargetSymbol

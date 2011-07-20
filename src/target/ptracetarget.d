@@ -387,6 +387,10 @@ class PtraceThread: TargetThread
 	{
 	    return id_;
 	}
+        int tid()
+        {
+            return lwpid_;
+        }
     }
 
 private:

@@ -1942,6 +1942,8 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
     {
 	if (t is currentThread_)
             return;
+        if (currentThread_ is null && activeTarget)
+            writefln("[New LWP %d]", t.tid);
         currentThread_ = t;
         if (t is null)
             return;
@@ -1949,7 +1951,8 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
         if (activeTarget) {
             if (annotate_)
                 writeln("\n\032\032thread-changed");
-            writefln("[Switching to Thread %d (LWP %d)]", t.id, t.target.entry);
+            // TODO: need stack base
+            writefln("[Switching to Thread %x (LWP %d)]", t.target.entry, t.tid);
         }
     }
 
@@ -1972,8 +1975,6 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
         if (activeTarget) {
             if (annotate_)
                 writeln("\n\032\032starting");
-            // TODO: target.entry is still 0 here, search some other id
-            writefln("[New LWP %d]", tgt.entry);
         }
     }
 
@@ -2053,8 +2054,12 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                 assert(t !is thread);
             assert(tgt is target_);
         } body {
-            if (annotate_ && activeTarget)
-              writeln("\n\032\032new-thread");
+            if (activeTarget) {
+                if (annotate_)
+                    writeln("\n\032\032new-thread");
+                // TODO: need stack top of thread instead of entry
+                writefln("[New Thread %x (LWP %d)]", tgt.entry, thread.tid);
+            }
 	    if (currentThread is null)
 		currentThread = thread;
 	}
@@ -2099,13 +2104,10 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
             currentThread = t;
             stopped();
             Breakpoint bp;
-            if (auto p = addr in breakpointMap_) {
+            if (auto p = addr in breakpointMap_)
                 bp = *p;
-            } else {
-                // TODO: investigate in conjunction with step
-                std.stdio.stderr.writefln("Stop from unknown breakpoint at %#x", addr);
-                return true;
-            }
+            else
+                assert(0);
 
             if (bp.condition_) {
                 setCurrentFrame;
