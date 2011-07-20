@@ -507,8 +507,6 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 
     void run()
     {
-	target_ = new ColdTarget(this, prog_, core_);
-
 	try
 	    sourceFile(".ngdbinit");
 	catch {}
@@ -522,23 +520,9 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	sa.sa_flags = 0;
 	sigaction(SIGINT, &sa, null);
 
-	if (core_)
-	    stopped();
-
         string[] cmd;
 	while (!quit_) {
             auto buf = inputline(prompt_, "prompt");
-
-	    /*
-	     * If we don't have a target (e.g. the active target
-	     * exitted or we disconnected), switch back to a cold
-	     * target.
-	     */
-	    if (!target_) {
-		target_ = new ColdTarget(this, prog_, core_);
-		if (core_)
-		    stopped();
-	    }
 
             auto ncmd = split(buf);
 	    if (!ncmd.empty)
@@ -594,6 +578,18 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
         // ignore comments (sourced files)
 	if (args.front[0] == '#')
 	    return;
+
+        /*
+         * If we don't have a target (e.g. the active target
+         * exitted or we disconnected), switch back to a cold
+         * target.
+         */
+        if (target_ is null) {
+            target_ = new ColdTarget(this, prog_, core_);
+            // TODO: doesn't work but should preload core information
+//            if (core_ !is null)
+//                stopped();
+        }
 
         if (auto cmd = args.front in cmdAbbrevs) {
             args.popFront;
