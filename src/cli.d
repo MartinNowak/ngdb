@@ -403,14 +403,6 @@ private class Frame
     ulong addr_;
 }
 
-class PagerQuit: Exception
-{
-    this()
-    {
-	super("Quit");
-    }
-}
-
 /**
  * Implement a command line interface to the debugger.
  */
@@ -525,18 +517,11 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
             if (cmd.empty)
 		continue;
 
+            // TODO: store command in history
             if (cmd.front != "server")
-            {
-                // TODO: store command in history
-	    } else {
                 cmd.popFront;
-            }
 
-	    pageline_ = 0;
-	    try {
-		executeCommand(cmd);
-	    } catch (PagerQuit pq) {
-	    }
+            executeCommand(cmd);
 	}
     }
 
@@ -1221,15 +1206,11 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
             args.popFront;
             final switch (cast(string)*cmd) {
             case SetCmd.Height:
-                // TODO: interpret expr
-                uint height;
-                if (collectException(to!uint(args.front), height))
-                    std.stdio.stderr.writefln(getSetHelp([SetCmd.Height]));
-                pagemaxheight_ = height;
+                // TODO: set pager height
                 break;
 
             case SetCmd.Width:
-                // TODO: noop
+                // TODO: set pager width
                 break;
             }
         } else {
@@ -1385,41 +1366,6 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
             resp = strip(inputline(prompt, "query"));
 	} while (resp.empty || (resp.front != 'y' && resp.front != 'n'));
         return resp.front == 'y';
-    }
-
-    void pagefln(...)
-    {
-	char[] s;
-
-	void putc(dchar c)
-	{
-	    std.utf.encode(s, c);
-	}
-
-	std.format.doFormat(&putc, _arguments, _argptr);
-	s = detab(s);
-
-        if (s.empty) {
-            writeln();
-            return;
-        }
-
-	while (s.length) {
-	    auto n = s.length;
-	    if (n > 80) n = 80;
-	    writefln("%s", s[0..n]);
-	    s = s[n..$];
-	    if (pagemaxheight_) {
-		pageline_++;
-		if (pageline_ >= pagemaxheight_) {
-		    writef("--Press return to continue or type 'q' to quit--");
-		    auto t = readln();
-		    if (t.length > 0 && (t[0] == 'q' || t[0] == 'Q'))
-			throw new PagerQuit;
-		    pageline_ = 0;
-		}
-	    }
-	}
     }
 
     SourceFile findFile(string filename)
@@ -1949,8 +1895,8 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	stopped();
 	if (currentFrame_.func_) {
 	    ulong tpc = s.pc;
-	    pagefln("%s:\t%s", lookupAddress(s.pc),
-		    s.disassemble(tpc, &lookupAddress));
+	    writefln("%s:\t%s", lookupAddress(s.pc),
+                     s.disassemble(tpc, &lookupAddress));
 	}
     }
 
@@ -2093,7 +2039,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	    state = s;
 	    return v;
 	} catch (EvalException ex) {
-	    pagefln("%s", ex.msg);
+	    std.stdio.stderr.writeln(ex.msg);
 	    return null;
 	}
     }
@@ -2312,8 +2258,6 @@ private:
     bool interactive_ = true;
     bool quit_ = false;
     bool stopped_;
-    uint pageline_;
-    uint pagemaxheight_ = 23;
     Target target_;
     TargetModule[] modules_;
     TargetThread[] threads_;
@@ -2407,7 +2351,7 @@ class ExamineCommand
         DebugInfo di;
 
         if (!db.target_) {
-            db.pagefln("Target is not running");
+            std.stdio.stderr.writeln("Target is not running");
             return;
         }
         auto f = db.currentFrame_;
@@ -2424,7 +2368,7 @@ class ExamineCommand
         ulong addr;
         if (args.length == 0) {
             if (!lastAddrValid_) {
-                db.pagefln("No previous address to examine");
+                std.stdio.stderr.writeln("No previous address to examine");
                 return;
             }
             addr = lastAddr_;
@@ -2452,7 +2396,7 @@ class ExamineCommand
                 else
                     throw new EvalException("Not an address");
             } catch (EvalException ex) {
-                db.pagefln("%s", ex.msg);
+                std.stdio.stderr.writeln(ex.msg);
                 return;
             }
         }
@@ -2461,7 +2405,7 @@ class ExamineCommand
         if (fmt_ == "i") {
             while (count > 0) {
                 string addrString = db.lookupAddress(addr);
-                db.pagefln("%-31s %s", addrString,
+                std.stdio.stdout.writefln("%-31s %s", addrString,
                            s.disassemble(addr, &db.lookupAddress));
                 count--;
             }
@@ -2476,13 +2420,13 @@ class ExamineCommand
                 string fmt = format("%%0%d%s ", 2*width_, fmt_);
                 string vs = format(fmt, val);
                 if (line.length + vs.length > 79) {
-                    db.pagefln("%s", line);
+                    std.stdio.stdout.writeln(line);
                     line = format("%#-15x ", addr);
                 }
                 line ~= vs;
                 count--;
             }
-            db.pagefln("%s", line);
+            std.stdio.stdout.writeln(line);
         }
         lastAddrValid_ = true;
         lastAddr_ = addr;
@@ -2511,7 +2455,7 @@ class DefineCommand
     void run(Debugger db, string[] args)
     {
         if (args.length != 1) {
-            db.pagefln("usage: define name");
+            std.stdio.stderr.writeln("usage: define name");
             return;
         }
 
@@ -2527,8 +2471,8 @@ class DefineCommand
 //        }
 
         if (db.interactive_)
-            db.pagefln("Enter commands for \"%s\", finish with \"end\"",
-                       args.front);
+            std.stdio.stdout.writefln("Enter commands for \"%s\", finish with \"end\"",
+                                      args.front);
         string line, junk;
         string[] cmds = db.readStatementBody(null, junk);
         //        Debugger.registerCommand(new MacroCommand(args.front, cmds));
@@ -2556,9 +2500,9 @@ class MacroCommand
     void run(Debugger db, string[] args)
     {
         if (depth_ > 1000) {
-            db.pagefln("Recursion too deep");
+            std.stdio.stderr.writeln("Recursion too deep");
             depth_ = 0;
-            throw new PagerQuit;
+            return;
         }
         string[] cmds;
         foreach (cmd; cmds_) {
@@ -2597,7 +2541,7 @@ class SourceCommand
     void run(Debugger db, string[] args)
     {
         if (args.length != 1) {
-            db.pagefln("usage: source filename");
+            std.stdio.stderr.writeln("usage: source filename");
             return;
         }
 
@@ -2624,7 +2568,7 @@ class IfCommand
     void run(Debugger db, string[] args)
     {
         if (args.length != 1) {
-            db.pagefln("usage: if expr");
+            std.stdio.stderr.writeln("usage: if expr");
             return;
         }
 
@@ -2662,7 +2606,7 @@ class WhileCommand
     void run(Debugger db, string[] args)
     {
         if (args.length != 1) {
-            db.pagefln("usage: while expr");
+            std.stdio.stderr.writeln("usage: while expr");
             return;
         }
 
