@@ -518,11 +518,21 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 
     static this() {
         cmdAbbrevs = buildAbbrevs!Cmd();
+        // resolve commonly used but possibly ambiguous abbreviations
+        cmdAbbrevs["s" ] = Cmd.Step;
+        cmdAbbrevs["si"] = Cmd.Stepi;
+        cmdAbbrevs["n" ] = Cmd.Next;
+        cmdAbbrevs["ni"] = Cmd.Nexti;
+        cmdAbbrevs["c" ] = Cmd.Continue;
+        cmdAbbrevs["r" ] = Cmd.Run;
+        cmdAbbrevs["q" ] = Cmd.Quit;
+        cmdAbbrevs["p" ] = Cmd.Print;
+
         infoCmdAbbrevs = buildAbbrevs!InfoCmd();
         setCmdAbbrevs = buildAbbrevs!SetCmd();
     }
 
-    static T[string] buildAbbrevs(T)() {
+    static T[string] buildAbbrevs(T)() if(is(OriginalType!T == string)) {
         string[] list;
         foreach(e; EnumMembers!T)
             list ~= e;
