@@ -228,7 +228,7 @@ class PtraceModule: TargetModule
 		}
 	    }
 	    return false;
-	}	
+	}
 	bool lookupSymbol(ulong addr, out TargetSymbol ts)
 	{
 	    if (obj_) {
@@ -449,7 +449,7 @@ private:
 		target_.ptrace(cmd.req, lwpid_, cast(char*) cmd.addr, cmd.data);
 	} catch (PtraceException pte) {
 	    /*
-	     * We may get an error reading GSBASE if the kernel doesn't 
+	     * We may get an error reading GSBASE if the kernel doesn't
 	     * support it.
 	     */
 	}
@@ -966,7 +966,7 @@ private:
 			name = execname_;
 		    ulong start = atoi(words[0]);
 		    ulong end = atoi(words[1]);
-		
+
 		    processModule(name, start, end);
 		}
 	    }
@@ -998,7 +998,7 @@ private:
 	    else
 		oldModules ~= mod;
 	}
-	
+
 	foreach (mod; modules) {
 	    bool seenit = false;
 	    foreach (omod; modules_)
@@ -1027,7 +1027,7 @@ private:
 	    if (!keep)
 		breakpoints_.remove(addr);
 	}
-	    
+
 	modules_ = newModules;
     }
 

@@ -219,12 +219,12 @@ enum {
     SHT_STRTAB = 3,		// string table section
     SHT_RELA = 4,		// relocation section with addends
     SHT_HASH = 5,		// symbol hash table section
-    SHT_DYNAMIC = 6,		// dynamic section 
+    SHT_DYNAMIC = 6,		// dynamic section
     SHT_NOTE = 7,		// note section
     SHT_NOBITS = 8,		// no space section
     SHT_REL = 9,		// relocation section - no addends
     SHT_SHLIB = 10,		// reserved - purpose unknown
-    SHT_DYNSYM = 11,		// dynamic symbol table section 
+    SHT_DYNSYM = 11,		// dynamic symbol table section
     SHT_INIT_ARRAY = 14,	// Initialization function pointers.
     SHT_FINI_ARRAY = 15,	// Termination function pointers.
     SHT_PREINIT_ARRAY = 16,	// Pre-initialization function ptrs.
@@ -510,7 +510,7 @@ enum {
     CA_SUNW_HW_1 = 1,		// first hardware capabilities entry
     CA_SUNW_SF_1 = 2,		// first software capabilities entry
 }
-    
+
 // Syminfo flag values
 enum {
     SYMINFO_FLG_DIRECT = 0x0001, // symbol ref has direct association

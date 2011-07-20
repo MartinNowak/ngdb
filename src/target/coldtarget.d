@@ -105,7 +105,7 @@ class ColdModule: TargetModule
 		}
 	    }
 	    return false;
-	}	
+	}
 	bool lookupSymbol(ulong addr, out TargetSymbol ts)
 	{
 	    if (obj_) {

@@ -124,7 +124,7 @@ interface Location
 {
     /**
      * Return true if the location is valid for this machine state (e.g.
-     * for dwarf loclists, the pc is within one of the ranged location 
+     * for dwarf loclists, the pc is within one of the ranged location
      * records).
      */
     bool valid(MachineState);
