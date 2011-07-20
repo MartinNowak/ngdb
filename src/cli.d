@@ -497,14 +497,14 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
             auto buf = inputline(prompt_, "prompt");
 
             auto ncmd = split(buf);
-	    if (!ncmd.empty)
+	    if (!ncmd.empty) {
                 cmd = ncmd;
+                // TODO: store command in history
+                if (cmd.front == "server")
+                    cmd.popFront;
+            }
             if (cmd.empty)
 		continue;
-
-            // TODO: store command in history
-            if (cmd.front != "server")
-                cmd.popFront;
 
             executeCommand(cmd);
 	}
