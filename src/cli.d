@@ -840,24 +840,30 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
             case Cmd.Up:
                 if (auto missing = wantInfos(Info.Frame | Info.MState, infos)) {
                     // TODO: reportUnavailableInfos(missing);
-                    std.stdio.stderr.writeln("Stack frame information unavailable");
+                    std.stdio.stderr.writeln("Stack frame information unavailable.");
                     return;
                 }
-                if (auto upf = infos.frame.outer)
+                if (auto upf = infos.frame.outer) {
                     currentFrame_ = upf;
-                writeln(currentFrame_.toString);
-                displaySourceLine(currentFrame_.state_);
+                    writeln(currentFrame_.toString);
+                    displaySourceLine(currentFrame_.state_);
+                } else {
+                    std.stdio.stderr.writeln("Can't retrieve outer frame.");
+                }
                 break;
 
             case Cmd.Down:
-                if (currentFrame_ is null) {
-                    std.stdio.stderr.writeln("stack frame information unavailable");
+                if (auto missing = wantInfos(Info.Frame | Info.MState, infos)) {
+                    std.stdio.stderr.writeln("Stack frame information unavailable.");
                     return;
                 }
-                if (currentFrame_.inner !is null)
-                    currentFrame_ = currentFrame_.inner;
-                writeln(currentFrame_.toString);
-                displaySourceLine(currentFrame_.state_);
+                if (auto dof = infos.frame.inner) {
+                    currentFrame_ = dof;
+                    writeln(currentFrame_.toString);
+                    displaySourceLine(currentFrame_.state_);
+                } else {
+                    std.stdio.stderr.writeln("Can't retrieve inner frame.");
+                }
                 break;
 
             case Cmd.Frame:
