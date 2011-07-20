@@ -429,11 +429,11 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
         assert(prompt.endsWith(" "));
         assert(!annotation.empty);
     } body {
-        if (annotate_) {
+        if (annotate_)
             writefln("\n\032\032pre-%s", annotation);
-            writefln("\n\032\032%s", annotation);
-        }
         write(prompt);
+        if (annotate_)
+            writefln("\n\032\032%s", annotation);
         auto result = readln();
         if (annotate_)
             writefln("\n\032\032post-%s", annotation);
