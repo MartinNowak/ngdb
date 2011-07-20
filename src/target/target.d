@@ -134,23 +134,23 @@ interface TargetModule: Scope
      * Return the object filename of the module that occupies this address
      * range.
      */
-    string filename();
+    string filename() const;
 
     /**
      * Return the start address in the target address space for this
      * module.
      */
-    ulong start();
+    ulong start() const;
 
     /**
      * Return the end address for this module
      */
-    ulong end();
+    ulong end() const;
 
     /**
      * Return true if the given address is within this module.
      */
-    bool contains(ulong);
+    bool contains(ulong) const;
 
     /**
      * Find debug information for thie module, if any.
@@ -171,7 +171,7 @@ interface TargetModule: Scope
      * Return true of the address is within the Program Linkage Table for
      * this module.
      */
-    bool inPLT(ulong addr);
+    bool inPLT(ulong addr) const;
 }
 
 /**

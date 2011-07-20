@@ -68,22 +68,22 @@ class ColdModule: TargetModule
     }
 
     override {
-	string filename()
+	string filename() const
 	{
 	    return filename_;
 	}
 
-	ulong start()
+	ulong start() const
 	{
 	    return start_;
 	}
 
-	ulong end()
+	ulong end() const
 	{
 	    return end_;
 	}
 
-	bool contains(ulong addr)
+	bool contains(ulong addr) const
 	{
 	    return addr >= start && addr < end_;
 	}
@@ -117,7 +117,7 @@ class ColdModule: TargetModule
 	    }
 	    return false;
 	}
-	bool inPLT(ulong addr)
+	bool inPLT(ulong addr) const
 	{
 	    return false;
 	}
