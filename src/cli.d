@@ -435,25 +435,23 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
     {
     }
 
-    void sourceFile(string filename)
+    bool sourceFile(string filename)
     {
-	string file = cast(string) std.file.read(filename);
-	executeMacro(splitLines(file));
+        if (!std.file.exists(filename) || !std.file.isFile(filename))
+            return false;
+        auto f = File(filename, "r");
+        executeLines(f.byLine());
+        return true;
     }
 
-    void executeMacro(string[] lines)
+    void executeLines(Lines)(Lines lines)
     {
-	bool oldInteractive = interactive_;
-	string[] oldSourceLines = sourceLines_;
-	sourceLines_ = lines;
 	interactive_ = false;
-	while (sourceLines_.length > 0) {
-	    auto cmd = split(inputline(""));
-	    if (cmd.length > 0)
-		executeCommand(cmd);
-	}
-	interactive_ = oldInteractive;
-	sourceLines_ = oldSourceLines;
+        foreach(line; lines) {
+            if (!line.empty)
+                executeCommand(split(line.idup));
+        }
+	interactive_ = true;
     }
 
     void prompt(string s)
@@ -466,15 +464,6 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 
     string inputline(string prompt)
     {
-	if (!interactive_) {
-	    if (sourceLines_.length > 0) {
-		string line = sourceLines_[0];
-		sourceLines_ = sourceLines_[1..$];
-		return line;
-	    }
-	    return "";
-	}
-
         write(prompt_);
         auto result = readln();
         if (annotate_)
@@ -2336,7 +2325,6 @@ private:
     bool quit_ = false;
     bool stopped_;
     uint annotate_;
-    string[] sourceLines_;
     string prog_;
     string core_;
     string prompt_;
@@ -2595,7 +2583,7 @@ class MacroCommand
             cmds ~= cmd;
         }
         depth_++;
-        db.executeMacro(cmds);
+        db.executeLines(cmds);
         depth_--;
     }
 
@@ -2669,9 +2657,9 @@ class IfCommand
             elseCmds = db.readStatementBody("", endString);
 
         if (cond)
-            db.executeMacro(ifCmds);
+            db.executeLines(ifCmds);
         else
-            db.executeMacro(elseCmds);
+            db.executeLines(elseCmds);
     }
 }
 
@@ -2705,7 +2693,7 @@ class WhileCommand
                 cond = s.readInteger(v.loc.readValue(s)) != 0;
             if (!cond)
                 break;
-            db.executeMacro(cmds);
+            db.executeLines(cmds);
         }
     }
 }
