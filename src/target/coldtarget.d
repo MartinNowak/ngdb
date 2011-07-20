@@ -431,11 +431,21 @@ class ColdTarget: Target
         int delegate(scope int delegate(ref TargetModule mod)) modules() {
             return &applyModules;
         }
+
+        int delegate(scope int delegate(ref TargetThread thr) dg) threads() {
+            return &applyThreads;
+        }
     }
 
     final int applyModules(scope int delegate(ref TargetModule mod) dg) {
         foreach(TargetModule mod; modules_)
             if (auto res = dg(mod)) return res;
+        return 0;
+    }
+
+    final int applyThreads(scope int delegate(ref TargetThread thr) dg) {
+        foreach(TargetThread thr; threads_)
+            if (auto res = dg(thr)) return res;
         return 0;
     }
 

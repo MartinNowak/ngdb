@@ -250,6 +250,11 @@ interface Target
      * Iterate over all modules within this target.
      */
     int delegate(scope int delegate(ref TargetModule mod)) modules();
+
+    /**
+     * Iterate over all threads within this target.
+     */
+    int delegate(scope int delegate(ref TargetThread thread)) threads();
 }
 
 /**

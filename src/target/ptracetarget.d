@@ -748,14 +748,26 @@ class PtraceTarget: Target, TargetBreakpointListener
 	    }
 	}
 
-        int delegate(scope int delegate(ref TargetModule mod)) modules() {
+        int delegate(scope int delegate(ref TargetModule mod) dg) modules() {
             return &applyModules;
+        }
+
+        int delegate(scope int delegate(ref TargetThread thr) dg) threads() {
+            return &applyThreads;
         }
     }
 
     final int applyModules(scope int delegate(ref TargetModule mod) dg) {
         foreach(TargetModule mod; modules_)
             if (auto res = dg(mod)) return res;
+        return 0;
+    }
+
+    final int applyThreads(scope int delegate(ref TargetThread thr) dg) {
+        foreach(pthr; threads_) {
+            TargetThread tthr = pthr;
+            if (auto res = dg(tthr)) return res;
+        }
         return 0;
     }
 

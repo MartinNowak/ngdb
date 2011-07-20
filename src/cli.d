@@ -825,7 +825,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                 uint tid;
                 if (!tryFrontArgToUint(args, tid))
                     return;
-                foreach (t; threads_) {
+                foreach (t; target.threads) {
                     if (t.id == tid) {
                         currentThread = t;
                         stopped();
@@ -1054,7 +1054,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                 break;
 
             case InfoCmd.Threads:
-                foreach (i, t; threads_) {
+                foreach (t; target.threads) {
                     auto mark = t is currentThread ? "*" : " ";
                     auto desc = describeAddress(t.state.pc, t.state);
                     writefln("%s %-2d: %s", mark, t.id, desc);
@@ -2059,26 +2059,22 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	    target = tgt;
 	}
 
-	void onThreadCreate(Target target, TargetThread thread)
-	{
-	    foreach (t; threads_)
-		if (t is thread)
-		    return;
-	    threads_ ~= thread;
-            if (annotate_ && target.state != TargetState.EXIT)
+	void onThreadCreate(Target tgt, TargetThread thread)
+        in {
+            foreach (t; target.threads)
+                assert(t !is thread);
+            assert(tgt is target_);
+        } body {
+            if (annotate_ && activeTarget)
               writeln("\n\032\032new-thread");
 	    if (currentThread is null)
 		currentThread = thread;
 	}
+
 	void onThreadDestroy(Target target, TargetThread thread)
 	{
-            // TODO: fix deletion
-	    TargetThread[] newThreads;
-	    foreach (t; threads_)
-		if (t !is thread)
-		    newThreads ~= t;
-	    threads_ = newThreads;
 	}
+
 	void onModuleAdd(Target, TargetModule mod)
 	{
 	    auto di = mod.debugInfo;
@@ -2159,7 +2155,6 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	void onExit(Target)
 	{
 	    target = null;
-	    threads_.length = 0;
 	    currentThread = null;
 	    topFrame_ = currentFrame_ = null;
 	    foreach (bp; breakpoints_) {
@@ -2247,7 +2242,6 @@ private:
     bool quit_ = false;
     bool stopped_;
     Target target_;
-    TargetThread[] threads_;
     TargetThread currentThread_;
     Frame topFrame_;
     Frame currentFrame_;
