@@ -1654,154 +1654,149 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
 	    return;
 	}
 
-	TargetThread t = currentThread;
-	MachineState s = t.state;
-
 	started();
-	if (auto di = findDebugInfo(s)) {
-	    Location frameLoc;
-	    di.findFrameBase(s, frameLoc);
-	    auto frameFunc = di.findFunction(s.pc);
 
-	    ulong frame = frameLoc.address(s);
-	    ulong startpc = s.pc;
-	    ulong stoppc, flowpc;
+        TargetInfos infos;
+        enum needed = Info.Thread | Info.MState | Info.Debug
+            | Info.Func | Info.FrameLoc | Info.LineEntry;
 
-	    LineEntry[] le;
-	    if (di.findLineByAddress(s.pc, le))
-		stoppc = le[1].address;
-	    else {
-		target.step(t);
-		stopped();
-		return;
-	    }
-	    setStepBreakpoint(stoppc);
-	    flowpc = s.findFlowControl(s.pc, stoppc);
-	    if (flowpc < stoppc)
-		setStepBreakpoint(flowpc);
-	    else
-		flowpc = 0;
+	if (auto missing = wantInfos(needed, infos)) {
+            if (missing & Info.Thread)
+                std.stdio.stderr.writeln("Can't get active thread.");
+            else {
+                target.step(infos.thr);
+                // stopped(); still needed ??
+            }
+            return;
+        }
 
-	    bool resetStep = false;
-	    do {
-		/*
-		 * Run up to the next flow control instruction or the
-		 * next statement, whichever comes first. Be careful if
-		 * we are sitting on a flow control instruction.
-		 */
-		if (s.pc != flowpc) {
-		    target.cont();
-		    target.wait();
-		}
-		debug (step) {
-		    void stoppedAt(string msg, ulong pc)
-		    {
-			writefln("%s %#x (%s)", msg, pc,
-				replace(s.disassemble(pc, &lookupAddress), "\t", " "));
-		    }
-		}
-		if (s.pc == flowpc) {
-		    /*
-		     * Stopped at a flow control instruction - single step
-		     * it and see if we change frame or go out of our step
-		     * range.
-		     */
-		    debug (step)
-			stoppedAt("stopped at flow control", s.pc);
-		    target.step(t);
-		    debug (step)
-			stoppedAt("single stepped to", s.pc);
+        scope (exit) { clearStepBreakpoints(); stopped(); }
 
-		    bool inPLT(ulong pc) {
-			foreach (mod; target.modules)
-			    if (mod.inPLT(pc))
-				return true;
-			return false;
-		    }
+        ulong framepc = infos.frameLoc.address(infos.mstate);
+        auto oldFrameFunc = infos.func;
 
-		    while (inPLT(s.pc)) {
-			debug (step)
-			    writefln("single stepping over PLT entry");
-			target.step(t);
-		    }
-		    resetStep = true;
-		} else {
-		    debug (step)
-			stoppedAt("stopped at", s.pc);
-		}
-		if ((di = findDebugInfo(s)) !is null) {
-		    /*
-		     * If we step into something without debug info,
-		     * just continue until we hit the step breakpoint.
-		     */
-		    debug (step)
-			writefln("no debug info at %#x - continue", s.pc);
-		    target.cont();
-		    target.wait();
-		    break;
-		}
-		di.findFrameBase(s, frameLoc);
-		auto func = di.findFunction(s.pc);
-		if (frameLoc.address(s) != frame || func !is frameFunc) {
-		    debug (step)
-			writefln("new frame address %#x", frameLoc.address(s));
-		    if (frameLoc.address(s) > frame) {
-			debug (step)
-			    writefln("returning to outer frame");
-			break;
-		    }
-		    if (stepOverCalls) {
-			/*
-			 * We are stepping over calls - run up to the return
-			 * address
-			 */
-			debug (step)
-			    writefln("stepping over call");
-			MachineState ns = di.unwind(s);
-			clearStepBreakpoints();
-			ulong retpc = ns.pc;
-			debug (step)
-			    writefln("return breakpoint at %#x", retpc);
-			setStepBreakpoint(retpc);
-			do {
-			    target.cont();
-			    target.wait();
-			    debug (step)
-				stoppedAt("stopped at", s.pc);
-			    if (s.pc != retpc
-				|| !di.findFrameBase(s, frameLoc))
-				break;
-			    debug (step)
-				if (frameLoc.address(s) < frame)
-				    writefln("stopped at inner frame %#x - continuing", frameLoc.address(s));
-			} while (activeTarget && frameLoc.address(s) != frame);
-			resetStep = true;
-		    } else {
-			clearStepBreakpoints();
-			break;
-		    }
-		}
-		if (s.pc < startpc || s.pc >= stoppc) {
-		    debug (step)
-			writefln("stepped outside range %#x..%#x", startpc, stoppc);
-		    break;
-		}
-		if (resetStep) {
-		    clearStepBreakpoints();
-		    setStepBreakpoint(stoppc);
-		    flowpc = s.findFlowControl(s.pc, stoppc);
-		    if (flowpc < stoppc)
-			setStepBreakpoint(flowpc);
-		    else
-			flowpc = 0;
-		}
-	    } while (s.pc < stoppc);
-	    clearStepBreakpoints();
-	    stopped();
-	} else {
-	    target.step(t);
-	    stopped();
-	}
+        ulong startpc = infos.mstate.pc;
+        ulong stoppc = infos.lineEntry[1].address;
+        ulong flowpc;
+
+        void rearmStepBreakPoints() {
+            clearStepBreakpoints();
+            setStepBreakpoint(stoppc);
+            flowpc = infos.mstate.findFlowControl(infos.mstate.pc, stoppc);
+            if (flowpc < stoppc)
+                setStepBreakpoint(flowpc);
+            else
+                flowpc = 0;
+        }
+
+        debug(step) void stoppedAt(string msg, ulong pc)
+        {
+            writefln("%s %#x (%s)", msg, pc,
+                     replace(mstate.disassemble(pc, &lookupAddress), "\t", " "));
+        }
+
+        rearmStepBreakPoints();
+        do {
+            /*
+             * Run up to the next flow control instruction or the
+             * next statement, whichever comes first. Be careful if
+             * we are sitting on a flow control instruction.
+             */
+            if (infos.mstate.pc != flowpc) {
+                target.cont();
+                target.wait();
+            } else {
+                /*
+                 * Stopped at a flow control instruction - single step
+                 * it and see if we change frame or go out of our step
+                 * range.
+                 */
+                debug (step)
+                    stoppedAt("stopped at flow control", infos.mstate.pc);
+
+                target.step(infos.thr);
+
+                debug (step)
+                    stoppedAt("single stepped to", infos.mstate.pc);
+
+                bool inPLT(ulong pc) {
+                    foreach (mod; target.modules)
+                        if (mod.inPLT(pc))
+                            return true;
+                    return false;
+                }
+
+                while (inPLT(infos.mstate.pc)) {
+                    debug (step)
+                        writefln("single stepping over PLT entry");
+                    target.step(infos.thr);
+                }
+            }
+
+            enum neededInner = Info.Thread | Info.MState | Info.Debug
+                | Info.Func | Info.FrameLoc;
+            auto missingInner = wantInfos(neededInner, infos);
+            if (missingInner & (Info.Debug | Info.MState)) {
+                /*
+                 * If we step into something without debug info,
+                 * just continue until we hit the step breakpoint.
+                 */
+                debug (step)
+                    writefln("no debug info at %#x - continue", s.pc);
+                target.cont();
+                target.wait();
+                return;
+            } else if (missingInner == 0 &&
+                       (infos.frameLoc.address(infos.mstate) != framepc
+                        || infos.func !is oldFrameFunc)) {
+
+                debug (step)
+                    writefln("new frame address %#x", infos.frameLoc.address(infos.mstate));
+
+                if (infos.frameLoc.address(infos.mstate) > framepc || !stepOverCalls) {
+                    // left frame in either direction
+                    return;
+                }
+
+                if (stepOverCalls) {
+                    /*
+                     * We are stepping over calls - run up to the return
+                     * address
+                     */
+                    debug (step)
+                        writefln("stepping over call");
+                    MachineState ns = infos.dbg.unwind(infos.mstate);
+                    clearStepBreakpoints();
+                    ulong retpc = ns.pc;
+                    debug (step)
+                        writefln("return breakpoint at %#x", retpc);
+                    setStepBreakpoint(retpc);
+
+                    do {
+                        target.cont();
+                        target.wait();
+
+                        if (auto missing = wantInfos(Info.MState | Info.FrameLoc, infos))
+                            break;
+                        if (infos.mstate.pc != retpc)
+                            break;
+
+                        debug (step) {
+                            stoppedAt("stopped at", infos.mstate.pc);
+                            if (infos.frameLoc.address(infos.mstate) < frame)
+                                writefln("stopped at inner frame %#x - continuing", frameLoc.address(s));
+                        }
+
+                    } while (activeTarget && infos.frameLoc.address(infos.mstate) != framepc);
+                    rearmStepBreakPoints();
+                }
+            }
+            if (infos.mstate.pc < startpc || infos.mstate.pc >= stoppc) {
+                debug (step)
+                    writefln("stepped outside range %#x..%#x", startpc, stoppc);
+                return;
+            }
+        } while (infos.mstate.pc < stoppc);
     }
 
     void stepInstruction(bool stepOverCalls)
@@ -2232,20 +2227,25 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
         assert(wantMask != Info.None);
         assert(target_ is null || target_.state != TargetState.RUNNING);
     } body {
+
         Info resolved;
         // bare minimum
-        auto thr = currentThread;
-        if (thr is null)
-            return resolved;
-        resolved |= Info.Thread;
-        // If have no state from frame use thread state or fail. This is so to
-        // allow switching frames.
-        auto st = (currentFrame_ is null) ? null : currentFrame_.state_;
-        if (st is null && (st = thr.state) is null)
-            return resolved;
+        {
+            auto thr = currentThread;
+            if (thr is null)
+                return resolved;
+            infos.thr = thr;
+            resolved |= Info.Thread;
+            // If have no state from frame use thread state or fail. This is so to
+            // allow switching frames.
+            auto st = (currentFrame_ is null) ? null : currentFrame_.state_;
+            if (st is null && (st = infos.thr.state) is null)
+                return resolved;
 
-        infos.mstate = st; // TODO: dup ??
-        resolved |= Info.MState;
+            infos.mstate = st;
+            resolved |= Info.MState;
+        }
+
 
         enum needDebug = Info.Debug | Info.FrameLoc | Info.Func
             | Info.Frame | Info.FrameEx | Info.LineEntry;
@@ -2271,7 +2271,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
             if (resolved & Info.Func) {
                 if (currentFrame_ is null
                     || currentFrame_.func_ != infos.func
-                    || currentFrame_.addr_ != infos.frameLoc.address(st)
+                    || currentFrame_.addr_ != infos.frameLoc.address(infos.mstate)
                 )
                     currentFrame_ = new Frame(this, 0, null, infos.dbg, infos.func, infos.mstate);
                 infos.frame = currentFrame_;
