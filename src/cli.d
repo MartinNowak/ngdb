@@ -2275,8 +2275,8 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
             }
         }
 
-        infos.mask = resolved ^ wantMask;
-        return infos.mask;
+        infos.mask = resolved;
+        return ~resolved & wantMask;
     }
 
 private:
