@@ -3,7 +3,7 @@ module machine.x86dis;
 import std.algorithm;
 import std.string;
 import std.stdio;
-import std.conv : to, octal;
+import std.conv;
 
 private enum
 {
@@ -2725,4 +2725,3 @@ struct DecodeState
     bool havedisp_;
     long disp_;
 }
-

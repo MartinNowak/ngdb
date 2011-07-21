@@ -34,6 +34,7 @@ private import machine.x86dis;
 import target.target;
 import sys.ptrace;
 
+import std.conv;
 import std.math;
 import std.stdio;
 import std.stdint;
