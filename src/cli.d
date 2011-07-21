@@ -1647,6 +1647,12 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
         }
     }
 
+    void reportMissingInfo(Info mask) {
+        foreach(e; EnumMembers!Info)
+            if (mask & e)
+                std.stdio.stderr.writeln(to!string(e));
+    }
+
     void programStepOver()
     {
 	if (activeTarget is null) {
