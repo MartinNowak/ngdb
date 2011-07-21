@@ -607,9 +607,6 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                 } catch (TargetException te) {
                     std.stdio.stderr.writeln(te.msg);
                 }
-                // TODO: do we really need this
-                if (target_ !is null)
-                    stopped();
                 break;
 
             case Cmd.Kill:
@@ -642,43 +639,36 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                     } catch (TargetException te) {
                         std.stdio.stderr.writeln(te.msg);
                     }
-                    stopped();
                 } else
                     std.stdio.stderr.writeln("Program is not running.");
                 break;
 
             case Cmd.Finish:
-                auto f = topFrame;
-                if (f is null) {
+                if (auto missing = wantInfos(Info.Frame, infos)) {
                     std.stdio.stderr.writeln("No current frame");
-                    return;
+                return;
                 }
-                if (f.outer is null) {
-                    std.stdio.stderr.writeln("Already in outermost stack frame");
-                    return;
-                }
-                auto fromFrame = f;
-                auto toFrame = f.outer;
-
-                Type rTy = fromFrame.func_.returnType;
-                setStepBreakpoint(toFrame.state_.pc);
-                started();
-                try {
-                    target.cont();
-                    target.wait();
-                } catch (TargetException te) {
-                    std.stdio.stderr.writeln(te.msg);
-                }
-                stopped();
-                clearStepBreakpoints();
-                if (currentThread is null)
-                    return;
-                if (rTy) {
-                    MachineState s = currentThread.state;
-                    Value val = s.returnValue(rTy);
-                    writefln("Value returned is %s", val.toString(null, s));
-                }
-                stopped();
+                if (auto toFrame = infos.frame.outer) {
+                    setStepBreakpoint(toFrame.state_.pc);
+                    started();
+                    try {
+                        target.cont();
+                        target.wait();
+                    } catch (TargetException te) {
+                        std.stdio.stderr.writeln(te.msg);
+                    }
+                    stopped();
+                    clearStepBreakpoints();
+                    if (auto rTy = infos.frame.func_.returnType) {
+                        if (wantInfos(Info.MState, infos))
+                            return;
+                        MachineState s = currentThread.state;
+                        Value val = infos.mstate.returnValue(rTy);
+                        writefln("Value returned is %s", val.toString(null, infos.mstate));
+                    }
+                    stopped();
+                } else
+                    std.stdio.stderr.writeln("Can't retrieve outer frame.");
                 break;
 
             case Cmd.Break:
