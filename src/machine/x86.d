@@ -721,7 +721,7 @@ class X86State: MachineState
 		return cast(char) t[0];
 	    }
 
-	    Disassembler dis = new Disassembler;
+	    scope auto dis = new Disassembler;
 	    ulong loc = start;
 	    while (loc < end) {
 		ulong tloc = loc;
@@ -738,7 +738,7 @@ class X86State: MachineState
 		return cast(char) t[0];
 	    }
 
-	    Disassembler dis = new Disassembler;
+	    scope auto dis = new Disassembler;
 	    ulong loc = start;
 	    while (loc < end) {
 		ulong tloc = loc;
@@ -757,7 +757,7 @@ class X86State: MachineState
 		return cast(char) t[0];
 	    }
 
-	    Disassembler dis = new Disassembler;
+	    scope auto dis = new Disassembler;
 	    dis.setOption("intel");
 	    return dis.disassemble(address, &readByte, lookupAddress);
 	}
@@ -1652,7 +1652,7 @@ class X86_64State: MachineState
 		return cast(char) t[0];
 	    }
 
-	    Disassembler dis = new Disassembler;
+	    scope auto dis = new Disassembler;
 	    dis.setOption("x86_64");
 	    ulong loc = start;
 	    while (loc < end) {
@@ -1670,7 +1670,7 @@ class X86_64State: MachineState
 		return cast(char) t[0];
 	    }
 
-	    Disassembler dis = new Disassembler;
+	    scope auto dis = new Disassembler;
 	    dis.setOption("x86_64");
 	    ulong loc = start;
 	    while (loc < end) {
@@ -1690,7 +1690,7 @@ class X86_64State: MachineState
 		return cast(char) t[0];
 	    }
 
-	    Disassembler dis = new Disassembler;
+	    scope auto dis = new Disassembler;
 	    dis.setOption("intel");
 	    dis.setOption("x86_64");
 	    return dis.disassemble(address, &readByte, lookupAddress);
