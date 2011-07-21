@@ -587,8 +587,6 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                 break;
 
             case Cmd.Run:
-                // TODO: find better way for storing state
-                static string[] runArgs_;
                 if (activeTarget) {
                     auto info = "The program being debugged has been started already.";
                     auto question = "Start it from the beginning?";
@@ -2293,6 +2291,7 @@ private:
     bool interactive_ = true;
     bool quit_ = false;
     bool stopped_;
+    string[] runArgs_;
     Target target_;
     TargetThread currentThread_;
     Frame topFrame_;
