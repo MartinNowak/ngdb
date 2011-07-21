@@ -618,10 +618,10 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                 break;
 
             case Cmd.Step:
-                stepProgram(false);
+                programStep();
                 break;
             case Cmd.Next:
-                stepProgram(true);
+                programStepOver();
                 break;
             case Cmd.Stepi:
                 stepInstruction(false);
@@ -1647,7 +1647,48 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
         }
     }
 
-    void stepProgram(bool stepOverCalls)
+    void programStepOver()
+    {
+	if (activeTarget is null) {
+	    std.stdio.stderr.writeln("Program is not running.");
+	    return;
+	}
+
+	started();
+
+        TargetInfos infos;
+        enum needed = Info.Thread | Info.MState | Info.LineEntry;
+
+	if (auto missing = wantInfos(needed, infos)) {
+            if (missing & Info.Thread)
+                std.stdio.stderr.writeln("Can't get active thread.");
+            else {
+                target.step(infos.thr);
+                stopped();
+            }
+            return;
+        }
+
+        auto startpc = infos.mstate.pc;
+        auto stoppc = infos.lineEntry[1].address;
+
+        // if no flow control findFlowControl returns stoppc
+        while (infos.mstate.pc < stoppc) {
+            auto flowOrstop = infos.mstate.findFlowControl(infos.mstate.pc + 1, stoppc);
+            setStepBreakpoint(flowOrstop);
+            // need to loop in case an unrelated breakpoint is hit
+            do {
+                target.cont();
+                target.wait();
+            } while (infos.mstate.pc < flowOrstop);
+            clearStepBreakpoints();
+        }
+        stopped();
+        assert(infos.mstate.pc == stoppc,
+               std.string.format("pc:%#x stoppc:%#x", infos.mstate.pc, stoppc));
+    }
+
+    void programStep()
     {
 	if (!activeTarget) {
 	    std.stdio.stderr.writeln("Program is not running.");
@@ -1689,12 +1730,6 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                 flowpc = 0;
         }
 
-        debug(step) void stoppedAt(string msg, ulong pc)
-        {
-            writefln("%s %#x (%s)", msg, pc,
-                     replace(mstate.disassemble(pc, &lookupAddress), "\t", " "));
-        }
-
         rearmStepBreakPoints();
         do {
             /*
@@ -1711,13 +1746,7 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                  * it and see if we change frame or go out of our step
                  * range.
                  */
-                debug (step)
-                    stoppedAt("stopped at flow control", infos.mstate.pc);
-
                 target.step(infos.thr);
-
-                debug (step)
-                    stoppedAt("single stepped to", infos.mstate.pc);
 
                 bool inPLT(ulong pc) {
                     foreach (mod; target.modules)
@@ -1741,59 +1770,16 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
                  * If we step into something without debug info,
                  * just continue until we hit the step breakpoint.
                  */
-                debug (step)
-                    writefln("no debug info at %#x - continue", s.pc);
                 target.cont();
                 target.wait();
                 return;
             } else if (missingInner == 0 &&
                        (infos.frameLoc.address(infos.mstate) != framepc
                         || infos.func !is oldFrameFunc)) {
-
-                debug (step)
-                    writefln("new frame address %#x", infos.frameLoc.address(infos.mstate));
-
-                if (infos.frameLoc.address(infos.mstate) > framepc || !stepOverCalls) {
-                    // left frame in either direction
-                    return;
-                }
-
-                if (stepOverCalls) {
-                    /*
-                     * We are stepping over calls - run up to the return
-                     * address
-                     */
-                    debug (step)
-                        writefln("stepping over call");
-                    MachineState ns = infos.dbg.unwind(infos.mstate);
-                    clearStepBreakpoints();
-                    ulong retpc = ns.pc;
-                    debug (step)
-                        writefln("return breakpoint at %#x", retpc);
-                    setStepBreakpoint(retpc);
-
-                    do {
-                        target.cont();
-                        target.wait();
-
-                        if (auto missing = wantInfos(Info.MState | Info.FrameLoc, infos))
-                            break;
-                        if (infos.mstate.pc != retpc)
-                            break;
-
-                        debug (step) {
-                            stoppedAt("stopped at", infos.mstate.pc);
-                            if (infos.frameLoc.address(infos.mstate) < frame)
-                                writefln("stopped at inner frame %#x - continuing", frameLoc.address(s));
-                        }
-
-                    } while (activeTarget && infos.frameLoc.address(infos.mstate) != framepc);
-                    rearmStepBreakPoints();
-                }
+                // left frame in either direction
+                return;
             }
             if (infos.mstate.pc < startpc || infos.mstate.pc >= stoppc) {
-                debug (step)
-                    writefln("stepped outside range %#x..%#x", startpc, stoppc);
                 return;
             }
         } while (infos.mstate.pc < stoppc);
