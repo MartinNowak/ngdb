@@ -393,12 +393,17 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
      */
     private enum Info {
         None = 0,
-        Frame = (1 << 0),
-        FrameEx = (1 << 1),
-        Stack = (1 << 2),
-        MState = (1 << 3),
-        SourceLocation = (1 << 4),
-        SymbolName = (1 << 5),
+        Thread = (1 << 0),
+        MState = (1 << 1),
+        Debug = (1 << 2),
+        FrameLoc = (1 << 3),
+        Func = (1 << 4),
+        Frame = (1 << 5),
+        FrameEx = (1 << 6),
+        Stack = (1 << 7),
+        SourceLocation = (1 << 8),
+        SymbolName = (1 << 9),
+        LineEntry = (1 << 10),
     }
 
     this(string prog, string core, string prompt, uint annotate)
@@ -2242,34 +2247,56 @@ class Debugger: TargetListener, TargetBreakpointListener, Scope
         auto thr = currentThread;
         if (thr is null)
             return resolved;
+        resolved |= Info.Thread;
         // If have no state from frame use thread state or fail. This is so to
         // allow switching frames.
         auto st = (currentFrame_ is null) ? null : currentFrame_.state_;
         if (st is null && (st = thr.state) is null)
             return resolved;
 
+        infos.mstate = st; // TODO: dup ??
+        resolved |= Info.MState;
 
-        if (wantMask & (Info.Frame | Info.FrameEx)) {
+        enum needDebug = Info.Debug | Info.FrameLoc | Info.Func
+            | Info.Frame | Info.FrameEx | Info.LineEntry;
+        if (wantMask & needDebug) {
             Location loc;
-            if (auto di = findDebugInfo(st, loc)) {
-                if (auto func = di.findFunction(st.pc)) {
-                    if (currentFrame_ is null
-                        || currentFrame_.func_ != func
-                        || currentFrame_.addr_ != loc.address(st)
-                    )
-                        currentFrame_ = new Frame(this, 0, null, di, func, st);
-                    infos.frame = currentFrame_;
-                    resolved |= Info.Frame;
-                }
-            }
-            if ((resolved & Info.Frame) == 0) {
-                // TODO: create a bare frame from state
+            if (auto di = findDebugInfo(infos.mstate, loc)) {
+                infos.dbg = di;
+                infos.frameLoc = loc;
+                resolved |= Info.Debug | Info.FrameLoc;
             }
         }
 
-        if (wantMask & Info.MState) {
-            infos.mstate = st; // TODO: dup ??
-            resolved |= Info.MState;
+        if (wantMask & (Info.Func | Info.Frame | Info.FrameEx)) {
+            if (resolved & Info.Debug) {
+                if (auto func = infos.dbg.findFunction(infos.mstate.pc)) {
+                    infos.func = func;
+                    resolved |= Info.Func;
+                }
+            }
+        }
+
+        if (wantMask & (Info.Frame | Info.FrameEx)) {
+            if (resolved & Info.Func) {
+                if (currentFrame_ is null
+                    || currentFrame_.func_ != infos.func
+                    || currentFrame_.addr_ != infos.frameLoc.address(st)
+                )
+                    currentFrame_ = new Frame(this, 0, null, infos.dbg, infos.func, infos.mstate);
+                infos.frame = currentFrame_;
+                resolved |= Info.Frame;
+            } else {
+                // TODO: possibly create a bare frame from state
+            }
+        }
+
+        if (wantMask & Info.LineEntry) {
+            LineEntry[] le;
+            if (infos.dbg.findLineByAddress(infos.mstate.pc, le)) {
+                infos.lineEntry = le;
+                resolved |= Info.LineEntry;
+            }
         }
 
         infos.mask = resolved ^ wantMask;
@@ -2280,8 +2307,17 @@ private:
 
     static struct TargetInfos {
         Info mask;
-        Frame frame;
+
+        TargetThread thr;
         MachineState mstate;
+
+        DebugInfo dbg;
+        Location frameLoc;
+        Function func;
+
+        Frame frame;
+
+        LineEntry[] lineEntry;
     }
 
     immutable string prog_;
