@@ -54,9 +54,6 @@ import std.traits;
 import std.file;
 import std.c.stdio;
 
-extern (C) char* readline(char*);
-extern (C) void add_history(char*);
-extern (C) void free(void*);
 
 private class Breakpoint
 {
